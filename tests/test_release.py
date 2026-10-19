@@ -87,7 +87,7 @@ class ReleaseTests(unittest.TestCase):
         checked = builder.validate_archive(path, self.version)
         self.assertEqual(checked, dict(manifest, tag=""))
         notes = " ".join((self.output / "release-notes.md").read_text().split())
-        for text in ("Forever beta 1.60.1", "70338", "the APIs it needs", "Mages, Warlocks, Druids, Priests, and Paladins",
+        for text in ("Forever beta 1.60.1", "70338", "the APIs it needs", "Mages, Warlocks, Druids, Priests, and Paladins", "Cooldown chimes",
                      "`/dbr unlock`"):
             self.assertIn(text, notes)
         with zipfile.ZipFile(path) as archive:

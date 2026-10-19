@@ -1,10 +1,11 @@
 ## Interface: 16001
 ## Title: Dyre's Buff Reminders
-## Notes: Reminds you to put your class buffs on yourself and your group, for any class in WoW Forever
+## Notes: Reminds you of your class buffs and chimes before your cooldowns are ready, in WoW Forever
 ## Author: Dyre
-## Version: 0.1.2-beta
+## Version: 0.2.0-beta
 ## IconTexture: Interface\Icons\Spell_Holy_WordFortitude
 ## Category: Buffs & Debuffs
+## OptionalDeps: DyresSounds
 ## SavedVariablesPerCharacter: DyresBuffRemindersDB
 
 Commands.lua
@@ -13,4 +14,6 @@ Layout.lua
 Buffs.lua
 Reminders.lua
 Seals.lua
+ChimeSpells.lua
+Chimes.lua
 Options.lua

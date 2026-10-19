@@ -1,6 +1,7 @@
 local _, DBR = ...
 
-local USAGE = "Use /dbr, /dbr options, /dbr unlock, /dbr lock, /dbr reset, or /dbr debug."
+local USAGE = "Use /dbr (the settings, with the buff reminders and cooldown chimes), /dbr unlock, /dbr lock, "
+    .. "/dbr reset, or /dbr debug."
 local UNAVAILABLE = "Dyre's Buff Reminders is unavailable. Check the DBR login message."
 
 -- Each command is one word; "" opens the settings. Handlers live in Core and

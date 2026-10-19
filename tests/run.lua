@@ -61,6 +61,90 @@ name("Seal of Righteousness", 21084, 20154, 20287, 20288, 20289, 20290, 20291, 2
 name("Seal of Command", 20375, 20915, 20918, 20919, 20920)
 name("Seal of Fury", 20163, 20419, 20421, 20422, 20423, 1311649, 1311656)
 name("Seal of Zeal", 990001)
+-- Chime spells (from Dyre's Cooldown Chimes' suite).
+name("Blink", 1953)
+name("Frost Nova", 122, 865, 10230)
+name("Counterspell", 2139)
+name("Ice Block", 11958)
+name("Ice Barrier", 11426)
+name("Mana Shield", 1463)
+name("Evocation", 12051)
+name("Cold Snap", 12472)
+name("Fire Ward", 543)
+name("Frost Ward", 6143)
+name("Cone of Cold", 120)
+name("Fire Blast", 2136)
+name("Presence of Mind", 12043)
+name("Arcane Power", 12042)
+name("Combustion", 11129)
+name("Fireball", 133)
+name("Kick", 1766, 1767)
+name("Sprint", 2983)
+name("Evasion", 5277)
+name("Vanish", 1856)
+name("Preparation", 14185)
+name("Death Coil", 6789)
+local BLINK, FROST_NOVA, FROST_NOVA_4, COLD_SNAP, FIREBALL = 1953, 122, 10230, 12472, 133
+local KICK_2, SPRINT, PREPARATION = 1767, 2983, 14185
+local SIBLING_SOUNDS = "../DyresSounds"
+
+local function fileExists(path)
+    local handle = io.open(path, "r")
+    if handle then
+        handle:close()
+        return true
+    end
+    return false
+end
+
+local function tocFilesAt(path)
+    local files = {}
+    for line in io.lines(path) do
+        if line:match("%S") and not line:match("^#") then
+            files[#files + 1] = line
+        end
+    end
+    return files
+end
+
+-- A stand-in for Dyre's Sounds' contract 1, recording what it plays. It knows
+-- talent, magical (MTF's old key effectmagical), and voice; voice plays only
+-- when state.voice is set, as the library offers it only with a voice.
+local function fakeSounds(state, contract)
+    local labels = {talent = "Interface: Talent ready", magical = "Dyre's Picks: Magical disappear",
+        voice = "Text to Speech"}
+    local aliases = {effectmagical = "magical"}
+    local library = {}
+    function library.RequireContract(minimum)
+        if type(minimum) == "number" and minimum <= contract then
+            return library
+        end
+    end
+    function library.Resolve(key)
+        key = aliases[key] or key
+        return labels[key] and key or nil
+    end
+    function library.Label(key)
+        return labels[library.Resolve(key) or ""]
+    end
+    function library.List() return {} end
+    function library.Groups() return {} end
+    function library.Play(key, speech)
+        key = library.Resolve(key)
+        if not key or (key == "voice" and not state.voice) then
+            return false
+        end
+        state.played[#state.played + 1] = {key = key, speech = speech, at = state.now}
+        return true
+    end
+    function library.Choices()
+        return function() return {{value = "talent"}, {value = "magical"}} end
+    end
+    function library.SetupMenu(initializer)
+        initializer.nestedMenu = true
+    end
+    return library
+end
 name("Seal of the Crusader", 21082, 20162, 20305, 20306, 20307, 20308)
 name("Seal of Justice", 20164)
 name("Seal of Light", 20165, 20347, 20348, 20349)
@@ -88,7 +172,8 @@ end
 local function fixture(options)
     options = options or {}
     local state = {frames = {}, messages = {}, now = 100, combat = false, secrets = {}, settings = {},
-        categories = {}, known = options.known or {}, carried = {}, drivers = {}, timers = {}, auraReads = 0}
+        categories = {}, known = options.known or {}, carried = {}, drivers = {}, timers = {}, auraReads = 0,
+        played = {}, cooldowns = {}, headings = {}}
     state.combat = options.combat == true
     local env = setmetatable({}, {__index = _G})
     env._G = env
@@ -103,10 +188,15 @@ local function fixture(options)
         if key then state.toc[key] = value end
     end
     env.C_AddOns = {GetAddOnMetadata = function(addon, field)
-        equal(addon, ADDON, "metadata uses the AddOn folder name")
+        if addon ~= ADDON then
+            -- options.versions: other AddOns' TOC versions, as {MageToolsForever = "0.3.0-beta"}.
+            return field == "Version" and (options.versions or {})[addon] or nil
+        end
         return state.toc[field] or ""
     end}
-    env.C_AddOns.IsAddOnLoaded = function(addon) return state.loadedAddOns and state.loadedAddOns[addon] end
+    state.loadedAddOns = {}
+    for addon, loaded in pairs(options.loaded or {}) do state.loadedAddOns[addon] = loaded end
+    env.C_AddOns.IsAddOnLoaded = function(addon) return state.loadedAddOns[addon] == true, false end
     env.C_AddOns.LoadAddOn = function(addon)
         state.loadedAddOns = state.loadedAddOns or {}
         state.loadedAddOns[addon] = true
@@ -150,6 +240,14 @@ local function fixture(options)
     env.C_Spell = {
         GetSpellName = function(id) if SPELLS[id] then return SPELLS[id] end end,
         GetSpellTexture = function(id) return 2000 + id end,
+        GetSpellCooldown = function(id)
+            if state.combat then
+                return {startTime = state.secret(), duration = state.secret(), isEnabled = true}
+            end
+            local cooldown = state.cooldowns[id]
+            if cooldown then return {startTime = cooldown.start, duration = cooldown.duration} end
+            return {startTime = 0, duration = 0}
+        end,
         GetSpellSubtext = function(id)
             if id == GIFT_1 then return "Rank 1" elseif id == GIFT_2 then return "Rank 2" end
             return ""
@@ -238,6 +336,24 @@ local function fixture(options)
     }
 
     -- Settings: proxy settings with getters and setters, as the client builds them.
+    env.CreateSettingsListSectionHeaderInitializer = function(text) return {heading = text} end
+    env.C_Secrets = {GetSpellCooldownSecrecy = function() return state.combat and state.secret() or 2 end}
+    local sounds = options.sounds or "fake"
+    if sounds == "fake" then
+        env.DyresSounds = fakeSounds(state, 1)
+    elseif sounds == "old" then
+        env.DyresSounds = fakeSounds(state, 0)
+    elseif sounds == "real" then
+        env.SOUNDKIT = {UI_ORDERHALL_TALENT_READY_TOAST = 73280}
+        env.PlaySound = function(kit) state.played[#state.played + 1] = {kit = kit, at = state.now} end
+        env.PlaySoundFile = function(file) state.played[#state.played + 1] = {file = file, at = state.now} end
+        local libraryNamespace = {}
+        for _, path in ipairs(tocFilesAt(SIBLING_SOUNDS .. "/DyresSounds.toc")) do
+            local chunk = assert(loadfile(SIBLING_SOUNDS .. "/" .. path))
+            setfenv(chunk, env)
+            chunk("DyresSounds", libraryNamespace)
+        end
+    end
     if not options.noSettings then
         local function initializer(category, setting, tooltip)
             local object = {setting = setting, tooltip = tooltip}
@@ -253,8 +369,19 @@ local function fixture(options)
                 local category = {name = title, initializers = {}}
                 function category:GetID() return "id:" .. title end
                 state.categories[title] = category
-                return category
+                local layout = {}
+                function layout:AddInitializer(heading)
+                    state.headings[#state.headings + 1] = heading
+                    category.initializers[#category.initializers + 1] = heading
+                end
+                return category, layout
             end,
+            CreateDropdown = function(category, setting, choices, tooltip)
+                local object = initializer(category, setting, tooltip)
+                object.choices, object.kind = choices, "dropdown"
+                return object
+            end,
+            CreateControlTextContainer = function() return {} end,
             RegisterProxySetting = function(category, variable, variableType, label, default, getValue, setValue)
                 equal(state.settings[variable], nil, "setting variables are unique")
                 local setting = {category = category, variable = variable, type = variableType, name = label,
@@ -460,7 +587,48 @@ local function fixture(options)
         return false
     end
     function state.icon(key) return env["DyresBuffRemindersIcon_" .. key] end
-    function state.cast(id) state.emit("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-guid", id) end
+    function state.cast(id, cooldown)
+        if cooldown then state.cooldowns[id] = {start = state.now, duration = cooldown} end
+        state.emit("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-guid", id)
+    end
+    -- Time passes; due timers run in time order, each at its own time.
+    function state.advance(seconds)
+        local target = state.now + seconds
+        while true do
+            local nextIndex
+            for index, timer in ipairs(state.timers) do
+                if timer.at <= target and (not nextIndex or timer.at < state.timers[nextIndex].at) then
+                    nextIndex = index
+                end
+            end
+            if not nextIndex then break end
+            local timer = table.remove(state.timers, nextIndex)
+            state.now = math.max(state.now, timer.at)
+            timer.callback()
+        end
+        state.now = target
+    end
+    function state.count(fragment)
+        local count = 0
+        for _, message in ipairs(state.messages) do
+            if message:find(fragment, 1, true) then count = count + 1 end
+        end
+        return count
+    end
+    function state.find(fragment)
+        for _, message in ipairs(state.messages) do
+            if message:find(fragment, 1, true) then return message end
+        end
+    end
+    function state.chimes() return state.dbr.db.chimes end
+    -- A settings row by its setting variable.
+    function state.row(variable)
+        for _, category in pairs(state.categories) do
+            for index, row in ipairs(category.initializers) do
+                if row.setting and row.setting.variable == variable then return row, index end
+            end
+        end
+    end
     function state.buff(unit, spell, value)
         state.units[unit].buffs = state.units[unit].buffs or {}
         state.units[unit].buffs[spell] = value or true
@@ -476,7 +644,11 @@ end
 -- Loading, commands, and saved settings -----------------------------------------------
 
 test("the TOC loads every runtime file in order, with the release metadata", function()
-    equal(table.concat(RUNTIME_FILES, ","), "Commands.lua,Core.lua,Layout.lua,Buffs.lua,Reminders.lua,Seals.lua,Options.lua")
+    equal(table.concat(RUNTIME_FILES, ","),
+        "Commands.lua,Core.lua,Layout.lua,Buffs.lua,Reminders.lua,Seals.lua,ChimeSpells.lua,Chimes.lua,Options.lua")
+    local text = assert(io.open(ADDON .. ".toc")):read("*a")
+    contains(text, "## OptionalDeps: DyresSounds")
+    equal(text:find("## Dependencies", 1, true), nil, "never a hard dependency")
     local state = fixture()
     equal(state.toc.Category, "Buffs & Debuffs")
     equal(state.toc.Author, "Dyre")
@@ -489,7 +661,8 @@ test("login says the version and author, and that DBR is ready", function()
     equal(#state.messages, 2, "nothing else on a Mage")
 end)
 test("a mixed install stays off and says what to do", function()
-    local state = fixture({files = {"Commands.lua", "Core.lua", "Layout.lua", "Buffs.lua", "Seals.lua", "Options.lua"}})
+    local state = fixture({files = {"Commands.lua", "Core.lua", "Layout.lua", "Buffs.lua", "Seals.lua",
+        "ChimeSpells.lua", "Chimes.lua", "Options.lua"}})
     equal(state.dbr.available, false)
     contains(state.last(), "missing ClassReminders")
     state.clear()
@@ -498,7 +671,10 @@ test("a mixed install stays off and says what to do", function()
     state.slash("debug")
     contains(state.messages[2], "available=false", "debug still runs")
     local noBuffs = fixture({files = {"Commands.lua", "Core.lua", "Layout.lua", "Reminders.lua", "Seals.lua", "Options.lua"}})
-    contains(noBuffs.last(), "missing Buffs.lua")
+    contains(noBuffs.last(), "missing Buffs.lua, Seals.lua, or ChimeSpells.lua")
+    local noChimes = fixture({files = {"Commands.lua", "Core.lua", "Layout.lua", "Buffs.lua", "Reminders.lua",
+        "Seals.lua", "ChimeSpells.lua", "Options.lua"}})
+    contains(noChimes.last(), "missing ClassChimes")
 end)
 test("a client without a required API stays off", function()
     local state = fixture({remove = {"RegisterStateDriver"}})
@@ -510,7 +686,8 @@ test("commands are one word, and anything else shows the usage", function()
     for _, text in ipairs({"nope", "unlock now", "debug_reminders"}) do
         state.clear()
         state.slash(text)
-        equal(state.last(), "DBR: Use /dbr, /dbr options, /dbr unlock, /dbr lock, /dbr reset, or /dbr debug.")
+        equal(state.last(), "DBR: Use /dbr (the settings, with the buff reminders and cooldown chimes), "
+            .. "/dbr unlock, /dbr lock, /dbr reset, or /dbr debug.")
     end
     state.slash("")
     equal(state.opened, "id:Dyre's Buff Reminders")
@@ -603,7 +780,7 @@ test("a class without buffs loads, says so once, and shows nothing", function()
     contains(state.last(), "no buff reminders for your class")
     state.slash("reset")
     state.slash("debug")
-    contains(state.last(), "no buff reminders for this class")
+    equal(state.find("no buff reminders for this class") ~= nil, true)
 end)
 
 -- Mage --------------------------------------------------------------------------------
@@ -997,8 +1174,8 @@ test("the seal timer: only for Paladins who know a seal; a switch; unlocks with 
     equal(state.dbr.db.seal.scale, 100)
     state.clear()
     state.slash("debug")
-    contains(state.last(), "debug seal on=true click=Seal of Righteousness last=nil driver=[combat] show; hide "
-        .. "sealIDs=35 spellbook=none unknownIDs=none")
+    contains(state.find("debug seal "), "debug seal on=true click=Seal of Righteousness last=nil "
+        .. "driver=[combat] show; hide sealIDs=35 spellbook=none unknownIDs=none")
 end)
 test("Paladin: Seal of Fury (Forever's seal) counts, and the last seal cast is the click", function()
     local FURY = 20423
@@ -1235,15 +1412,20 @@ test("the settings page lists your class's buffs, each group switch under its bu
     local page = state.categories["Dyre's Buff Reminders"]
     equal(state.registered, page)
     local names = {}
-    for _, row in ipairs(page.initializers) do names[#names + 1] = row.setting.name end
+    for _, row in ipairs(page.initializers) do
+        if row.setting then
+            if row.setting.variable == "DBR_CHIMES_ENABLED" then break end
+            names[#names + 1] = row.setting.name
+        end
+    end
     equal(table.concat(names, "|"), "Buff reminders|Power Word: Fortitude|Power Word: Fortitude: also your group|"
         .. "Inner Fire|Divine Spirit|Divine Spirit: also your group|Shadow Protection|"
         .. "Shadow Protection: also your group|Remind before a buff runs out (seconds)|Unlock to move them|"
         .. "Show a grid while unlocked")
-    local group = page.initializers[3]
-    equal(group.parentInitializer, page.initializers[2])
+    local group = state.row("DBR_GROUP_FORTITUDE")
+    equal(group.parentInitializer, state.row("DBR_BUFF_FORTITUDE"))
     contains(group.tooltip, "Prayer of Fortitude")
-    contains(page.initializers[6].tooltip, "who uses mana")
+    contains(state.row("DBR_GROUP_DIVINESPIRIT").tooltip, "who uses mana")
     state.settings.DBR_ENABLED:SetValue(false)
     equal(state.icon("fortitude").shown, false)
     equal(group.predicate(), false)
@@ -1271,8 +1453,9 @@ test("the unlocked tooltip says how to move; /dbr debug lists each reminder", fu
         .. "click=Arcane Intellect@player unknownIDs=none")
     contains(state.messages[3], "debug mageArmor on=true group=nil known=false")
     state.combat = true
+    state.clear()
     state.slash("debug")
-    contains(state.last(), "not checked in combat")
+    contains(state.find("debug arcaneIntellect"), "not checked in combat")
 end)
 test("/dbr debug names spell IDs the client does not know", function()
     local state = fixture({known = {[INTELLECT] = true}})
@@ -1290,6 +1473,366 @@ test("the master switch hides every icon", function()
     state.settings.DBR_ENABLED:SetValue(false)
     equal(state.icon("arcaneIntellect").shown, false)
     equal(state.icon("arcaneIntellect").attributes.type1, nil)
+end)
+
+-- Cooldown chimes (merged from Dyre's Cooldown Chimes) -------------------------------------
+
+test("out of combat a chime plays half a second before the cooldown read after the cast", function()
+    local state = fixture()
+    state.cast(FROST_NOVA, 23)
+    equal(state.chimes().learned.frostnova, nil, "read 0.1 s after the cast")
+    state.advance(0.1)
+    equal(state.chimes().learned.frostnova, 23, "the real length is learned")
+    state.advance(22.3)
+    equal(#state.played, 0, "not before the lead")
+    state.advance(0.2)
+    equal(#state.played, 1, "one chime, from the read cooldown, not Classic's 25 s")
+    equal(state.played[1].key, "talent", "Talent ready by default")
+    equal(state.played[1].speech, "Frost Nova ready")
+    state.advance(5)
+    equal(#state.played, 1, "the Classic schedule was replaced")
+end)
+test("chimes: every rank counts, matched by name", function()
+    local state = fixture()
+    state.cast(FROST_NOVA_4, 25)
+    state.advance(30)
+    equal(#state.played, 1)
+    equal(state.played[1].speech, "Frost Nova ready")
+end)
+test("chimes in combat: the secret cooldown is never read; Classic's or a learned length is used", function()
+    local state = fixture()
+    state.combat = true
+    state.cast(BLINK)
+    state.advance(14.4)
+    equal(#state.played, 0)
+    state.advance(0.2)
+    equal(#state.played, 1, "Blink's Classic 15 s minus the 0.5 s lead")
+    equal(state.chimes().learned.blink, nil, "nothing learned from a secret cooldown")
+    local learned = fixture()
+    learned.cast(BLINK, 13)
+    learned.advance(20)
+    equal(learned.chimes().learned.blink, 13)
+    local again = fixture({db = learned.dbr.db})
+    again.combat = true
+    again.cast(BLINK)
+    again.advance(12.4)
+    equal(#again.played, 0)
+    again.advance(0.2)
+    equal(#again.played, 1, "13 s learned, kept across sessions, minus the lead")
+end)
+test("chimes: the lead moves them, in steps of half a second from 0 to 3", function()
+    local state = fixture()
+    state.settings.DBR_CHIME_LEAD:SetValue(2)
+    state.combat = true
+    state.cast(BLINK)
+    state.advance(12.9)
+    equal(#state.played, 0)
+    state.advance(0.2)
+    equal(#state.played, 1)
+    local dbr = state.dbr
+    equal(dbr.SanitizeChimeLead(1.3), 1.5)
+    equal(dbr.SanitizeChimeLead(9), 3)
+    equal(dbr.SanitizeChimeLead(-1), 0)
+    equal(dbr.SanitizeChimeLead(0 / 0), 0.5, "NaN")
+    equal(dbr.SanitizeChimeLead("2"), 0.5)
+    equal(dbr.db.lead, 5, "the buff reminders' own lead is separate")
+end)
+test("chimes: casting again replaces the earlier chime; other casts are ignored", function()
+    local state = fixture()
+    state.combat = true
+    state.cast(BLINK)
+    state.advance(5)
+    state.cast(BLINK)
+    state.cast(FIREBALL)
+    state.cast(999999)
+    state.cast(state.secret())
+    state.emit("UNIT_SPELLCAST_SUCCEEDED", "target", "Cast-2", BLINK)
+    state.advance(14.4)
+    equal(#state.played, 0, "the first schedule was replaced")
+    state.advance(0.2)
+    equal(#state.played, 1)
+    state.advance(60)
+    equal(#state.played, 1)
+end)
+test("chimes: Cold Snap cancels the Frost chimes; Preparation the Rogue's", function()
+    local state = fixture()
+    state.combat = true
+    state.cast(FROST_NOVA)
+    state.cast(BLINK)
+    state.advance(3)
+    state.cast(COLD_SNAP)
+    state.advance(30)
+    equal(#state.played, 1, "Blink chimes; Frost Nova was reset")
+    equal(state.played[1].speech, "Blink ready")
+    local rogue = fixture({class = "ROGUE"})
+    rogue.combat = true
+    rogue.cast(KICK_2)
+    rogue.cast(SPRINT)
+    rogue.cast(PREPARATION)
+    rogue.advance(400)
+    equal(#rogue.played, 0, "Preparation itself is off by default")
+    rogue.settings.DBR_CHIME_PREPARATION:SetValue(true)
+    rogue.cast(PREPARATION)
+    rogue.advance(600)
+    equal(#rogue.played, 1)
+    equal(rogue.played[1].speech, "Preparation ready")
+end)
+test("chimes: only your own class's spells chime, and the switches silence them", function()
+    local priest = fixture({class = "PRIEST"})
+    priest.combat = true
+    priest.cast(BLINK)
+    priest.advance(60)
+    equal(#priest.played, 0)
+    local state = fixture()
+    state.combat = true
+    state.settings.DBR_CHIME_BLINK:SetValue(false)
+    state.cast(BLINK)
+    state.advance(20)
+    equal(#state.played, 0, "Blink switched off")
+    state.settings.DBR_CHIME_BLINK:SetValue(true)
+    state.settings.DBR_CHIMES_ENABLED:SetValue(false)
+    state.cast(BLINK)
+    state.advance(20)
+    equal(#state.played, 0, "all chimes off")
+    state.settings.DBR_CHIMES_ENABLED:SetValue(true)
+    state.settings.DBR_ENABLED:SetValue(false)
+    state.cast(BLINK)
+    state.advance(20)
+    equal(#state.played, 1, "the buff reminders' switch does not silence the chimes")
+    equal(state.chimes().spells.coldsnap, false, "Cold Snap starts off, as in MTF")
+end)
+test("chimes: choosing a sound saves it and plays it once; Text to Speech says the spell", function()
+    local state = fixture()
+    local sound = state.settings.DBR_CHIME_BLINK_SOUND
+    equal(sound:GetValue(), "talent")
+    sound:SetValue("magical")
+    equal(state.chimes().sounds.blink, "magical")
+    equal(#state.played, 1, "a preview")
+    equal(state.played[1].key, "magical")
+    sound:SetValue("kazoo")
+    equal(state.chimes().sounds.blink, "magical", "an unknown key is refused")
+    state.combat = true
+    state.cast(BLINK)
+    state.advance(20)
+    equal(state.played[#state.played].key, "magical")
+    local voice = fixture()
+    voice.voice = true
+    voice.settings.DBR_CHIME_BLINK_SOUND:SetValue("voice")
+    equal(voice.played[1].speech, "Blink ready")
+    voice.voice = false
+    voice.dbr.PreviewChime("blink")
+    equal(voice.played[2].key, "talent", "the default when the voice cannot play")
+end)
+test("the settings page: a Cooldown Chimes section with its own switch, lead, and spells", function()
+    local state = fixture()
+    local page = state.categories["Dyre's Buff Reminders"]
+    equal(state.headings[1].heading, "Buff Reminders")
+    equal(state.headings[2].heading, "Cooldown Chimes")
+    local switch, switchAt = state.row("DBR_CHIMES_ENABLED")
+    equal(page.initializers[switchAt - 1], state.headings[2], "the section starts with its heading")
+    local _, gridAt = state.row("DBR_GRID")
+    equal(gridAt < switchAt, true, "after the buff reminders")
+    local lead = state.row("DBR_CHIME_LEAD")
+    equal(lead.parentInitializer, switch)
+    local blink = state.row("DBR_CHIME_BLINK")
+    local dropdown = state.row("DBR_CHIME_BLINK_SOUND")
+    equal(blink.parentInitializer, switch)
+    equal(dropdown.kind, "dropdown")
+    equal(dropdown.parentInitializer, blink, "the sound sits under its switch")
+    equal(dropdown.nestedMenu, true, "Dyre's Sounds' nested menu")
+    equal(dropdown.predicate(), true)
+    state.settings.DBR_CHIME_BLINK:SetValue(false)
+    equal(dropdown.predicate(), false)
+    local count = 0
+    for _, row in ipairs(page.initializers) do
+        if row.setting and row.setting.variable:find("^DBR_CHIME_") and row.setting.variable ~= "DBR_CHIME_LEAD" then
+            count = count + 1
+        end
+    end
+    equal(count, 15 * 2, "every Mage spell has a switch and a sound")
+    local knight = fixture({class = "DEATHKNIGHT"})
+    equal(knight.headings[3].heading, "Your class has no chime spells yet.")
+end)
+test("without Dyre's Sounds chimes are timed, nothing plays, and DBR says so once", function()
+    local state = fixture({sounds = "none", db = {chimes = {sounds = {blink = "effectmagical"}}}})
+    equal(state.count("Install Dyre's Sounds"), 1)
+    local message = state.find("Install Dyre's Sounds")
+    contains(message, "DBR: ")
+    contains(message, "Get it from CurseForge.", "says where to get it")
+    contains(message, "the buff reminders work as usual")
+    equal(message:lower():find("github", 1, true), nil, "CurseForge only, for now")
+    state.combat = true
+    state.cast(BLINK)
+    state.advance(20)
+    equal(#state.played, 0)
+    state.dbr.ReportMissingSounds("MAGE")
+    state.dbr.PreviewChime("blink")
+    equal(state.count("Install Dyre's Sounds"), 1, "once per session")
+    equal(state.chimes().sounds.blink, "effectmagical", "a saved choice is kept for when it is installed")
+    equal(state.settings.DBR_CHIME_BLINK_SOUND, nil, "no sound menus to fill")
+    contains(state.row("DBR_CHIMES_ENABLED").tooltip, "Install Dyre's Sounds")
+    state.combat = false
+    state.slash("debug")
+    contains(state.find("debug chimes enabled="), "sounds=missing")
+    local quiet = fixture({sounds = "none", db = {chimes = {enabled = false}}})
+    equal(quiet.find("Install Dyre's Sounds"), nil, "not when the chimes are off")
+    local noSpells = fixture({sounds = "none", class = "DEATHKNIGHT"})
+    equal(noSpells.find("Install Dyre's Sounds"), nil, "not for a class with no chime spells")
+    local old = fixture({sounds = "old"})
+    equal(old.count("Update Dyre's Sounds"), 1)
+end)
+test("with the real Dyre's Sounds, a preview plays and old MTF keys carry over", function()
+    if not fileExists(SIBLING_SOUNDS .. "/DyresSounds.toc") then
+        print("# skipped: no sibling Dyre's Sounds checkout")
+        return
+    end
+    local state = fixture({sounds = "real", db = {chimes = {sounds = {blink = "effectmagical", frostnova = "kazoo"}}}})
+    equal(state.chimes().sounds.blink, "magical", "MTF's and WTF's keys map to the library's")
+    equal(state.chimes().sounds.frostnova, "talent")
+    state.dbr.PreviewChime("blink")
+    equal(state.played[1].file, "Interface\\AddOns\\DyresSounds\\Sounds\\MagicalDisappear.mp3")
+    state.combat = true
+    state.cast(FROST_NOVA)
+    state.advance(30)
+    equal(state.played[2].kit, 73280, "Talent ready")
+end)
+test("chime settings are repaired: wrong types, unknown keys, and implausible lengths", function()
+    local state = fixture({db = {chimes = {enabled = "yes", lead = 7,
+        spells = {blink = false, frostnova = "on", bogus = true},
+        sounds = {blink = "magical", frostnova = 5, counterspell = "kazoo"},
+        learned = {blink = 14, frostnova = 0.5, iceblock = 99999, evocation = "8"}, extra = true}}})
+    local chimes = state.chimes()
+    equal(chimes.enabled, true)
+    equal(chimes.lead, 3)
+    equal(chimes.spells.blink, false, "a saved switch is kept")
+    equal(chimes.spells.frostnova, true, "a damaged switch takes its default")
+    equal(chimes.spells.bogus, nil)
+    equal(chimes.sounds.blink, "magical")
+    equal(chimes.sounds.frostnova, "talent")
+    equal(chimes.sounds.counterspell, "talent")
+    equal(chimes.learned.blink, 14)
+    equal(chimes.learned.frostnova, nil)
+    equal(chimes.learned.iceblock, nil)
+    equal(chimes.learned.evocation, nil)
+    equal(chimes.extra, nil)
+    local fresh = state.dbr.SanitizeChimes("broken")
+    equal(fresh.enabled, true)
+    equal(fresh.lead, 0.5)
+    equal(fresh.spells.deathcoil, true, "every class's spells have defaults")
+    equal(fresh.sounds.kick, "talent")
+    local chime = state.dbr.CHIME_SPELLS.MAGE[1]
+    chime.sound = "magical"
+    equal(state.dbr.SanitizeChimes({}).sounds[chime.key], "magical", "a spell's own default sound")
+    chime.sound = nil
+end)
+test("the chime spell lists: unique keys, Classic IDs, defaults, and reset groups", function()
+    local dbr = fixture().dbr
+    local seen = {}
+    for _, classFile in ipairs(dbr.CHIME_CLASS_ORDER) do
+        local list = dbr.CHIME_SPELLS[classFile]
+        equal(type(list), "table", classFile)
+        local groups = {}
+        for _, chime in ipairs(list) do
+            equal(seen[chime.key], nil, "unique key " .. chime.key)
+            seen[chime.key] = true
+            equal(type(chime.spell), "number", chime.key)
+            equal(type(chime.label), "string", chime.key)
+            equal(type(chime.on), "boolean", chime.key)
+            if chime.group then groups[chime.group] = true end
+        end
+        for _, chime in ipairs(list) do
+            if chime.resets then
+                equal(groups[chime.resets], true, chime.key .. " resets a group of its class")
+            end
+        end
+    end
+    equal(#dbr.CHIME_SPELLS.MAGE, 15, "MTF's list")
+    equal(#dbr.CHIME_SPELLS.WARLOCK, 10, "WTF's list")
+end)
+test("/dbr debug lists the chimes: library, spells, and recent events", function()
+    local state = fixture()
+    state.known[BLINK] = true
+    state.cast(BLINK, 15)
+    state.advance(0.1)
+    state.slash("debug")
+    contains(state.find("debug chimes enabled="), "enabled=true lead=0.5 sounds=installed dccLoaded=false "
+        .. "otherChimes=none")
+    contains(state.find("debug chimes blink "), "name=Blink known=true on=true sound=talent classic=15 learned=15")
+    contains(state.find("debug chimes manashield "), "classic=nil")
+    contains(state.find("debug chimes lastCast="), "blink")
+    contains(state.find("debug chimes log "), "scheduled blink")
+    equal(state.find("debug chimes kick "), nil, "only your class's spells")
+end)
+
+-- Dyre's Cooldown Chimes, Mage Tools Forever, and Warlock Tools Forever ---------------------
+
+test("first run: the chime settings come from Dyre's Cooldown Chimes, which then stays the one that plays", function()
+    local dcc = {enabled = true, lead = 1, spells = {blink = false, coldsnap = true},
+        sounds = {frostnova = "magical"}, learned = {frostnova = 22}}
+    local state = fixture({loaded = {DyresCooldownChimes = true}, globals = {DyresCooldownChimesDB = dcc},
+        db = {enabled = true}})
+    local chimes = state.chimes()
+    equal(chimes.lead, 1)
+    equal(chimes.spells.blink, false)
+    equal(chimes.spells.coldsnap, true)
+    equal(chimes.sounds.frostnova, "magical")
+    equal(chimes.learned.frostnova, 22)
+    equal(state.count("Copied your chime settings from Dyre's Cooldown Chimes."), 1)
+    equal(state.count("Remove its AddOn folder (DyresCooldownChimes)"), 1)
+    equal(state.env.DyresCooldownChimesDB, dcc, "its settings are only read")
+    equal(dcc.lead, 1)
+    state.combat = true
+    state.cast(FROST_NOVA)
+    state.advance(30)
+    equal(#state.played, 0, "while DCC is installed, it plays the chimes and DBR plays none")
+    local again = fixture({globals = {DyresCooldownChimesDB = dcc}, db = {chimes = {lead = 2}}})
+    equal(again.chimes().lead, 2, "only on the first run: DBR's own settings win after")
+    equal(again.find("Copied your chime settings"), nil)
+end)
+test("first run without DCC: a Mage's chime settings come from Mage Tools Forever, once", function()
+    local mtf = {chimes = {enabled = true, lead = 1.5, spells = {blink = false, coldsnap = true},
+        sounds = {blink = "effectmagical"}, learned = {blink = 13}}}
+    local state = fixture({loaded = {MageToolsForever = true}, globals = {MageToolsForeverDB = mtf}})
+    local chimes = state.chimes()
+    equal(chimes.lead, 1.5)
+    equal(chimes.spells.blink, false)
+    equal(chimes.spells.frostnova, true, "a spell they never set keeps DBR's default")
+    equal(chimes.sounds.blink, "magical", "their old sound keys are mapped by Dyre's Sounds")
+    equal(chimes.learned.blink, 13)
+    equal(state.count("Copied your chime settings from Mage Tools Forever."), 1)
+    equal(state.env.MageToolsForeverDB, mtf, "their settings are only read")
+    local priest = fixture({class = "PRIEST", loaded = {MageToolsForever = true},
+        globals = {MageToolsForeverDB = mtf}})
+    equal(priest.find("Copied your chime settings"), nil, "only from the class's own AddOn")
+end)
+test("with an MTF or WTF that still chimes, the player is told once to turn theirs off", function()
+    local state = fixture({loaded = {MageToolsForever = true}, versions = {MageToolsForever = "0.3.0-beta"},
+        globals = {MageToolsForeverDB = {chimes = {enabled = true}}}, db = {chimes = {}}})
+    equal(state.count("Mage Tools Forever also plays cooldown chimes"), 1)
+    equal(state.find("also plays"), "DBR: Mage Tools Forever also plays cooldown chimes, so you may hear "
+        .. "some twice. Turn off its Cooldown chimes until its next update.")
+    state.slash("debug")
+    contains(state.find("debug chimes enabled="), "otherChimes=Mage Tools Forever")
+    for _, version in ipairs({"0.3.1-beta", "0.3.1", "0.2.2-beta", "bad"}) do
+        local older = fixture({loaded = {MageToolsForever = true}, versions = {MageToolsForever = version},
+            globals = {MageToolsForeverDB = {chimes = {enabled = true}}}, db = {chimes = {}}})
+        equal(older.count("Mage Tools Forever also plays cooldown chimes"), 1, "MTF " .. version .. " still chimes")
+    end
+    for _, version in ipairs({"0.3.2-beta", "0.3.10", "0.4.0", "1.0.0", "0.10.0-beta"}) do
+        local aside = fixture({loaded = {MageToolsForever = true}, versions = {MageToolsForever = version},
+            globals = {MageToolsForeverDB = {chimes = {enabled = true}}}, db = {chimes = {}}})
+        equal(aside.find("also plays"), nil, "MTF " .. version .. " plays no chimes while DBR is loaded")
+    end
+    local off = fixture({loaded = {MageToolsForever = true},
+        globals = {MageToolsForeverDB = {chimes = {enabled = false}}}, db = {chimes = {}}})
+    equal(off.find("also plays"), nil)
+    local priest = fixture({class = "PRIEST", loaded = {MageToolsForever = true, WarlockToolsForever = true}})
+    equal(priest.find("also plays"), nil, "MTF runs only on a Mage, WTF only on a Warlock")
+    local warlock = fixture({class = "WARLOCK", loaded = {WarlockToolsForever = true}})
+    equal(warlock.count("Warlock Tools Forever also plays cooldown chimes"), 1, "their default is on")
+    local quiet = fixture({class = "WARLOCK", loaded = {WarlockToolsForever = true},
+        db = {chimes = {enabled = false}}})
+    equal(quiet.find("also plays"), nil)
 end)
 
 local failed = 0

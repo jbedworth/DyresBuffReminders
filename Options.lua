@@ -1,7 +1,10 @@
 local _, DBR = ...
 
 -- One settings page in Blizzard's vertical layout, with proxy settings that
--- read and write DyresBuffRemindersDB directly. Only your class's buffs show.
+-- read and write DyresBuffRemindersDB directly, in two sections: the buff
+-- reminders, then the cooldown chimes (author-approved: Dyre's Cooldown
+-- Chimes merged into DBR, with its own switch). Only your class's buffs and
+-- chime spells show; each spell's sound sits in a dropdown under its switch.
 local TITLE = "Dyre's Buff Reminders"
 local UNAVAILABLE = "The AddOn settings page is unavailable on this client. Use /dbr unlock, /dbr lock, "
     .. "and /dbr reset."
@@ -11,7 +14,9 @@ local REQUIRED_SETTINGS = {
     "CreateSlider", "CreateSliderOptions", "OpenToCategory",
 }
 
-local category
+local NO_CHIME_SPELLS = "Your class has no chime spells yet."
+
+local category, layout
 
 local function HasSettingsAPI()
     if type(Settings) ~= "table" or type(Settings.VarType) ~= "table" then
@@ -54,6 +59,73 @@ local function SliderOptions(minValue, maxValue, step)
     return options
 end
 
+-- A section heading, where the client offers them.
+local function Heading(text)
+    if type(CreateSettingsListSectionHeaderInitializer) == "function" and type(layout) == "table"
+            and type(layout.AddInitializer) == "function" then
+        layout:AddInitializer(CreateSettingsListSectionHeaderInitializer(text))
+    end
+end
+
+-- One chime spell: its switch under the chimes' switch, and its sound under
+-- it when Dyre's Sounds is installed.
+local function AddChime(chime, library, chimesSwitch)
+    local variable = "DBR_CHIME_" .. chime.key:upper()
+    local setting = Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, chime.label,
+        chime.on,
+        function() return DBR.db.chimes.spells[chime.key] end,
+        function(value) DBR.db.chimes.spells[chime.key] = value == true end)
+    local switch = Settings.CreateCheckbox(category, setting, "Play a sound just before " .. chime.label
+        .. " is ready again.")
+    Nest(switch, chimesSwitch, function() return DBR.db.chimes.enabled end)
+    if not library or type(Settings.CreateDropdown) ~= "function" then
+        return
+    end
+    local sound = Settings.RegisterProxySetting(category, variable .. "_SOUND", Settings.VarType.String, "Sound",
+        chime.sound or DBR.DEFAULT_CHIME_SOUND,
+        function() return DBR.db.chimes.sounds[chime.key] end,
+        function(value)
+            local key = library.Resolve(value)
+            if key then
+                DBR.db.chimes.sounds[chime.key] = key
+                DBR.PreviewChime(chime.key)
+            end
+        end)
+    local dropdown = Settings.CreateDropdown(category, sound, library.Choices(),
+        "The sound for " .. chime.label .. ". Choosing one plays it once. Text to Speech says \""
+            .. chime.label .. " ready\".")
+    library.SetupMenu(dropdown)
+    Nest(dropdown, switch, function() return DBR.db.chimes.enabled and DBR.db.chimes.spells[chime.key] end)
+end
+
+-- The cooldown chimes section: its own switch, the lead, then your class's spells.
+local function AddChimesSection()
+    local library = DBR.SoundLibrary()
+    Heading("Cooldown Chimes")
+    local tooltip = "A sound just before your chosen spells are ready again, also in combat. Every rank of a "
+        .. "spell counts."
+    if not library then
+        tooltip = tooltip .. " Install Dyre's Sounds to hear them and to choose each spell's sound."
+    end
+    local chimesSwitch = Flag("DBR_CHIMES_ENABLED", "Cooldown chimes", "chimes", "enabled", true, tooltip,
+        function() end)
+    local lead = Settings.RegisterProxySetting(category, "DBR_CHIME_LEAD", Settings.VarType.Number,
+        "Chime early (seconds)", DBR.DEFAULT_CHIME_LEAD,
+        function() return DBR.db.chimes.lead end,
+        function(value) DBR.db.chimes.lead = DBR.SanitizeChimeLead(value) end)
+    local leadSlider = Settings.CreateSlider(category, lead,
+        SliderOptions(DBR.CHIME_LEAD_MIN, DBR.CHIME_LEAD_MAX, DBR.CHIME_LEAD_STEP),
+        "How long before a cooldown ends the chime plays, so you can act the moment it is ready.")
+    Nest(leadSlider, chimesSwitch, function() return DBR.db.chimes.enabled end)
+    local spells = DBR.ClassChimes(DBR.classFile)
+    if #spells == 0 then
+        Heading(NO_CHIME_SPELLS)
+    end
+    for _, chime in ipairs(spells) do
+        AddChime(chime, library, chimesSwitch)
+    end
+end
+
 local function GroupTooltip(reminder)
     local who = reminder.group.mana and "party or raid member who uses mana" or "party or raid member"
     local versions = {}
@@ -76,7 +148,8 @@ function DBR.InitializeOptions()
     if not HasSettingsAPI() then
         return
     end
-    category = Settings.RegisterVerticalLayoutCategory(TITLE)
+    category, layout = Settings.RegisterVerticalLayoutCategory(TITLE)
+    Heading("Buff Reminders")
     local master = Flag("DBR_ENABLED", "Buff reminders", nil, "enabled", true,
         "An icon with a pulsing border for each buff you lack, out of combat. Click it to cast the buff.",
         function()
@@ -126,6 +199,7 @@ function DBR.InitializeOptions()
     Flag("DBR_GRID", "Show a grid while unlocked", nil, "grid", true,
         "While the reminders are unlocked, draw a faint grid over the screen with the center lines in red, "
             .. "so you can line them up.", DBR.RefreshGrid)
+    AddChimesSection()
     Settings.RegisterAddOnCategory(category)
 end
 

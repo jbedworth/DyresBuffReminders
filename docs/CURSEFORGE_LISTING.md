@@ -16,14 +16,14 @@ tested.
 | Author shown | Dyre, set through the CurseForge account's username |
 | License | MIT License |
 | Logo | artwork/dyres-buff-reminders-logo.png (1024 x 1024); artwork/dyres-buff-reminders-logo-512.png if a smaller square is wanted |
-| Relations | None |
+| Relations | Dyre's Sounds, required dependency (slug `dyres-sounds`), for the cooldown chimes' sounds. CI uploads set it; add it by hand on any file uploaded through the website. |
 | Screenshots | artwork/screenshots/ (none taken yet; see artwork/README.md) |
 | Source | https://github.com/jbedworth/DyresBuffReminders |
 | Issues | https://github.com/jbedworth/DyresBuffReminders/issues |
 
 ## Summary
 
-A pulsing icon for each class buff missing on you or your group in World of Warcraft: Forever. Click it to cast the buff.
+A pulsing icon for each class buff missing on you or your group, and a chime just before your cooldowns are ready, in World of Warcraft: Forever.
 
 ## Description
 
@@ -59,11 +59,14 @@ The icon shows 5 seconds before a buff on you or your group runs out (you choose
 ### Out of combat only
 The game does not let AddOns read buffs in combat, so the icons hide when a fight starts and come back after. The Paladin seal timer is the exception: the game itself draws the seal, so it keeps counting in combat.
 
+### Cooldown chimes
+A sound just before your chosen spells are ready again, also in combat, for every class. Every rank of a spell counts, unlike the Cooldown Manager on Forever. Each spell has its own switch and sound (Text to Speech can say "Blink ready"), and you choose how early it chimes. The sounds come from **Dyre's Sounds**, which installs with it.
+
 ### Move them where you like
 Unlock to drag each icon and scroll to resize it. Icons snap beside each other, and a grid helps you line them up. `/dbr reset` puts them back. Settings are saved per character.
 
 ### Commands
-- `/dbr` opens the settings.
+- `/dbr` opens the settings: the buff reminders, then the cooldown chimes.
 - `/dbr unlock`, `/dbr lock`, `/dbr reset`, `/dbr debug`.
 - `/buffreminders` works the same, in case another AddOn uses `/dbr`.
 

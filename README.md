@@ -1,9 +1,9 @@
 # Dyre's Buff Reminders
 
-The buff reminders from Mage Tools Forever and Warlock Tools Forever, on their
-own, for World of Warcraft: Forever (beta). Settings are in **Options →
-AddOns → Dyre's Buff Reminders**, or type `/dbr`. They are saved per
-character.
+The buff reminders from Mage Tools Forever and Warlock Tools Forever, and the
+cooldown chimes from Dyre's Cooldown Chimes, on their own, for World of
+Warcraft: Forever (beta). Settings are in **Options → AddOns → Dyre's Buff
+Reminders**, or type `/dbr`. They are saved per character.
 
 ## Buff reminders
 
@@ -60,11 +60,39 @@ it, lined up; Shift-drag moves a snapped group. A faint grid with red center
 lines helps you line them up (it can be turned off). `/dbr lock` locks them
 again and `/dbr reset` puts them back in a row.
 
+## Cooldown chimes
+
+A sound just before your chosen spells are ready again, so you can act the
+moment they are, also in combat. Every class has a list (a Mage's Blink,
+Frost Nova, and Counterspell; a Warlock's Death Coil; a Druid's Barkskin; and
+so on).
+
+- **Every rank counts.** A spell is matched by its name. Blizzard's Cooldown
+  Manager on Forever treats each rank as a different spell; the chimes do
+  not.
+- Each spell has its own switch and its own sound, in a menu under the
+  switch; choosing a sound plays it. Text to Speech says "Blink ready".
+  **Chime early** moves every chime 0-3 seconds before the cooldown ends
+  (default half a second). **Cooldown chimes** turns them all off.
+- The game hides cooldowns from AddOns in combat, so DBR times each one from
+  your cast: the length it last read out of combat, else Classic's. Cold Snap
+  and Preparation cancel the chimes of the spells they reset.
+- **The sounds come from Dyre's Sounds.** Install it from CurseForge (the
+  CurseForge app installs it with DBR). Without it, the chimes play nothing,
+  DBR says so once at login, and the buff reminders work as usual.
+- Your chime settings carry over on the first run: from Dyre's Cooldown
+  Chimes if you used it, else from Mage Tools Forever or Warlock Tools
+  Forever. Dyre's Cooldown Chimes is now part of DBR: remove its folder;
+  while it is installed, it plays the chimes and DBR plays none.
+
 ## With Mage Tools Forever or Warlock Tools Forever
 
-Both have these reminders too. From their 0.3.0-beta on, they hide their own
-reminders while Dyre's Buff Reminders is installed, and their reminder
-settings are greyed out. With an older MTF or WTF you may see two sets of
+Both have these reminders and cooldown chimes too. From their 0.3.0-beta on,
+they hide their own reminders while Dyre's Buff Reminders is installed, and
+their reminder settings are greyed out. From their 0.3.2-beta on, they also
+play no chimes while DBR is installed. An older MTF or WTF may still play
+its own chimes; DBR says so once at login, and you can turn off its
+"Cooldown chimes". With an older MTF or WTF you may see two sets of
 icons on a Mage or Warlock; turn one off with MTF's or WTF's "Buff
 reminders" switch, or DBR's.
 
@@ -72,10 +100,10 @@ reminders" switch, or DBR's.
 
 | Command | What it does |
 |---|---|
-| `/dbr`, `/dbr options` | Opens the settings (out of combat) |
+| `/dbr`, `/dbr options` | Opens the settings (out of combat): the buff reminders, then the cooldown chimes |
 | `/dbr unlock`, `/dbr lock` | Unlocks the icons to drag them, and locks them again |
 | `/dbr reset` | Moves the icons back to their default places and sizes |
-| `/dbr debug` | Diagnostics: each reminder, who lacks it, what a click casts, and any spell IDs the client does not know |
+| `/dbr debug` | Diagnostics: each reminder, who lacks it, what a click casts, and any spell IDs the client does not know; the seal timer; and each chime spell, Dyre's Sounds, and the latest chime events |
 
 `/buffreminders` works the same, in case another AddOn uses `/dbr`.
 
@@ -87,10 +115,11 @@ in chat and stays off.
 
 **Verified in client:** the Paladin seal timer, with Seal of Fury.
 
-**Not yet verified in client:** the rest. The reminders come
-from Mage Tools Forever and Warlock Tools Forever, but the Druid and Priest
-buffs, the group versions' spell IDs and reagents, and this AddOn itself have
-not been checked in game. [TESTING.md](TESTING.md) has the checklist.
+**Not yet verified in client:** the rest. The reminders come from Mage Tools
+Forever and Warlock Tools Forever and the chimes from Dyre's Cooldown Chimes,
+but the Druid and Priest buffs, the group versions' spell IDs and reagents,
+the chime lists of classes other than Mage and Warlock, and this AddOn
+itself have not been checked in game. [TESTING.md](TESTING.md) has the checklist.
 
 WowUp users (2.24.0 or later): install from the repository URL; GitHub releases
 carry the Forever metadata WowUp needs.

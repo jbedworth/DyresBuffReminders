@@ -4,8 +4,14 @@
 
 Dyre's Buff Reminders (DBR, `/dbr`) is a World of Warcraft: Forever AddOn
 that ships the buff reminders from Mage Tools Forever (MTF) and Warlock Tools
-Forever (WTF) on their own, for any class with a buff list. Keep this feature
-set; do not add speculative features or frameworks without agreement.
+Forever (WTF) on their own, for any class with a buff list, and the cooldown
+chimes (author: Dyre's Cooldown Chimes, DCC, merged into DBR before it
+shipped; the name stays Dyre's Buff Reminders). Keep this feature set; do
+not add speculative features or frameworks without agreement.
+
+Ownership (coordinator): this session owns DBR only. Never edit MTF or WTF;
+ask the coordinator (Dyre's Addons Lead) for changes there. The shared-layout
+plan across AddOns is on hold; bring it to the coordinator first.
 
 Naming (author-approved): the title starts with "Dyre's", so players can find
 all of the author's AddOns by searching for it. The apostrophe is only in the
@@ -126,26 +132,72 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   set up when combat ends. Without the aura container, it stays off with one
   message.
 
+### Cooldown chimes (built; merged from DCC)
+
+- Every rank counts (author's reason for the chimes, central): Blizzard's
+  Cooldown Manager on Forever makes you manage each rank as a different
+  spell. Each ChimeSpells.lua entry holds one Classic spell ID, whose name
+  (read at login) is looked up for every cast. Never match chimes by spell
+  ID, and never add one entry per rank. Spell data stays data-driven in
+  ChimeSpells.lua (`CHIME_SPELLS`, `CHIME_CLASS_ORDER`); Mage is MTF's list
+  and Warlock WTF's; the other classes are new and not yet checked in client.
+- The combat log is closed and `C_Spell.GetSpellCooldown` is secret in
+  combat, and no event fires when a cooldown ends; the player's own
+  `UNIT_SPELLCAST_SUCCEEDED` stays readable. So each chime is timed with
+  `C_Timer.After` from the cast: the length last read out of combat (saved,
+  1.5 s to 1 h), else Classic's, minus the lead (0-3 s in 0.5 s steps,
+  default 0.5). 0.1 s after a cast DBR reads the real cooldown when readable
+  (never secret, longer than the global cooldown), learns it, and
+  reschedules; a newer cast replaces the schedule. `resets` cancels a group
+  (Cold Snap the Frost spells, Preparation the Rogue's).
+- Saved in `db.chimes` (enabled, lead, spells, sounds, learned), separate
+  from the reminders: their own switch (author: "its own on/off switch"), and
+  the chime lead is not the reminders' `db.lead`.
+- Sounds come only from Dyre's Sounds (contract 1: `RequireContract`,
+  `Resolve`, `Play(key, speech)`, `Choices`, `SetupMenu`, plus `List`,
+  `Groups`, `Label`); default "talent"; Dyre's Picks first in its menu. DBR
+  ships no sound files. TOC `## OptionalDeps: DyresSounds` (never
+  `## Dependencies`); CurseForge `requiredDependency` on slug `dyres-sounds`
+  (`RELATIONS` in scripts/publish_curseforge.py, tested). Without the
+  library (or an older contract) chimes are timed but silent, saved sound keys
+  are kept, the page shows switches without sound menus, and DBR says once
+  per session to install it (only with chimes on and a class list), naming
+  only CurseForge; the reminders work as usual.
+- First run (no `db.chimes` yet): copy DCC's saved settings
+  (`DyresCooldownChimesDB`, read only, never written; only the author ever
+  ran DCC) when present, else MTF's or WTF's chimes for the player's class,
+  as DCC did. While DCC itself is loaded it plays and DBR plays none, and DBR
+  says once to remove its folder. MTF and WTF still chime unless their
+  version stands aside for DBR (`asideFrom` in `OTHER_CHIMES`: 0.3.2-beta,
+  author); DBR warns once about older ones
+  with their chimes on.
+
 ### Commands and settings
 
 - `/dbr` and `/dbr options` (not in combat), `unlock`, `lock`, `reset`,
   `debug` (runs even when DBR is unavailable; lists spell IDs the client does
-  not know). Backup slash `/buffreminders`; a clash on `/dbr` is reported once
+  not know, the seal timer, and the chimes: Dyre's Sounds, other AddOns'
+  chimes, each class spell, the last cast, and the latest 12 events). There
+  is no `/dcc`. Backup slash `/buffreminders`; a clash on `/dbr` is reported once
   at login.
 - One settings page (vertical layout, proxy settings on
   `DyresBuffRemindersDB`): Buff reminders, one switch per class buff with its
   group switch nested under it, Seal timer (Paladins), Remind before a buff
-  runs out (seconds),
-  Unlock to move them, Show a grid while unlocked.
+  runs out (seconds), Unlock to move them, Show a grid while unlocked; then a
+  "Cooldown Chimes" section: Cooldown chimes, Chime early (seconds), and each
+  class spell's switch with its Sound dropdown nested under it. Section
+  headings appear where the client has
+  `CreateSettingsListSectionHeaderInitializer`.
 
 ## Project structure
 
 - Runtime files: DyresBuffReminders.toc, Commands.lua, Core.lua, Layout.lua,
-  Buffs.lua, Reminders.lua, Seals.lua, Options.lua, loaded in that order. Commands parses
-  `/dbr`; Core owns saved settings and their repair, the login banner,
-  install and API checks, slash conflict reporting, the lock and grid, and
-  startup; Layout snaps frames; Buffs holds the lists; Reminders the icons; Seals
-  the Paladin seal timer;
+  Buffs.lua, Reminders.lua, Seals.lua, ChimeSpells.lua, Chimes.lua,
+  Options.lua, loaded in that order. Commands parses `/dbr`; Core owns saved
+  settings and their repair, the login banner, install and API checks, slash
+  conflict reporting, the lock and grid, and startup; Layout snaps frames;
+  Buffs holds the buff lists; Reminders the icons; Seals the Paladin seal
+  timer; ChimeSpells the chime lists; Chimes the chimes and Dyre's Sounds;
   Options the settings page.
 - artwork/ holds the logo (SVG source, 1024 and 512 PNG renders) and
   screenshots/ for listings; it is never packaged.
@@ -226,7 +278,8 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   player-facing changes; the builder puts it at the top of release-notes.md
   and fails without it.
 - Package only DyresBuffReminders.toc, Commands.lua, Core.lua, Layout.lua,
-  Buffs.lua, Reminders.lua, Seals.lua, Options.lua, and LICENSE under the top-level
+  Buffs.lua, Reminders.lua, Seals.lua, ChimeSpells.lua, Chimes.lua,
+  Options.lua, and LICENSE under the top-level
   `DyresBuffReminders/` folder, named `DyresBuffReminders-<version>-forever.zip`,
   with the builder's BigWigs-format `release.json` (flavor `forever`) attached
   for WowUp.

@@ -1,7 +1,9 @@
 local addonName, DBR = ...
 
 -- Dyre's Buff Reminders: the buff reminders from Mage Tools Forever and
--- Warlock Tools Forever on their own, for any class with buffs in Buffs.lua.
+-- Warlock Tools Forever on their own, for any class with buffs in Buffs.lua,
+-- and the cooldown chimes from Dyre's Cooldown Chimes, which merged into it
+-- (author).
 -- This file owns saved settings, the login banner, install and API checks,
 -- slash conflict reporting, the frame lock and its grid, and startup.
 local DEFAULT_TITLE = "Dyre's Buff Reminders"
@@ -61,9 +63,11 @@ end
 -- files otherwise fails silently, because the client hides Lua errors by default.
 local REQUIRED_NAMESPACE = {
     "ParseCommand", "HandleCommand", "RegisterMovable", "BeginDrag", "EndDrag", "ScaleKeepingCenter",
-    "ClassReminders", "SanitizeReminders", "SanitizeReminderScale", "SanitizeLead", "InitializeReminders", "RefreshReminders",
-    "ResetRemindersPosition", "ReportRemindersDebug", "SanitizeSeal", "InitializeSeal", "RefreshSeal",
-    "ResetSealPosition", "ReportSealDebug", "HasSealTimer", "InitializeOptions", "OpenSettings",
+    "ClassReminders", "SanitizeReminders", "SanitizeReminderScale", "SanitizeLead", "InitializeReminders",
+    "RefreshReminders", "ResetRemindersPosition", "ReportRemindersDebug", "SanitizeSeal", "InitializeSeal",
+    "RefreshSeal", "ResetSealPosition", "ReportSealDebug", "HasSealTimer",
+    "ClassChimes", "SoundLibrary", "ReportMissingSounds", "SanitizeChimes", "ImportChimes", "ReportOtherChimes",
+    "InitializeChimes", "PreviewChime", "ReportChimesDebug", "InitializeOptions", "OpenSettings",
 }
 -- Client APIs the reminders cannot work without. Range checks and reagent
 -- counts are optional: without them, DBR assumes in range and no reagent.
@@ -75,9 +79,9 @@ local REQUIRED_APIS = {
 }
 
 local function CheckInstalledFiles()
-    if type(DBR.BUFFS) ~= "table" or type(DBR.SEALS) ~= "table" then
-        return false, "AddOn files are from different versions (missing Buffs.lua or Seals.lua). Reinstall every "
-            .. "Dyre's Buff Reminders file, then restart the client."
+    if type(DBR.BUFFS) ~= "table" or type(DBR.SEALS) ~= "table" or type(DBR.CHIME_SPELLS) ~= "table" then
+        return false, "AddOn files are from different versions (missing Buffs.lua, Seals.lua, or "
+            .. "ChimeSpells.lua). Reinstall every Dyre's Buff Reminders file, then restart the client."
     end
     for _, name in ipairs(REQUIRED_NAMESPACE) do
         if type(DBR[name]) ~= "function" then
@@ -118,6 +122,9 @@ function DBR.SanitizeDB(db)
     -- The seal size uses the reminders scale rules.
     if DBR.SanitizeSeal and DBR.SanitizeReminderScale then
         db.seal = DBR.SanitizeSeal(db.seal, SanitizePosition)
+    end
+    if DBR.SanitizeChimes and type(DBR.CHIME_SPELLS) == "table" then
+        db.chimes = DBR.SanitizeChimes(db.chimes)
     end
     return db
 end
@@ -280,6 +287,7 @@ function DBR.ReportDebug()
     end
     DBR.ReportRemindersDebug()
     DBR.ReportSealDebug()
+    DBR.ReportChimesDebug(not DBR.IsSecret(class) and class or nil)
 end
 
 SLASH_DYRESBUFFREMINDERS1 = PRIMARY_SLASH
@@ -287,6 +295,9 @@ SLASH_DYRESBUFFREMINDERS2 = BACKUP_SLASH
 SlashCmdList[SLASH_KEY] = function(message) DBR.HandleCommand(message) end
 
 local function LoadDB()
+    -- No chime settings yet: the chimes' first run on this character.
+    local saved = DyresBuffRemindersDB
+    DBR.chimesFirstRun = type(saved) ~= "table" or type(saved.chimes) ~= "table"
     DyresBuffRemindersDB = DBR.SanitizeDB(DyresBuffRemindersDB)
     DBR.db = DyresBuffRemindersDB
 end
@@ -324,11 +335,18 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     -- handler order.
     local _, class = UnitClass("player")
     class = not DBR.IsSecret(class) and class or nil
+    DBR.classFile = class
     DBR.InitializeReminders(class)
     DBR.InitializeSeal(class)
     if #DBR.ClassReminders() == 0 then
-        DBR.Report("There are no buff reminders for your class yet, so DBR shows nothing on this character.")
+        DBR.Report("There are no buff reminders for your class yet.")
     end
+    if DBR.chimesFirstRun then
+        DBR.ImportChimes(class)
+    end
+    DBR.ReportMissingSounds(class)
+    DBR.ReportOtherChimes(class)
+    DBR.InitializeChimes(class)
     DBR.RefreshGrid()
     DBR.InitializeOptions()
 end)

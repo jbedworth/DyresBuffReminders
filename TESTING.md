@@ -8,7 +8,9 @@
    establishes declared APIs, templates, and code paths, not operational behavior.
 2. **Automated mock tests.** `tests/run.lua` exercises commands, saved
    settings, each class's reminders, group counts and click targets, combat
-   handling, moving and snapping, and the settings page against a minimal mock
+   handling, moving and snapping, the seal timer, the cooldown chimes (timing,
+   ranks, resets, sounds through a stand-in Dyre's Sounds and, when a sibling
+   checkout exists, the real one), and the settings page against a minimal mock
    of the client. Mocks model secret values as values that raise errors on
    comparison, concatenation, indexing, or printing.
    `tests/test_layout_copy.py` checks that Layout.lua matches Mage Tools
@@ -18,7 +20,7 @@
 
 ```sh
 .tools/luarocks-3.13.0-win32/win32/lua5.1/bin/lua5.1.exe tests/run.lua
-.tools/luarocks-3.13.0-win32/win32/lua5.1/bin/luac5.1.exe -p Commands.lua Core.lua Layout.lua Buffs.lua Reminders.lua Seals.lua Options.lua tests/run.lua
+.tools/luarocks-3.13.0-win32/win32/lua5.1/bin/luac5.1.exe -p Commands.lua Core.lua Layout.lua Buffs.lua Reminders.lua Seals.lua ChimeSpells.lua Chimes.lua Options.lua tests/run.lua
 .tools/python-3.13.7/python.exe -m unittest discover -s tests -p 'test_*.py'
 .tools/actionlint-1.7.12/actionlint.exe .github/workflows/*.yml
 ```
@@ -111,6 +113,14 @@ the check.
    cooldown-numbers option); and whether the button, anchored inside a plain
    movable frame, clicks in combat.
 
+### Cooldown chimes (carried over from Dyre's Cooldown Chimes)
+
+- The chime spell IDs are Classic's. Mage's and Warlock's lists are MTF's and
+  WTF's; the other classes' are new and unchecked: `/dbr debug` should show
+  `name=` for every chime spell, never `nil`.
+- Open: whether `C_Spell.GetSpellCooldown` stays readable right after an
+  out-of-combat cast for every class's spells.
+
 ## In-client checklist
 
 One class at a time. Reload after each copy (`/reload` loads new files).
@@ -159,3 +169,24 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       Warlock: from MTF/WTF 0.3.0-beta, only DBR's icons show, and their
       reminder settings are greyed out; with an older MTF or WTF, two sets
       show.
+- [ ] Cooldown chimes, with Dyre's Sounds installed: nothing about it at
+      login; `/dbr` shows a "Cooldown Chimes" section after the reminders,
+      with your class's spells, each with its sound under its switch;
+      choosing a sound plays it.
+- [ ] As a Mage: Blink and Frost Nova chime half a second before they are
+      ready, in and out of combat; a higher rank of Frost Nova chimes too;
+      Cold Snap cancels Frost Nova's chime; Text to Speech says "Blink ready";
+      the "Chime early" slider moves the chime; "Cooldown chimes" off
+      silences them while the buff reminders keep working.
+- [ ] On each other class: `/dbr debug` shows `name=` for every chime spell,
+      and a spell on by default chimes after a cast in combat. As a Rogue,
+      Preparation cancels Sprint's chime.
+- [ ] Without Dyre's Sounds: DBR says once to install it (naming
+      CurseForge); the chime switches show without sound menus; no Lua errors
+      when a chime is due; the buff reminders work.
+- [ ] First run with Dyre's Cooldown Chimes still installed: DBR says it
+      copied your chime settings from it and to remove its folder, and you
+      hear each chime once. After removing it and `/reload`, DBR plays them
+      with the same settings.
+- [ ] With MTF on a Mage (or WTF on a Warlock) that still chimes: DBR says
+      once at login to turn theirs off; with theirs off, it says nothing.
