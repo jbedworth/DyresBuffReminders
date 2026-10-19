@@ -184,8 +184,15 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   `DyresBuffRemindersDB`): Buff reminders, one switch per class buff with its
   group switch nested under it, Seal timer (Paladins), Remind before a buff
   runs out (seconds), Unlock to move them, Show a grid while unlocked; then a
-  "Cooldown Chimes" section: Cooldown chimes, Chime early (seconds), and each
-  class spell's switch with its Sound dropdown nested under it. Section
+  "Cooldown Chimes" section: Cooldown chimes, Chime early (seconds), and one
+  row per class spell (author-approved): its switch and Sound dropdown on
+  the same row, Blizzard's `CreateSettingsCheckboxDropdownInitializer`
+  (pinned Blizzard_SettingControls.lua:1670) added through the layout, with
+  Dyre's Sounds' `SetupCheckboxMenu` for the nested menu (Dyre's Sounds
+  0.1.2-beta; Blizzard's control greys the sound while the switch is off).
+  With an older Dyre's Sounds (no `SetupCheckboxMenu`) or a client without
+  that initializer, the switch, then its dropdown on its own row nested under
+  it (`SetupMenu`). The settings and saved keys are the same either way. Section
   headings appear where the client has
   `CreateSettingsListSectionHeaderInitializer`.
 

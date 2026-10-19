@@ -67,18 +67,28 @@ local function Heading(text)
     end
 end
 
--- One chime spell: its switch under the chimes' switch, and its sound under
--- it when Dyre's Sounds is installed.
+-- Blizzard's checkbox-and-dropdown row, with Dyre's Sounds' nested menu in it
+-- (SetupCheckboxMenu, from Dyre's Sounds 0.1.2-beta), when both are there.
+local function HasCheckboxDropdown(library)
+    return type(CreateSettingsCheckboxDropdownInitializer) == "function" and type(layout) == "table"
+        and type(layout.AddInitializer) == "function" and type(library.SetupCheckboxMenu) == "function"
+end
+
+-- One chime spell under the chimes' switch: its switch and, when Dyre's Sounds
+-- is installed, its sound on the same row (author-approved: one row per
+-- spell; Blizzard's control greys the sound while the switch is off). With an
+-- older Dyre's Sounds or client, the sound sits on its own row under the
+-- switch. The settings and their saved keys are the same either way.
 local function AddChime(chime, library, chimesSwitch)
     local variable = "DBR_CHIME_" .. chime.key:upper()
+    local tooltip = "Play a sound just before " .. chime.label .. " is ready again."
     local setting = Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, chime.label,
         chime.on,
         function() return DBR.db.chimes.spells[chime.key] end,
         function(value) DBR.db.chimes.spells[chime.key] = value == true end)
-    local switch = Settings.CreateCheckbox(category, setting, "Play a sound just before " .. chime.label
-        .. " is ready again.")
-    Nest(switch, chimesSwitch, function() return DBR.db.chimes.enabled end)
-    if not library or type(Settings.CreateDropdown) ~= "function" then
+    local function ChimesOn() return DBR.db.chimes.enabled end
+    if not library or (type(Settings.CreateDropdown) ~= "function" and not HasCheckboxDropdown(library)) then
+        Nest(Settings.CreateCheckbox(category, setting, tooltip), chimesSwitch, ChimesOn)
         return
     end
     local sound = Settings.RegisterProxySetting(category, variable .. "_SOUND", Settings.VarType.String, "Sound",
@@ -91,9 +101,19 @@ local function AddChime(chime, library, chimesSwitch)
                 DBR.PreviewChime(chime.key)
             end
         end)
-    local dropdown = Settings.CreateDropdown(category, sound, library.Choices(),
-        "The sound for " .. chime.label .. ". Choosing one plays it once. Text to Speech says \""
-            .. chime.label .. " ready\".")
+    local soundTooltip = "The sound for " .. chime.label .. ". Choosing one plays it once. Text to Speech says \""
+        .. chime.label .. " ready\"."
+    if HasCheckboxDropdown(library) then
+        local row = CreateSettingsCheckboxDropdownInitializer(setting, chime.label, tooltip, sound,
+            library.Choices(), "Sound", soundTooltip)
+        layout:AddInitializer(row)
+        library.SetupCheckboxMenu(row)
+        Nest(row, chimesSwitch, ChimesOn)
+        return
+    end
+    local switch = Settings.CreateCheckbox(category, setting, tooltip)
+    Nest(switch, chimesSwitch, ChimesOn)
+    local dropdown = Settings.CreateDropdown(category, sound, library.Choices(), soundTooltip)
     library.SetupMenu(dropdown)
     Nest(dropdown, switch, function() return DBR.db.chimes.enabled and DBR.db.chimes.spells[chime.key] end)
 end

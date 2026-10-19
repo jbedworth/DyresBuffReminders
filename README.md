@@ -70,8 +70,9 @@ so on).
 - **Every rank counts.** A spell is matched by its name. Blizzard's Cooldown
   Manager on Forever treats each rank as a different spell; the chimes do
   not.
-- Each spell has its own switch and its own sound, in a menu under the
-  switch; choosing a sound plays it. Text to Speech says "Blink ready".
+- Each spell has its own switch and its own sound, side by side on one row
+  (with an older Dyre's Sounds, the sound sits under the switch); choosing a
+  sound plays it. Text to Speech says "Blink ready".
   **Chime early** moves every chime 0-3 seconds before the cooldown ends
   (default half a second). **Cooldown chimes** turns them all off.
 - The game hides cooldowns from AddOns in combat, so DBR times each one from

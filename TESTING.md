@@ -171,8 +171,10 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       show.
 - [ ] Cooldown chimes, with Dyre's Sounds installed: nothing about it at
       login; `/dbr` shows a "Cooldown Chimes" section after the reminders,
-      with your class's spells, each with its sound under its switch;
-      choosing a sound plays it.
+      with one row per class spell: its switch, and its sound on the same
+      row, greyed while the switch is off; the sound menu shows the full name
+      of the choice, its submenus open, and choosing a sound plays it. With
+      Dyre's Sounds 0.1.1, the sound sits on its own row under the switch.
 - [ ] As a Mage: Blink and Frost Nova chime half a second before they are
       ready, in and out of combat; a higher rank of Frost Nova chimes too;
       Cold Snap cancels Frost Nova's chime; Text to Speech says "Blink ready";

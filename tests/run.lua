@@ -143,6 +143,14 @@ local function fakeSounds(state, contract)
     function library.SetupMenu(initializer)
         initializer.nestedMenu = true
     end
+    if not state.soundsWithoutCheckboxMenu then
+        -- Dyre's Sounds 0.1.2-beta: the nested menu on a checkbox-and-dropdown row.
+        function library.SetupCheckboxMenu(initializer, filter)
+            equal(type(initializer.InitFrame), "function", "a settings initializer")
+            equal(type(initializer.data.dropdownSetting), "table")
+            initializer.checkboxMenu, initializer.menuFilter = true, filter
+        end
+    end
     return library
 end
 name("Seal of the Crusader", 21082, 20162, 20305, 20306, 20307, 20308)
@@ -337,6 +345,22 @@ local function fixture(options)
 
     -- Settings: proxy settings with getters and setters, as the client builds them.
     env.CreateSettingsListSectionHeaderInitializer = function(text) return {heading = text} end
+    -- As the client builds it (Blizzard_SettingControls.lua): a settings
+    -- initializer whose data holds both settings; added through the layout.
+    if not options.noCheckboxDropdown then
+        env.CreateSettingsCheckboxDropdownInitializer = function(cbSetting, cbLabel, cbTooltip, dropdownSetting,
+                dropdownOptions, dropDownLabel, dropDownTooltip)
+            local object = {kind = "checkboxdropdown", data = {name = cbLabel, tooltip = cbTooltip,
+                cbSetting = cbSetting, cbLabel = cbLabel, cbTooltip = cbTooltip, dropdownSetting = dropdownSetting,
+                dropdownOptions = dropdownOptions, dropDownLabel = dropDownLabel, dropDownTooltip = dropDownTooltip}}
+            function object:InitFrame() end
+            function object:SetParentInitializer(parent, predicate)
+                self.parentInitializer, self.predicate = parent, predicate
+            end
+            return object
+        end
+    end
+    state.soundsWithoutCheckboxMenu = options.soundsWithoutCheckboxMenu
     env.C_Secrets = {GetSpellCooldownSecrecy = function() return state.combat and state.secret() or 2 end}
     local sounds = options.sounds or "fake"
     if sounds == "fake" then
@@ -370,9 +394,9 @@ local function fixture(options)
                 function category:GetID() return "id:" .. title end
                 state.categories[title] = category
                 local layout = {}
-                function layout:AddInitializer(heading)
-                    state.headings[#state.headings + 1] = heading
-                    category.initializers[#category.initializers + 1] = heading
+                function layout:AddInitializer(initializer)
+                    if initializer.heading then state.headings[#state.headings + 1] = initializer end
+                    category.initializers[#category.initializers + 1] = initializer
                 end
                 return category, layout
             end,
@@ -621,11 +645,17 @@ local function fixture(options)
         end
     end
     function state.chimes() return state.dbr.db.chimes end
-    -- A settings row by its setting variable.
+    -- A settings row by its setting variable (a checkbox-and-dropdown row by
+    -- either of its settings).
     function state.row(variable)
         for _, category in pairs(state.categories) do
             for index, row in ipairs(category.initializers) do
                 if row.setting and row.setting.variable == variable then return row, index end
+                local data = row.data
+                if data and ((data.cbSetting and data.cbSetting.variable == variable)
+                    or (data.dropdownSetting and data.dropdownSetting.variable == variable)) then
+                    return row, index
+                end
             end
         end
     end
@@ -1635,21 +1665,41 @@ test("the settings page: a Cooldown Chimes section with its own switch, lead, an
     local lead = state.row("DBR_CHIME_LEAD")
     equal(lead.parentInitializer, switch)
     local blink = state.row("DBR_CHIME_BLINK")
-    local dropdown = state.row("DBR_CHIME_BLINK_SOUND")
+    equal(blink.kind, "checkboxdropdown", "the switch and the sound on one row")
+    equal(state.row("DBR_CHIME_BLINK_SOUND"), blink)
+    equal(blink.data.cbLabel, "Blink")
+    equal(blink.data.dropDownLabel, "Sound")
+    contains(blink.data.cbTooltip, "just before Blink is ready again")
+    contains(blink.data.dropDownTooltip, "Blink ready")
+    equal(type(blink.data.dropdownOptions), "function", "Dyre's Sounds' choices")
+    equal(blink.checkboxMenu, true, "Dyre's Sounds' nested menu on the row")
     equal(blink.parentInitializer, switch)
-    equal(dropdown.kind, "dropdown")
-    equal(dropdown.parentInitializer, blink, "the sound sits under its switch")
-    equal(dropdown.nestedMenu, true, "Dyre's Sounds' nested menu")
-    equal(dropdown.predicate(), true)
-    state.settings.DBR_CHIME_BLINK:SetValue(false)
-    equal(dropdown.predicate(), false)
+    equal(blink.predicate(), true)
+    state.settings.DBR_CHIMES_ENABLED:SetValue(false)
+    equal(blink.predicate(), false)
+    state.settings.DBR_CHIMES_ENABLED:SetValue(true)
+    blink.data.dropdownSetting:SetValue("magical")
+    equal(state.chimes().sounds.blink, "magical", "the same saved key as before")
+    blink.data.cbSetting:SetValue(false)
+    equal(state.chimes().spells.blink, false)
     local count = 0
     for _, row in ipairs(page.initializers) do
-        if row.setting and row.setting.variable:find("^DBR_CHIME_") and row.setting.variable ~= "DBR_CHIME_LEAD" then
-            count = count + 1
-        end
+        if row.kind == "checkboxdropdown" then count = count + 1 end
     end
-    equal(count, 15 * 2, "every Mage spell has a switch and a sound")
+    equal(count, 15, "one row for every Mage spell")
+    -- Dyre's Sounds 0.1.1 (no SetupCheckboxMenu), or a client without the row:
+    -- the switch, then the sound under it, as before.
+    for _, older in ipairs({{soundsWithoutCheckboxMenu = true}, {noCheckboxDropdown = true}}) do
+        local old = fixture(older)
+        local oldSwitch, oldDropdown = old.row("DBR_CHIME_BLINK"), old.row("DBR_CHIME_BLINK_SOUND")
+        equal(oldSwitch ~= oldDropdown, true, "two rows")
+        equal(oldDropdown.kind, "dropdown")
+        equal(oldDropdown.parentInitializer, oldSwitch, "the sound sits under its switch")
+        equal(oldDropdown.nestedMenu, true, "Dyre's Sounds' nested menu")
+        equal(oldSwitch.parentInitializer, old.row("DBR_CHIMES_ENABLED"))
+        old.settings.DBR_CHIME_BLINK:SetValue(false)
+        equal(oldDropdown.predicate(), false)
+    end
     local knight = fixture({class = "DEATHKNIGHT"})
     equal(knight.headings[3].heading, "Your class has no chime spells yet.")
 end)
