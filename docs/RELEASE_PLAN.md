@@ -201,6 +201,9 @@ provided by these rechecks.
    `ENABLE_CURSEFORGE_UPLOADS` to literal `true` only after its service setup is
    complete and GitHub publication is also enabled. Leave it false for a
    GitHub-only release. Neither a manual run nor a `main` push publishes.
+   Set both before pushing the tag: a run reads repository variables when it
+   starts, so a flag changed while the run waits for approval is not seen
+   (found with 0.1.0-beta, whose CurseForge job was skipped).
 7. **Publish an authorized immutable tag.** The tag must be exactly `v` plus the
    TOC version and point to the reviewed commit on `main` (or an ancestor).
    Push it only with authorization. Approve the environment jobs, inspect the
