@@ -99,8 +99,12 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
 
 ### The seal timer (built; author-approved)
 
-- Paladins only, a setting (on by default). Every rank of all six seals
-  (Righteousness, Command, the Crusader, Justice, Light, Wisdom) counts.
+- Paladins only, a setting (on by default). Every rank of every seal counts:
+  the six Classic seals and Forever's Seal of Fury (found in client: the
+  timer missed it; IDs from ForeverAuras' spell table), plus any learned
+  spellbook spell named "Seal of ..." (a new one gets a new container out of
+  combat, since a slot's IDs are fixed). The last seal cast is remembered by
+  name.
 - Aura APIs refuse AddOn code in combat, so Blizzard's AuraContainer
   (`CustomAuraContainerTemplate`, `includeSpellIDs` as a set) draws the seal:
   one slot with every seal ID shows the seal's icon, a cooldown sweep with
@@ -108,7 +112,11 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   of combat. The slot takes no mouse.
 - Under it, a secure button (`DyresBuffRemindersSealButton`) shows in combat
   only (`[combat] show; hide`): the last seal you used (else Righteousness,
-  else the first known) with the pulsing gold border; a click casts it. A seal
+  else the first known) with the pulsing gold border and a full gold bar where
+  the timer's bar drains (author-approved: Righteous Fury and Seal of Fury
+  share a picture, so the bar tells the seal reminder apart; the timer's bar
+  has an opaque track, so the gold bar never shows through); a click casts
+  it. A seal
   up covers it (the slot is drawn above), so it shows through only with no
   seal. Out of combat with no seal, nothing shows (author: see how it feels).
 - A seal cast (readable in combat) is saved (`db.last.seal`); the button's

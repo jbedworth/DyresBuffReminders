@@ -45,8 +45,10 @@ missing or about to run out, out of combat. It goes away once the buff is on.
 
 While a seal is up, its icon shows with the time left counting down, and a
 bar under it, also in combat. In combat with no seal up, your last seal
-shows with the pulsing gold border; click it to cast that seal. Out of
-combat with no seal up, nothing shows. Every seal counts. **Seal timer**
+shows with the pulsing gold border and a full gold bar under it; click it to
+cast that seal. Out of
+combat with no seal up, nothing shows. Every seal counts, Forever's Seal of Fury
+and any other seal in your spellbook included. **Seal timer**
 turns it off.
 
 ## Moving the icons
@@ -83,7 +85,9 @@ Beta, for the Forever beta client 1.60.1 (Interface 16001). DBR keeps working
 on later beta builds; if a client update removes an API it needs, it says so
 in chat and stays off.
 
-**Not yet verified in client:** everything in this AddOn. The reminders come
+**Verified in client:** the Paladin seal timer, with Seal of Fury.
+
+**Not yet verified in client:** the rest. The reminders come
 from Mage Tools Forever and Warlock Tools Forever, but the Druid and Priest
 buffs, the group versions' spell IDs and reagents, and this AddOn itself have
 not been checked in game. [TESTING.md](TESTING.md) has the checklist.

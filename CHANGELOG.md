@@ -5,6 +5,12 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 0.1.2-beta
+
+- Paladin seal timer: Seal of Fury now counts. Before, a Seal of Fury on you showed no timer, and the "no seal" reminder stayed up in combat.
+- Any other seal in your spellbook counts too, and the reminder now shows the seal you cast last, whichever it is.
+- The seal reminder has a gold bar under it, where the timer's bar drains, so it no longer looks like the Righteous Fury reminder (the two share a picture).
+
 ## 0.1.1-beta
 
 - First release on CurseForge (0.1.0-beta reached GitHub only).

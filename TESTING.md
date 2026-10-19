@@ -42,7 +42,14 @@ python.org 3.13.7 embeddable archive, and actionlint 1.7.12 under the ignored
 - `C_UnitAuras.GetAuraDataBySpellName` is `SecretWhenUnitAuraRestricted` and
   `RequiresNonSecretAura`. A secret answer counts as buffed.
 
-## Found in client (carried over from MTF and WTF)
+## Found in client
+
+- Forever has a seal Classic lacks, Seal of Fury; with only Classic seal IDs,
+  the seal timer showed no timer for it and the "no seal" picture stayed up
+  in combat. With its IDs added (0.1.2-beta), the timer works (confirmed on
+  a Paladin).
+
+### Carried over from MTF and WTF
 
 - Aura APIs error in combat for AddOn code; own cast events stay readable.
 - Forever uses Classic spell IDs for the spells checked so far (Mana Shield,
@@ -71,12 +78,19 @@ say `unknownIDs=none`.
 | Seal of Command | 20375, 20915, 20918, 20919, 20920 | |
 | Seal of the Crusader | 21082, 20162, 20305, 20306, 20307, 20308 | |
 | Seal of Justice / Light / Wisdom | 20164 / 20165, 20347, 20348, 20349 / 20166, 20356, 20357 | |
+| Seal of Fury (Forever) | 20163, 20419, 20421, 20422, 20423, 1311649, 1311656 | |
 
 The seal timer assumes each seal's buff has its spell's ID; the aura
 container matches by ID.
 
 Prayer of Spirit and Prayer of Shadow Protection came late in Classic (books);
 they may be missing on Forever.
+
+ForeverAuras (installed by the author) keeps a table of Forever's spell names
+and IDs in its saved variables. It lists every ID above under its name, but
+not Seal of Righteousness 21084, and it gave Seal of Fury's IDs. Its table is
+evidence from another AddOn, not the client's own answer: `/dbr debug` stays
+the check.
 
 ### Open client questions
 
@@ -117,7 +131,9 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       counting down (numbers and a bar), and nothing shows with no seal. In
       combat with no seal, your last seal pulses with the gold border; a
       click casts it; once a seal is up, only the seal and its timer show.
-      Judgement (which uses up the seal) brings the pulse back at once. A
+      Judgement (which uses up the seal) brings the pulse back at once.
+      Seal of Fury shows its timer and covers the pulse; casting it makes it
+      the click. `/dbr debug` shows `last=` the seal you cast. A
       seal cast in combat becomes the click after combat. Every seal counts;
       `/dbr debug` shows a seal line with `unknownIDs=none`.
 - [ ] Druid: Mark of the Wild and Thorns pulse; in a party, the count and

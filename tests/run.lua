@@ -59,6 +59,8 @@ name("Prayer of Shadow Protection", 27683)
 name("Righteous Fury", 25780)
 name("Seal of Righteousness", 21084, 20154, 20287, 20288, 20289, 20290, 20291, 20292, 20293)
 name("Seal of Command", 20375, 20915, 20918, 20919, 20920)
+name("Seal of Fury", 20163, 20419, 20421, 20422, 20423, 1311649, 1311656)
+name("Seal of Zeal", 990001)
 name("Seal of the Crusader", 21082, 20162, 20305, 20306, 20307, 20308)
 name("Seal of Justice", 20164)
 name("Seal of Light", 20165, 20347, 20348, 20349)
@@ -112,7 +114,8 @@ local function fixture(options)
     env.C_XMLUtil = {GetTemplateInfo = function(template)
         if template == "CustomAuraContainerTemplate" and not options.noAuraContainer then return {} end
     end}
-    env.Enum = {StatusBarTimerDirection = {ElapsedTime = 0, RemainingTime = 1}}
+    env.Enum = {StatusBarTimerDirection = {ElapsedTime = 0, RemainingTime = 1},
+        SpellBookSpellBank = {Player = 0}, SpellBookItemType = {None = 0, Spell = 1, FutureSpell = 2}}
     env.GetTime = function() return state.now end
     env.InCombatLockdown = function() return state.combat end
     env.issecretvalue = function(value) return state.secrets[value] == true end
@@ -162,6 +165,17 @@ local function fixture(options)
         end
     end
     env.C_SpellBook = {IsSpellKnown = function(id) return state.known[id] == true end}
+    -- The spellbook: one skill line holding state.spellbook entries {spellID, name, itemType}.
+    state.spellbook = options.spellbook or {}
+    env.C_SpellBook.GetNumSpellBookSkillLines = function() return 1 end
+    env.C_SpellBook.GetSpellBookSkillLineInfo = function()
+        return {itemIndexOffset = 0, numSpellBookItems = #state.spellbook}
+    end
+    env.C_SpellBook.GetSpellBookItemInfo = function(index, bank)
+        equal(bank, 0, "the player's spellbook")
+        local item = state.spellbook[index]
+        if item then return {spellID = item.spellID, name = item.name, itemType = item.itemType or 1} end
+    end
     env.C_Item = {GetItemCount = function(id) return state.carried[id] or 0 end}
     env.C_UnitAuras = {
         -- As in client, AddOn code cannot read auras in combat.
@@ -927,6 +941,16 @@ test("Paladin: no seal in combat pulses your last seal, and a click casts it", f
     equal(button.attributes.unit1, "player")
     equal(button.glow.animation.playing, true)
     equal(button.texture.texture, 2000 + RIGHTEOUSNESS)
+    equal(button.bar.color[1] .. "," .. button.bar.color[2] .. "," .. button.bar.color[3], "1,0.82,0",
+        "a full gold bar under the reminder")
+    equal(button.bar.height, 5)
+    local container
+    for _, frame in ipairs(state.frames) do
+        if frame.kind == "AuraContainer" then container = frame end
+    end
+    local timerBar = container.slots[1].button.display.bar
+    equal(timerBar.track.color[4], 1, "an opaque track hides the gold bar under a draining one")
+    equal(timerBar.points[1][5], button.bar.points[1][5], "both bars in the same place")
     state.combat = true
     state.applyDrivers()
     equal(button.shown, true, "in combat, under the seal icon")
@@ -973,7 +997,60 @@ test("the seal timer: only for Paladins who know a seal; a switch; unlocks with 
     equal(state.dbr.db.seal.scale, 100)
     state.clear()
     state.slash("debug")
-    contains(state.last(), "debug seal on=true click=Seal of Righteousness driver=[combat] show; hide unknownIDs=none")
+    contains(state.last(), "debug seal on=true click=Seal of Righteousness last=nil driver=[combat] show; hide "
+        .. "sealIDs=35 spellbook=none unknownIDs=none")
+end)
+test("Paladin: Seal of Fury (Forever's seal) counts, and the last seal cast is the click", function()
+    local FURY = 20423
+    local state = sealFixture({known = {[RIGHTEOUSNESS] = true, [FURY] = true}})
+    local button = state.env.DyresBuffRemindersSealButton
+    local container
+    for _, frame in ipairs(state.frames) do
+        if frame.kind == "AuraContainer" then container = frame end
+    end
+    for _, id in ipairs({20163, 20419, 20421, 20422, 20423, 1311649, 1311656}) do
+        equal(container.slots[1].ids[id], true, "Seal of Fury ID " .. id)
+    end
+    equal(button.attributes.spell1, "Seal of Righteousness", "before any cast: the first known")
+    state.cast(FURY)
+    equal(state.dbr.db.last.seal, "Seal of Fury")
+    equal(button.attributes.spell1, "Seal of Fury")
+    equal(button.texture.texture, 2000 + FURY, "the picture shows the seal you use")
+end)
+test("Paladin: a seal found only in the spellbook joins the timer, also when learned later", function()
+    local ZEAL = 990001
+    local state = sealFixture()
+    local containers = {}
+    for _, frame in ipairs(state.frames) do
+        if frame.kind == "AuraContainer" then containers[#containers + 1] = frame end
+    end
+    equal(#containers, 1)
+    equal(containers[1].slots[1].ids[ZEAL], nil)
+    state.known[ZEAL] = true
+    state.spellbook[#state.spellbook + 1] = {spellID = ZEAL, name = "Seal of Zeal"}
+    state.spellbook[#state.spellbook + 1] = {spellID = 585, name = "Smite"}
+    state.spellbook[#state.spellbook + 1] = {spellID = 990002, name = "Seal of Later", itemType = 2}
+    state.emit("SPELLS_CHANGED")
+    containers = {}
+    for _, frame in ipairs(state.frames) do
+        if frame.kind == "AuraContainer" then containers[#containers + 1] = frame end
+    end
+    equal(#containers, 2, "a new container for the new seal")
+    equal(containers[1].shown, false, "the old one hidden")
+    equal(containers[2].slots[1].ids[ZEAL], true)
+    equal(containers[2].slots[1].ids[990002], nil, "not learned yet")
+    equal(containers[2].slots[1].ids[RIGHTEOUSNESS], true, "the listed seals stay")
+    state.emit("SPELLS_CHANGED")
+    local count = 0
+    for _, frame in ipairs(state.frames) do
+        if frame.kind == "AuraContainer" then count = count + 1 end
+    end
+    equal(count, 2, "no new container without a new seal")
+    state.cast(ZEAL)
+    equal(state.dbr.db.last.seal, "Seal of Zeal")
+    equal(state.env.DyresBuffRemindersSealButton.attributes.spell1, "Seal of Zeal")
+    state.cast(585)
+    equal(state.dbr.db.last.seal, "Seal of Zeal", "only seals count")
 end)
 test("the seal timer waits for the end of combat after a reload, and needs the aura container", function()
     local state = sealFixture({combat = true})
