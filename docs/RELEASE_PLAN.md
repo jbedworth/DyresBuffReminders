@@ -14,7 +14,7 @@ flowchart TD
     A[Manual build or authorized version tag] --> B[Checkout exact commit]
     B --> C[Lua 5.1 syntax and tests]
     C --> D[Validate version and client metadata]
-    D --> E[Stage eleven allowed files]
+    D --> E[Stage fourteen allowed files]
     E --> F[Create and validate ZIP and checksum]
     F --> G[Retain build artifact]
     G --> H[Author approval via release environment]
@@ -43,6 +43,9 @@ DyresBuffReminders/
     Seals.lua
     ChimeSpells.lua
     Chimes.lua
+    ProcSpells.lua
+    Procs.lua
+    Probe.lua
     Options.lua
     LICENSE
 ```
@@ -60,7 +63,7 @@ Validate the actual archive, not only the staging folder:
 
 1. Check CRC/integrity, non-empty files, and the exact file list.
 2. Reject absolute paths, traversal paths, symlinks, and extra root folders.
-3. Verify the TOC name, Interface `16001`, and Commands/Core/Layout/Buffs/Reminders/Seals/ChimeSpells/Chimes/Options load order. Every listed runtime file must exist inside the archive.
+3. Verify the TOC name, Interface `16001`, and Commands/Core/Layout/Buffs/Reminders/Seals/ChimeSpells/Chimes/ProcSpells/Procs/Probe/Options load order. Every listed runtime file must exist inside the archive.
 4. Verify the packaged version matches the selected tag, with one leading `v`
    removed. Verify the packaged MIT copyright/permission notice is intact.
 5. Check the packaged Lua files with Lua 5.1 syntax validation.
@@ -85,7 +88,7 @@ On Windows, use the portable `.tools/python-3.13.7/python.exe` in place of
 uses `ubuntu-24.04`, native `python3`, and apt-installed `lua5.1`; it cannot run
 the local Windows `.tools/` binaries.
 
-`scripts/build_release.py` uses the eleven-file allowlist, validates the
+`scripts/build_release.py` uses the fourteen-file allowlist, validates the
 TOC/version/license and actual archive, and writes to `dist/`:
 
 - `DyresBuffReminders-<version>-forever.zip`;
@@ -101,7 +104,7 @@ WowUp 2.24.0 reads `release.json` first and maps its `forever` flavor to Forever
 installs, falling back to the ZIP-name suffix. The publisher refuses to upload
 unless `release.json` exactly names the verified ZIP.
 
-Only the eleven package files are inside the installable ZIP. Checksums, manifest,
+Only the fourteen package files are inside the installable ZIP. Checksums, manifest,
 and notes stay outside it. Identical inputs and toolchain produce deterministic
 ZIP bytes; this is not a cross-toolchain compression guarantee. The builder does
 not itself run Lua syntax checks or establish client compatibility.
@@ -358,7 +361,7 @@ Do not add a self-updater to the AddOn.
 
 ### Custom builder rather than BigWigs packager
 
-This AddOn has only eleven distribution files, so the project uses a small
+This AddOn has only fourteen distribution files, so the project uses a small
 allowlist ZIP builder plus separate publication jobs: a Linux runner obtains
 Lua 5.1, runs the suite, builds the archive, retains it as an artifact, and
 publishes the tested bytes through GitHub CLI and the documented CurseForge
@@ -378,7 +381,7 @@ for this project:
 - `.pkgmeta` can set `package-as: DyresBuffReminders` and exclude development
   material. Exclusions alone are not our package allowlist; validate the ZIP.
 - Its default changelog generation creates `CHANGELOG.md` inside the package,
-  violating the eleven-file contract, unless configured otherwise.
+  violating the fourteen-file contract, unless configured otherwise.
 - Its CurseForge uploader can fall back to another game version when an exact
   match is absent. The workflow must fail before publishing if Forever `1.60.1`
   is unavailable; a warning and a nearby version are not acceptable.

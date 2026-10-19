@@ -118,6 +118,71 @@ local function AddChime(chime, library, chimesSwitch)
     Nest(dropdown, switch, function() return DBR.db.chimes.enabled and DBR.db.chimes.spells[chime.key] end)
 end
 
+-- One proc under the procs' switch: its switch and its sound (aura sounds
+-- only, the files the game can play for a buff) on one row, or two rows with
+-- an older Dyre's Sounds or client. The settings and saved keys are the same.
+local function AddProc(proc, library, procsSwitch)
+    local variable = "DBR_PROC_" .. proc.key:upper()
+    local tooltip = "Play a sound the moment " .. proc.buff .. " appears on you, also in combat."
+    local setting = Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, proc.label, proc.on,
+        function() return DBR.db.procs.spells[proc.key] end,
+        function(value)
+            DBR.db.procs.spells[proc.key] = value == true
+            DBR.ApplyProcSounds()
+        end)
+    local function ProcsOn() return DBR.db.procs.enabled end
+    if not library or (type(Settings.CreateDropdown) ~= "function" and not HasCheckboxDropdown(library)) then
+        Nest(Settings.CreateCheckbox(category, setting, tooltip), procsSwitch, ProcsOn)
+        return
+    end
+    local sound = Settings.RegisterProxySetting(category, variable .. "_SOUND", Settings.VarType.String, "Sound",
+        proc.sound or DBR.DEFAULT_PROC_SOUND,
+        function() return DBR.db.procs.sounds[proc.key] end,
+        function(value)
+            local key = library.Resolve(value)
+            if key and library.AuraSound(key) then
+                DBR.db.procs.sounds[proc.key] = key
+                DBR.ApplyProcSounds()
+                DBR.PreviewProc(proc.key)
+            end
+        end)
+    local soundTooltip = "The sound for " .. proc.label .. ". Choosing one plays it once. Only sounds the game "
+        .. "can play for a buff are listed."
+    if HasCheckboxDropdown(library) then
+        local row = CreateSettingsCheckboxDropdownInitializer(setting, proc.label, tooltip, sound,
+            library.Choices("aura"), "Sound", soundTooltip)
+        layout:AddInitializer(row)
+        library.SetupCheckboxMenu(row, "aura")
+        Nest(row, procsSwitch, ProcsOn)
+        return
+    end
+    local switch = Settings.CreateCheckbox(category, setting, tooltip)
+    Nest(switch, procsSwitch, ProcsOn)
+    local dropdown = Settings.CreateDropdown(category, sound, library.Choices("aura"), soundTooltip)
+    library.SetupMenu(dropdown, "aura")
+    Nest(dropdown, switch, function() return DBR.db.procs.enabled and DBR.db.procs.spells[proc.key] end)
+end
+
+-- The proc sounds section, for a class with procs on a client that can play them.
+local function AddProcsSection()
+    local spells = DBR.ClassProcs(DBR.classFile)
+    if #spells == 0 or not DBR.HasProcSounds() then
+        return
+    end
+    local library = DBR.SoundLibrary()
+    Heading("Proc Sounds")
+    local tooltip = "A sound the moment a proc appears on you (Clearcasting, Nightfall, and so on), also in "
+        .. "combat. The game plays it, from a sound you choose."
+    if not library then
+        tooltip = tooltip .. " Install Dyre's Sounds to hear them and to choose each proc's sound."
+    end
+    local procsSwitch = Flag("DBR_PROCS_ENABLED", "Proc sounds", "procs", "enabled", true, tooltip,
+        DBR.ApplyProcSounds)
+    for _, proc in ipairs(spells) do
+        AddProc(proc, library, procsSwitch)
+    end
+end
+
 -- The cooldown chimes section: its own switch, the lead, then your class's spells.
 local function AddChimesSection()
     local library = DBR.SoundLibrary()
@@ -220,6 +285,7 @@ function DBR.InitializeOptions()
         "While the reminders are unlocked, draw a faint grid over the screen with the center lines in red, "
             .. "so you can line them up.", DBR.RefreshGrid)
     AddChimesSection()
+    AddProcsSection()
     Settings.RegisterAddOnCategory(category)
 end
 

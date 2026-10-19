@@ -67,7 +67,11 @@ local REQUIRED_NAMESPACE = {
     "RefreshReminders", "ResetRemindersPosition", "ReportRemindersDebug", "SanitizeSeal", "InitializeSeal",
     "RefreshSeal", "ResetSealPosition", "ReportSealDebug", "HasSealTimer",
     "ClassChimes", "SoundLibrary", "ReportMissingSounds", "SanitizeChimes", "ImportChimes", "ReportOtherChimes",
-    "InitializeChimes", "PreviewChime", "ReportChimesDebug", "InitializeOptions", "OpenSettings",
+    "InitializeChimes", "PreviewChime", "ReportChimesDebug",
+    "ClassProcs", "HasProcSounds", "SanitizeProcs", "SanitizeProcSound", "ApplyProcSounds", "PreviewProc",
+    "InitializeProcs", "ImportProcs", "ReportProcsDebug", "OtherProcs", "ReportOtherProcs", "AddOnLoaded",
+    "StandsAside", "SetProbe", "ProbeOn", "ProbeOff", "InitializeProbe", "ReportProbeDebug",
+    "InitializeOptions", "OpenSettings",
 }
 -- Client APIs the reminders cannot work without. Range checks and reagent
 -- counts are optional: without them, DBR assumes in range and no reagent.
@@ -79,9 +83,11 @@ local REQUIRED_APIS = {
 }
 
 local function CheckInstalledFiles()
-    if type(DBR.BUFFS) ~= "table" or type(DBR.SEALS) ~= "table" or type(DBR.CHIME_SPELLS) ~= "table" then
-        return false, "AddOn files are from different versions (missing Buffs.lua, Seals.lua, or "
-            .. "ChimeSpells.lua). Reinstall every Dyre's Buff Reminders file, then restart the client."
+    if type(DBR.BUFFS) ~= "table" or type(DBR.SEALS) ~= "table" or type(DBR.CHIME_SPELLS) ~= "table"
+        or type(DBR.PROC_SOUNDS) ~= "table" then
+        return false, "AddOn files are from different versions (missing Buffs.lua, Seals.lua, "
+            .. "ChimeSpells.lua, or ProcSpells.lua). Reinstall every Dyre's Buff Reminders file, then restart "
+            .. "the client."
     end
     for _, name in ipairs(REQUIRED_NAMESPACE) do
         if type(DBR[name]) ~= "function" then
@@ -116,6 +122,8 @@ function DBR.SanitizeDB(db)
     db.enabled = db.enabled ~= false
     db.locked = db.locked ~= false
     db.grid = db.grid ~= false
+    -- The reactive-ability probe (Probe.lua): debug only, off by default.
+    db.probe = db.probe == true
     if DBR.SanitizeReminders and type(DBR.BUFFS) == "table" then
         DBR.SanitizeReminders(db, SanitizePosition)
     end
@@ -125,6 +133,9 @@ function DBR.SanitizeDB(db)
     end
     if DBR.SanitizeChimes and type(DBR.CHIME_SPELLS) == "table" then
         db.chimes = DBR.SanitizeChimes(db.chimes)
+    end
+    if DBR.SanitizeProcs and type(DBR.PROC_SOUNDS) == "table" then
+        db.procs = DBR.SanitizeProcs(db.procs)
     end
     return db
 end
@@ -288,6 +299,8 @@ function DBR.ReportDebug()
     DBR.ReportRemindersDebug()
     DBR.ReportSealDebug()
     DBR.ReportChimesDebug(not DBR.IsSecret(class) and class or nil)
+    DBR.ReportProcsDebug(not DBR.IsSecret(class) and class or nil)
+    DBR.ReportProbeDebug()
 end
 
 SLASH_DYRESBUFFREMINDERS1 = PRIMARY_SLASH
@@ -298,6 +311,7 @@ local function LoadDB()
     -- No chime settings yet: the chimes' first run on this character.
     local saved = DyresBuffRemindersDB
     DBR.chimesFirstRun = type(saved) ~= "table" or type(saved.chimes) ~= "table"
+    DBR.procsFirstRun = type(saved) ~= "table" or type(saved.procs) ~= "table"
     DyresBuffRemindersDB = DBR.SanitizeDB(DyresBuffRemindersDB)
     DBR.db = DyresBuffRemindersDB
 end
@@ -347,6 +361,12 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     DBR.ReportMissingSounds(class)
     DBR.ReportOtherChimes(class)
     DBR.InitializeChimes(class)
+    if DBR.procsFirstRun then
+        DBR.ImportProcs(class)
+    end
+    DBR.InitializeProcs(class)
+    DBR.ReportOtherProcs(class)
+    DBR.InitializeProbe()
     DBR.RefreshGrid()
     DBR.InitializeOptions()
 end)

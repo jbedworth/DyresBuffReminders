@@ -20,7 +20,7 @@
 
 ```sh
 .tools/luarocks-3.13.0-win32/win32/lua5.1/bin/lua5.1.exe tests/run.lua
-.tools/luarocks-3.13.0-win32/win32/lua5.1/bin/luac5.1.exe -p Commands.lua Core.lua Layout.lua Buffs.lua Reminders.lua Seals.lua ChimeSpells.lua Chimes.lua Options.lua tests/run.lua
+.tools/luarocks-3.13.0-win32/win32/lua5.1/bin/luac5.1.exe -p Commands.lua Core.lua Layout.lua Buffs.lua Reminders.lua Seals.lua ChimeSpells.lua Chimes.lua ProcSpells.lua Procs.lua Probe.lua Options.lua tests/run.lua
 .tools/python-3.13.7/python.exe -m unittest discover -s tests -p 'test_*.py'
 .tools/actionlint-1.7.12/actionlint.exe .github/workflows/*.yml
 ```
@@ -50,6 +50,14 @@ python.org 3.13.7 embeddable archive, and actionlint 1.7.12 under the ignored
   the seal timer showed no timer for it and the "no seal" picture stayed up
   in combat. With its IDs added (0.1.2-beta), the timer works (confirmed on
   a Paladin).
+
+- Proc sounds and the Nightfall hand-over: the author's Warlock tests passed
+  (0.3.0-beta with Warlock Tools Forever 0.3.3-beta).
+- Reactive-ability probe on a Protection Warrior: `C_Spell.IsSpellUsable` for
+  Revenge was readable in combat (`secret=no`), changing on
+  `SPELL_UPDATE_USABLE`; no `SPELL_ACTIVATION_OVERLAY_GLOW_SHOW`/`_HIDE`
+  came. Overpower is assumed the same, not yet seen. Flurry could not be
+  tested on that Warrior (it stays off by default).
 
 ### Carried over from MTF and WTF
 
@@ -120,6 +128,23 @@ the check.
   `name=` for every chime spell, never `nil`.
 - Open: whether `C_Spell.GetSpellCooldown` stays readable right after an
   out-of-combat cast for every class's spells.
+
+### Proc sounds: Classic IDs to confirm in client
+
+Started from Classic's buff IDs (author). None is confirmed on Forever: no
+source names the proc buffs' IDs (ForeverAuras lists only spells the author
+has had; TalentsForeverBook says Forever changed Nightfall, Nature's Grace,
+and Flurry). DBR confirms an ID in client the first time the buff is on you
+out of combat; `/dbr debug` then shows `status=confirmed` and `learned=`.
+
+| Proc | Buff | Classic IDs |
+|---|---|---|
+| Warlock Nightfall | Shadow Trance | 17941 |
+| Mage Arcane Concentration | Clearcasting | 12536 |
+| Druid Omen of Clarity | Clearcasting | 16870 |
+| Druid Nature's Grace | Nature's Grace | 16886 |
+| Shaman Elemental Focus | Clearcasting | 16246 |
+| Warrior Flurry | Flurry | 12966, 12967, 12968, 12969, 12970 |
 
 ## In-client checklist
 
@@ -192,3 +217,22 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       with the same settings.
 - [ ] With MTF on a Mage (or WTF on a Warlock) that still chimes: DBR says
       once at login to turn theirs off; with theirs off, it says nothing.
+- [ ] Proc sounds, one class at a time: `/dbr` shows a "Proc Sounds" section
+      with one row per proc; the sound menu lists only file sounds; choosing
+      one plays it. Switch the proc on, get the proc in combat: the sound
+      plays. After the fight, while the buff is still on you (or the next time
+      it is on you out of combat), `/dbr debug` shows `status=confirmed` with
+      `learned=` the buff's ID. Report each proc's `debug procs` line.
+- [ ] Mage Clearcasting: note whether the game's own sound also plays, with
+      DBR's switch on and off.
+- [ ] Warlock with Warlock Tools Forever: on DBR's first run, "Copied your
+      Nightfall sound setting from Warlock Tools Forever"; with WTF's
+      Nightfall still on, note whether you hear it twice (until WTF stands
+      aside for DBR).
+- [ ] Reactive-ability probe, on a Warrior (then a Rogue and a Hunter):
+      `/dbr probe on` lists the spells you know. Fight until a dodge (Overpower)
+      or a block/dodge/parry (Revenge), and a target under 20% (Execute): a
+      line says `usable=true`, then `false` again, with `secret=` and
+      `combat=`; any `probe glow` lines with a spell ID. Report whether the
+      lines show `secret=no` in combat, and whether any glow lines appear.
+      `/dbr probe off` stops it.

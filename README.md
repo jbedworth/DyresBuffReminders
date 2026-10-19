@@ -86,6 +86,32 @@ so on).
   Forever. Dyre's Cooldown Chimes is now part of DBR: remove its folder;
   while it is installed, it plays the chimes and DBR plays none.
 
+## Proc sounds
+
+A sound the moment a proc appears on you, so you can use it, also in combat:
+
+| Class | Procs |
+|---|---|
+| Warlock | **Nightfall** (Shadow Trance: your next Shadow Bolt is instant), off at first |
+| Mage | **Clearcasting** (Arcane Concentration), off at first: the game already plays a sound for it |
+| Druid | **Nature's Grace**, on; **Clearcasting** (Omen of Clarity), off at first |
+| Shaman | **Clearcasting** (Elemental Focus), off at first |
+| Warrior | **Flurry**, off at first |
+
+- Each proc has its own switch and sound, on one row; only sounds the game
+  can play for a buff are listed (files, not interface sounds or Text to
+  Speech). **Proc sounds** turns them all off.
+- The game plays the sound itself when the buff appears, because AddOns
+  cannot read your buffs in combat. During a boss encounter the game does not
+  let AddOns change these sounds, so a change you make then applies after it.
+- DBR starts from Classic's spell IDs and checks them in game: the first
+  time a proc's buff is on you out of combat (for example right after a
+  fight), DBR reads its real ID and uses it from then on.
+- On a Warlock, your Nightfall sound setting carries over from Warlock Tools
+  Forever on the first run. From its 0.3.3-beta on, Warlock Tools Forever
+  leaves Nightfall to DBR; with an older one still playing it, DBR says so
+  once at login.
+
 ## With Mage Tools Forever or Warlock Tools Forever
 
 Both have these reminders and cooldown chimes too. From their 0.3.0-beta on,
@@ -104,7 +130,8 @@ reminders" switch, or DBR's.
 | `/dbr`, `/dbr options` | Opens the settings (out of combat): the buff reminders, then the cooldown chimes |
 | `/dbr unlock`, `/dbr lock` | Unlocks the icons to drag them, and locks them again |
 | `/dbr reset` | Moves the icons back to their default places and sizes |
-| `/dbr debug` | Diagnostics: each reminder, who lacks it, what a click casts, and any spell IDs the client does not know; the seal timer; and each chime spell, Dyre's Sounds, and the latest chime events |
+| `/dbr debug` | Diagnostics: each reminder, who lacks it, what a click casts, and any spell IDs the client does not know; the seal timer; each chime spell, Dyre's Sounds, and the latest chime events; and each proc, its spell IDs, and whether it is confirmed in game |
+| `/dbr probe on`, `/dbr probe off` | A test aid: chat lines when a Warrior's, Rogue's, or Hunter's reactive abilities (Overpower, Revenge, Execute, Riposte, Mongoose Bite, Counterattack) become usable or glow; off by default |
 
 `/buffreminders` works the same, in case another AddOn uses `/dbr`.
 
@@ -114,7 +141,8 @@ Beta, for the Forever beta client 1.60.1 (Interface 16001). DBR keeps working
 on later beta builds; if a client update removes an API it needs, it says so
 in chat and stays off.
 
-**Verified in client:** the Paladin seal timer, with Seal of Fury.
+**Verified in client:** the Paladin seal timer, with Seal of Fury; the proc
+sounds on a Warlock (Nightfall).
 
 **Not yet verified in client:** the rest. The reminders come from Mage Tools
 Forever and Warlock Tools Forever and the chimes from Dyre's Cooldown Chimes,

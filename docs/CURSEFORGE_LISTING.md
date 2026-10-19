@@ -23,7 +23,7 @@ tested.
 
 ## Summary
 
-A pulsing icon for each class buff missing on you or your group, and a chime just before your cooldowns are ready, in World of Warcraft: Forever.
+A pulsing icon for each class buff missing on you or your group, a chime just before your cooldowns are ready, and a sound when your procs fire, in World of Warcraft: Forever.
 
 ## Description
 
@@ -61,6 +61,9 @@ The game does not let AddOns read buffs in combat, so the icons hide when a figh
 
 ### Cooldown chimes
 A sound just before your chosen spells are ready again, also in combat, for every class. Every rank of a spell counts, unlike the Cooldown Manager on Forever. Each spell has its own switch and sound (Text to Speech can say "Blink ready"), and you choose how early it chimes. The sounds come from **Dyre's Sounds**, which installs with it.
+
+### Proc sounds
+A sound the moment a proc appears on you, also in combat: Nightfall, Clearcasting, Nature's Grace, and Flurry. Each has its own switch and sound.
 
 ### Move them where you like
 Unlock to drag each icon and scroll to resize it. Icons snap beside each other, and a grid helps you line them up. `/dbr reset` puts them back. Settings are saved per character.

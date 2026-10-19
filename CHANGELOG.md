@@ -5,6 +5,14 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 0.3.0-beta
+
+- New: proc sounds. A sound the moment a proc appears on you, also in combat: a Warlock's Nightfall (Shadow Trance), Clearcasting for Mages, Druids, and Shamans, a Druid's Nature's Grace, and a Warrior's Flurry. Each has its own switch and sound (only sounds the game can play for a buff); turn them all on or off under "Proc Sounds" in `/dbr`.
+- On at first: Nature's Grace. Off at first: Nightfall (as in Warlock Tools Forever), Clearcasting (on a Mage the game already plays a sound for it), and Flurry.
+- On a Warlock, your Nightfall sound setting carries over from Warlock Tools Forever. With a Warlock Tools Forever older than 0.3.3-beta that still plays Nightfall, DBR says so once, so you can turn one off or update it.
+- DBR checks each proc's spell ID in game the first time the buff is on you out of combat, so a proc Forever changed still sounds.
+- A test aid, off by default: `/dbr probe on` says in chat when a Warrior's, Rogue's, or Hunter's reactive abilities (Overpower, Revenge, Execute, Riposte, Mongoose Bite, Counterattack) become usable, for a planned tracker bar. `/dbr probe off` stops it.
+
 ## 0.2.0-beta
 
 - New: cooldown chimes, from Dyre's Cooldown Chimes, which is now part of Dyre's Buff Reminders. A sound just before your chosen spells are ready again, also in combat, for every class. Every rank of a spell counts. Each spell has its own switch and sound; turn them all on or off under "Cooldown Chimes" in `/dbr`.

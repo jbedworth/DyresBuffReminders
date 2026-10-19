@@ -84,6 +84,16 @@ name("Evasion", 5277)
 name("Vanish", 1856)
 name("Preparation", 14185)
 name("Death Coil", 6789)
+-- Proc buffs (Classic IDs).
+name("Shadow Trance", 17941)
+name("Clearcasting", 12536, 16870, 16246)
+name("Nature's Grace", 16886)
+name("Flurry", 12966, 12967, 12968, 12969, 12970)
+-- Reactive abilities (Classic rank 1).
+name("Overpower", 7384)
+name("Revenge", 6572)
+name("Execute", 5308)
+name("Riposte", 14251)
 local BLINK, FROST_NOVA, FROST_NOVA_4, COLD_SNAP, FIREBALL = 1953, 122, 10230, 12472, 133
 local KICK_2, SPRINT, PREPARATION = 1767, 2983, 14185
 local SIBLING_SOUNDS = "../DyresSounds"
@@ -112,7 +122,10 @@ end
 -- when state.voice is set, as the library offers it only with a voice.
 local function fakeSounds(state, contract)
     local labels = {talent = "Interface: Talent ready", magical = "Dyre's Picks: Magical disappear",
-        voice = "Text to Speech"}
+        voice = "Text to Speech", impspell = "Imp: Spell chirp"}
+    -- As Dyre's Sounds: only file sounds can be aura sounds.
+    local files = {magical = {soundFileName = "Interface\\AddOns\\DyresSounds\\Sounds\\MagicalDisappear.mp3"},
+        impspell = {soundFileID = 639156}}
     local aliases = {effectmagical = "magical"}
     local library = {}
     function library.RequireContract(minimum)
@@ -137,11 +150,16 @@ local function fakeSounds(state, contract)
         state.played[#state.played + 1] = {key = key, speech = speech, at = state.now}
         return true
     end
-    function library.Choices()
+    function library.Choices(filter)
+        state.choicesFilters = state.choicesFilters or {}
+        state.choicesFilters[#state.choicesFilters + 1] = filter or "all"
         return function() return {{value = "talent"}, {value = "magical"}} end
     end
-    function library.SetupMenu(initializer)
-        initializer.nestedMenu = true
+    function library.AuraSound(key)
+        return files[library.Resolve(key) or ""]
+    end
+    function library.SetupMenu(initializer, filter)
+        initializer.nestedMenu, initializer.menuFilter = true, filter
     end
     if not state.soundsWithoutCheckboxMenu then
         -- Dyre's Sounds 0.1.2-beta: the nested menu on a checkbox-and-dropdown row.
@@ -213,7 +231,9 @@ local function fixture(options)
         if template == "CustomAuraContainerTemplate" and not options.noAuraContainer then return {} end
     end}
     env.Enum = {StatusBarTimerDirection = {ElapsedTime = 0, RemainingTime = 1},
-        SpellBookSpellBank = {Player = 0}, SpellBookItemType = {None = 0, Spell = 1, FutureSpell = 2}}
+        SpellBookSpellBank = {Player = 0}, SpellBookItemType = {None = 0, Spell = 1, FutureSpell = 2},
+        UnitAuraSoundTrigger = {Added = 0, ApplicationsIncreased = 1, Removed = 2},
+        AddOnRestrictionType = {Combat = 0, Encounter = 1, Chat = 5}}
     env.GetTime = function() return state.now end
     env.InCombatLockdown = function() return state.combat end
     env.issecretvalue = function(value) return state.secrets[value] == true end
@@ -248,6 +268,13 @@ local function fixture(options)
     env.C_Spell = {
         GetSpellName = function(id) if SPELLS[id] then return SPELLS[id] end end,
         GetSpellTexture = function(id) return 2000 + id end,
+        -- state.usable[name] is {usable, noMana}, or "secret" for secret answers.
+        IsSpellUsable = function(spell)
+            local answer = state.usable and state.usable[spell]
+            if answer == "secret" then return state.secret(), state.secret() end
+            if answer then return answer[1], answer[2] end
+            return false, false
+        end,
         GetSpellCooldown = function(id)
             if state.combat then
                 return {startTime = state.secret(), duration = state.secret(), isEnabled = true}
@@ -295,9 +322,34 @@ local function fixture(options)
             local buff = data and data.buffs and data.buffs[spell]
             if buff == "secret" then return {name = spell, expirationTime = state.secret()} end
             if type(buff) == "number" then return {name = spell, duration = 1800, expirationTime = buff} end
+            if type(buff) == "table" then return {name = spell, spellId = buff.spellId, expirationTime = 0} end
             if buff then return {name = spell, duration = 0, expirationTime = 0} end
         end,
     }
+    -- The game's aura sounds: registrations by handle; refused during an encounter.
+    state.auraSounds, state.auraSoundCount = {}, 0
+    if not options.noAuraSounds then
+        env.C_UnitAuras.AddAuraSound = function(trigger, info)
+            if state.encounter then error("AddAuraSound during an encounter") end
+            state.auraSoundCount = state.auraSoundCount + 1
+            state.auraSounds[state.auraSoundCount] = {trigger = trigger, info = info}
+            return state.auraSoundCount
+        end
+        env.C_UnitAuras.RemoveAuraSound = function(handle)
+            if state.encounter then error("RemoveAuraSound during an encounter") end
+            state.auraSounds[handle] = nil
+        end
+    end
+    env.C_RestrictedActions = {IsAddOnRestrictionActive = function(kind)
+        return kind == 1 and state.encounter == true
+    end}
+    -- The spell IDs with a registered aura sound, sorted.
+    function state.soundIDs()
+        local ids = {}
+        for _, entry in pairs(state.auraSounds) do ids[#ids + 1] = entry.info.spellID end
+        table.sort(ids)
+        return table.concat(ids, ",")
+    end
     env.C_Timer = {After = function(seconds, callback)
         state.timers[#state.timers + 1] = {at = state.now + seconds, callback = callback}
     end}
@@ -675,7 +727,8 @@ end
 
 test("the TOC loads every runtime file in order, with the release metadata", function()
     equal(table.concat(RUNTIME_FILES, ","),
-        "Commands.lua,Core.lua,Layout.lua,Buffs.lua,Reminders.lua,Seals.lua,ChimeSpells.lua,Chimes.lua,Options.lua")
+        "Commands.lua,Core.lua,Layout.lua,Buffs.lua,Reminders.lua,Seals.lua,ChimeSpells.lua,Chimes.lua,"
+            .. "ProcSpells.lua,Procs.lua,Probe.lua,Options.lua")
     local text = assert(io.open(ADDON .. ".toc")):read("*a")
     contains(text, "## OptionalDeps: DyresSounds")
     equal(text:find("## Dependencies", 1, true), nil, "never a hard dependency")
@@ -692,7 +745,7 @@ test("login says the version and author, and that DBR is ready", function()
 end)
 test("a mixed install stays off and says what to do", function()
     local state = fixture({files = {"Commands.lua", "Core.lua", "Layout.lua", "Buffs.lua", "Seals.lua",
-        "ChimeSpells.lua", "Chimes.lua", "Options.lua"}})
+        "ChimeSpells.lua", "Chimes.lua", "ProcSpells.lua", "Procs.lua", "Options.lua"}})
     equal(state.dbr.available, false)
     contains(state.last(), "missing ClassReminders")
     state.clear()
@@ -701,10 +754,13 @@ test("a mixed install stays off and says what to do", function()
     state.slash("debug")
     contains(state.messages[2], "available=false", "debug still runs")
     local noBuffs = fixture({files = {"Commands.lua", "Core.lua", "Layout.lua", "Reminders.lua", "Seals.lua", "Options.lua"}})
-    contains(noBuffs.last(), "missing Buffs.lua, Seals.lua, or ChimeSpells.lua")
+    contains(noBuffs.last(), "missing Buffs.lua, Seals.lua, ChimeSpells.lua, or ProcSpells.lua")
     local noChimes = fixture({files = {"Commands.lua", "Core.lua", "Layout.lua", "Buffs.lua", "Reminders.lua",
-        "Seals.lua", "ChimeSpells.lua", "Options.lua"}})
+        "Seals.lua", "ChimeSpells.lua", "ProcSpells.lua", "Procs.lua", "Options.lua"}})
     contains(noChimes.last(), "missing ClassChimes")
+    local noProcs = fixture({files = {"Commands.lua", "Core.lua", "Layout.lua", "Buffs.lua", "Reminders.lua",
+        "Seals.lua", "ChimeSpells.lua", "Chimes.lua", "ProcSpells.lua", "Options.lua"}})
+    contains(noProcs.last(), "missing ClassProcs")
 end)
 test("a client without a required API stays off", function()
     local state = fixture({remove = {"RegisterStateDriver"}})
@@ -717,7 +773,7 @@ test("commands are one word, and anything else shows the usage", function()
         state.clear()
         state.slash(text)
         equal(state.last(), "DBR: Use /dbr (the settings, with the buff reminders and cooldown chimes), "
-            .. "/dbr unlock, /dbr lock, /dbr reset, or /dbr debug.")
+            .. "/dbr unlock, /dbr lock, /dbr reset, /dbr debug, or /dbr probe on|off.")
     end
     state.slash("")
     equal(state.opened, "id:Dyre's Buff Reminders")
@@ -1684,7 +1740,9 @@ test("the settings page: a Cooldown Chimes section with its own switch, lead, an
     equal(state.chimes().spells.blink, false)
     local count = 0
     for _, row in ipairs(page.initializers) do
-        if row.kind == "checkboxdropdown" then count = count + 1 end
+        if row.kind == "checkboxdropdown" and row.data.cbSetting.variable:find("^DBR_CHIME_") then
+            count = count + 1
+        end
     end
     equal(count, 15, "one row for every Mage spell")
     -- Dyre's Sounds 0.1.1 (no SetupCheckboxMenu), or a client without the row:
@@ -1883,6 +1941,305 @@ test("with an MTF or WTF that still chimes, the player is told once to turn thei
     local quiet = fixture({class = "WARLOCK", loaded = {WarlockToolsForever = true},
         db = {chimes = {enabled = false}}})
     equal(quiet.find("also plays"), nil)
+end)
+
+-- Proc sounds -------------------------------------------------------------------------------
+
+local NATURES_GRACE, DRUID_CLEARCASTING, SHADOW_TRANCE = 16886, 16870, 17941
+
+test("procs: the game plays a switched-on proc's sound, registered by its buff's IDs", function()
+    local state = fixture({class = "DRUID"})
+    equal(state.soundIDs(), tostring(NATURES_GRACE), "Nature's Grace is on by default; Clearcasting is off")
+    local entry = state.auraSounds[1]
+    equal(entry.trigger, 0, "when the buff is added")
+    equal(entry.info.unitToken, "player")
+    equal(entry.info.outputChannel, "master")
+    equal(entry.info.throttleSeconds, 1)
+    contains(entry.info.soundFileName, "MagicalDisappear.mp3", "the default proc sound, a file")
+    state.settings.DBR_PROC_DRUIDCLEARCASTING:SetValue(true)
+    equal(state.soundIDs(), DRUID_CLEARCASTING .. "," .. NATURES_GRACE)
+    state.settings.DBR_PROC_NATURESGRACE:SetValue(false)
+    equal(state.soundIDs(), tostring(DRUID_CLEARCASTING))
+    state.settings.DBR_PROCS_ENABLED:SetValue(false)
+    equal(state.soundIDs(), "", "the section's switch removes them all")
+    local warrior = fixture({class = "WARRIOR"})
+    equal(warrior.soundIDs(), "", "Flurry is off by default")
+    warrior.settings.DBR_PROC_FLURRY:SetValue(true)
+    equal(warrior.soundIDs(), "12966,12967,12968,12969,12970", "every rank's buff ID")
+    local mage = fixture()
+    equal(mage.soundIDs(), "", "Mage Clearcasting is off by default (the game plays a sound for it)")
+    equal(fixture({class = "PRIEST"}).soundIDs(), "", "no procs for a Priest")
+end)
+test("procs: only IDs the client names as the buff are used", function()
+    local saved = SPELLS[NATURES_GRACE]
+    SPELLS[NATURES_GRACE] = "Something Else"
+    local ok, message = pcall(function()
+        local state = fixture({class = "DRUID"})
+        equal(state.soundIDs(), "", "a listed ID with another name is left out")
+        state.slash("debug")
+        contains(state.find("debug procs naturesgrace"), "ids=16886=Something Else")
+        contains(state.find("debug procs naturesgrace"), "registered=none status=unverified")
+    end)
+    SPELLS[NATURES_GRACE] = saved
+    equal(ok, true, tostring(message))
+end)
+test("procs: out of combat the real buff ID is read, saved, and registered; never in combat", function()
+    local state = fixture({class = "DRUID"})
+    state.slash("debug")
+    contains(state.find("debug procs naturesgrace"), "learned=nil registered=16886 status=unverified")
+    state.combat = true
+    state.buff("player", "Nature's Grace", {spellId = 990016})
+    local reads = state.auraReads
+    state.emit("UNIT_AURA", "player")
+    equal(state.auraReads, reads, "no aura read in combat")
+    equal(state.dbr.db.procs.learned.naturesgrace, nil)
+    state.combat = false
+    state.emit("PLAYER_REGEN_ENABLED")
+    equal(state.dbr.db.procs.learned.naturesgrace, 990016, "read after the fight, while the buff is still up")
+    equal(state.soundIDs(), "16886,990016", "Forever's own ID joins the Classic one")
+    state.clear()
+    state.slash("debug")
+    contains(state.find("debug procs naturesgrace"), "learned=990016 registered=16886,990016 status=confirmed")
+    local again = fixture({class = "DRUID", db = state.dbr.db})
+    equal(again.soundIDs(), "16886,990016", "the learned ID is kept across sessions")
+    local same = fixture({class = "DRUID"})
+    same.buff("player", "Nature's Grace", {spellId = NATURES_GRACE})
+    same.emit("UNIT_AURA", "player")
+    equal(same.dbr.db.procs.learned.naturesgrace, NATURES_GRACE, "the Classic ID confirmed")
+    equal(same.soundIDs(), tostring(NATURES_GRACE), "registered once")
+    local hidden = fixture({class = "DRUID"})
+    hidden.buff("player", "Nature's Grace", {spellId = hidden.secret()})
+    hidden.emit("UNIT_AURA", "player")
+    equal(hidden.dbr.db.procs.learned.naturesgrace, nil, "a secret ID is not read")
+    hidden.units.player.secretAuras = true
+    hidden.emit("UNIT_AURA", "player")
+    equal(hidden.dbr.db.procs.learned.naturesgrace, nil, "a secret aura is not read")
+    local off = fixture({class = "DRUID"})
+    off.buff("player", "Clearcasting", {spellId = 990017})
+    off.emit("UNIT_AURA", "player")
+    equal(off.dbr.db.procs.learned.druidclearcasting, nil, "a switched-off proc is not read")
+end)
+test("procs: during a boss encounter registration waits until it ends", function()
+    local state = fixture({class = "DRUID"})
+    equal(state.soundIDs(), tostring(NATURES_GRACE))
+    state.encounter = true
+    state.settings.DBR_PROC_DRUIDCLEARCASTING:SetValue(true)
+    equal(state.soundIDs(), tostring(NATURES_GRACE), "nothing changes during the encounter")
+    state.clear()
+    state.slash("debug")
+    contains(state.find("debug procs enabled="), "deferred=true")
+    state.encounter = false
+    state.emit("ADDON_RESTRICTION_STATE_CHANGED")
+    equal(state.soundIDs(), DRUID_CLEARCASTING .. "," .. NATURES_GRACE)
+end)
+test("procs: the settings page has a Proc Sounds section, one row per proc, aura sounds only", function()
+    local state = fixture({class = "DRUID"})
+    local headings = {}
+    for _, heading in ipairs(state.headings) do headings[#headings + 1] = heading.heading end
+    equal(table.concat(headings, "|"), "Buff Reminders|Cooldown Chimes|Proc Sounds")
+    local switch, switchAt = state.row("DBR_PROCS_ENABLED")
+    local _, chimesAt = state.row("DBR_CHIMES_ENABLED")
+    equal(switchAt > chimesAt, true, "after the cooldown chimes")
+    local grace = state.row("DBR_PROC_NATURESGRACE")
+    equal(grace.kind, "checkboxdropdown")
+    equal(grace.menuFilter, "aura", "only sounds the game can play for a buff")
+    equal(grace.parentInitializer, switch)
+    equal(grace.data.cbLabel, "Nature's Grace")
+    equal(state.row("DBR_PROC_DRUIDCLEARCASTING").data.cbLabel, "Clearcasting (Omen of Clarity)")
+    local found = false
+    for _, filter in ipairs(state.choicesFilters) do found = found or filter == "aura" end
+    equal(found, true, "the choices are the aura sounds")
+    grace.data.dropdownSetting:SetValue("talent")
+    equal(state.dbr.db.procs.sounds.naturesgrace, "magical", "a sound kit cannot be an aura sound")
+    local played = #state.played
+    grace.data.dropdownSetting:SetValue("impspell")
+    equal(state.dbr.db.procs.sounds.naturesgrace, "impspell")
+    equal(#state.played, played + 1, "a preview")
+    equal(state.auraSounds[state.auraSoundCount].info.soundFileID, 639156, "registered again with the new sound")
+    local old = fixture({class = "DRUID", soundsWithoutCheckboxMenu = true})
+    local oldSwitch, oldDropdown = old.row("DBR_PROC_NATURESGRACE"), old.row("DBR_PROC_NATURESGRACE_SOUND")
+    equal(oldDropdown.parentInitializer, oldSwitch, "two rows with Dyre's Sounds 0.1.1")
+    equal(oldDropdown.menuFilter, "aura")
+    for _, other in ipairs({fixture({class = "PRIEST"}), fixture({class = "DRUID", noAuraSounds = true})}) do
+        equal(other.row("DBR_PROCS_ENABLED"), nil, "no section without procs or aura sounds")
+    end
+end)
+test("procs: first run on a Warlock copies WTF's Nightfall sound setting, once", function()
+    local wtf = {alerts = {nightfall = true, nightfallSound = "magical"}}
+    local state = fixture({class = "WARLOCK", known = {[687] = true}, loaded = {WarlockToolsForever = true},
+        globals = {WarlockToolsForeverDB = wtf}})
+    equal(state.dbr.db.procs.spells.nightfall, true)
+    equal(state.dbr.db.procs.sounds.nightfall, "magical")
+    equal(state.count("Copied your Nightfall sound setting from Warlock Tools Forever."), 1)
+    equal(state.soundIDs(), tostring(SHADOW_TRANCE))
+    equal(wtf.alerts.nightfall, true, "WTF's settings are only read")
+    local again = fixture({class = "WARLOCK", globals = {WarlockToolsForeverDB = wtf},
+        db = {procs = {spells = {nightfall = false}}}})
+    equal(again.dbr.db.procs.spells.nightfall, false, "only on the first run")
+    equal(again.find("Copied your Nightfall"), nil)
+    local fresh = fixture({class = "WARLOCK"})
+    equal(fresh.dbr.db.procs.spells.nightfall, false, "off by default, as in WTF")
+    equal(fresh.dbr.db.procs.sounds.nightfall, "impspell", "WTF's default sound")
+end)
+test("procs: an older WTF that still plays Nightfall gets one warning; DBR keeps playing", function()
+    local wtf = {alerts = {nightfall = true, nightfallSound = "impspell"}}
+    for _, version in ipairs({"0.3.2-beta", "0.3.2", "0.2.2-beta", "bad"}) do
+        local state = fixture({class = "WARLOCK", loaded = {WarlockToolsForever = true},
+            versions = {WarlockToolsForever = version}, globals = {WarlockToolsForeverDB = wtf}})
+        equal(state.count("Warlock Tools Forever also plays the Nightfall sound"), 1, "WTF " .. version)
+        local message = state.find("also plays the Nightfall sound")
+        equal(message, "DBR: Warlock Tools Forever also plays the Nightfall sound, so you may hear it twice. "
+            .. "Turn off its Nightfall sound, or update it: get it from CurseForge.")
+        equal(message:lower():find("github", 1, true), nil, "CurseForge only")
+        equal(state.soundIDs(), tostring(SHADOW_TRANCE), "DBR still plays it, as with older MTF and WTF chimes")
+        state.clear()
+        state.slash("debug")
+        contains(state.find("debug procs enabled="), "otherProcs=Warlock Tools Forever")
+    end
+    for _, version in ipairs({"0.3.3-beta", "0.3.10", "0.4.0", "1.0.0"}) do
+        local aside = fixture({class = "WARLOCK", loaded = {WarlockToolsForever = true},
+            versions = {WarlockToolsForever = version}, globals = {WarlockToolsForeverDB = wtf}})
+        equal(aside.find("also plays the Nightfall sound"), nil, "WTF " .. version .. " stands aside for DBR")
+    end
+    local off = fixture({class = "WARLOCK", loaded = {WarlockToolsForever = true},
+        versions = {WarlockToolsForever = "0.3.2-beta"},
+        globals = {WarlockToolsForeverDB = {alerts = {nightfall = false}}}})
+    equal(off.find("also plays the Nightfall sound"), nil, "not when WTF's Nightfall is off")
+    local dbrOff = fixture({class = "WARLOCK", loaded = {WarlockToolsForever = true},
+        versions = {WarlockToolsForever = "0.3.2-beta"}, globals = {WarlockToolsForeverDB = wtf},
+        db = {procs = {spells = {nightfall = false}}}})
+    equal(dbrOff.find("also plays the Nightfall sound"), nil, "not when DBR's Nightfall is off")
+    local mage = fixture({loaded = {WarlockToolsForever = true}, versions = {WarlockToolsForever = "0.3.2-beta"},
+        globals = {WarlockToolsForeverDB = wtf}})
+    equal(mage.find("also plays the Nightfall sound"), nil, "WTF runs only on a Warlock")
+end)
+test("procs: without Dyre's Sounds nothing registers, and DBR says once to install it", function()
+    local state = fixture({class = "DRUID", sounds = "none", db = {chimes = {enabled = false}}})
+    equal(state.soundIDs(), "")
+    equal(state.count("Install Dyre's Sounds to hear the cooldown chimes and proc sounds."), 1,
+        "Nature's Grace is on, so the sounds are wanted even with the chimes off")
+    local quiet = fixture({class = "PRIEST", sounds = "none", db = {chimes = {enabled = false}}})
+    equal(quiet.find("Install Dyre's Sounds"), nil)
+end)
+test("procs: saved settings are repaired, and the proc list is well formed", function()
+    local state = fixture({db = {procs = {enabled = "x", spells = {naturesgrace = "on", flurry = true},
+        sounds = {naturesgrace = "talent", flurry = 5}, learned = {naturesgrace = "16886", flurry = 1.5,
+        nightfall = 17941}}}})
+    local procs = state.dbr.db.procs
+    equal(procs.enabled, true)
+    equal(procs.spells.naturesgrace, true, "a damaged switch takes its default")
+    equal(procs.spells.flurry, true, "a saved switch is kept")
+    equal(procs.sounds.naturesgrace, "magical", "only aura sounds")
+    equal(procs.sounds.flurry, "magical")
+    equal(procs.learned.naturesgrace, nil)
+    equal(procs.learned.flurry, nil)
+    equal(procs.learned.nightfall, 17941)
+    local keys = {}
+    for class, list in pairs(state.dbr.PROC_SOUNDS) do
+        for _, proc in ipairs(list) do
+            equal(keys[proc.key], nil, "unique key " .. proc.key)
+            keys[proc.key] = class
+            equal(type(proc.buff), "string", proc.key)
+            equal(type(proc.label), "string", proc.key)
+            equal(type(proc.on), "boolean", proc.key)
+            equal(#proc.spells > 0, true, proc.key)
+        end
+    end
+    equal(keys.nightfall, "WARLOCK")
+    equal(keys.flurry, "WARRIOR")
+end)
+
+-- Reactive-ability probe (debug only) ------------------------------------------------------
+
+local OVERPOWER, REVENGE, EXECUTE = 7384, 6572, 5308
+
+local function probeLines(state)
+    local lines = {}
+    for _, message in ipairs(state.messages) do
+        if message:find("^DBR: probe ") then lines[#lines + 1] = message end
+    end
+    return lines
+end
+
+test("probe: off by default; on lists the known reactive spells and their state", function()
+    local state = fixture({class = "WARRIOR", known = {[OVERPOWER] = true, [REVENGE] = true}})
+    equal(state.dbr.db.probe, false)
+    equal(#probeLines(state), 0)
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#probeLines(state), 0, "nothing while off")
+    state.slash("probe on")
+    equal(state.dbr.db.probe, true, "saved per character")
+    contains(state.find("probe on:"), "Overpower, Revenge.", "only the spells you know (no Execute)")
+    contains(state.find("probe Overpower "), "usable=false noMana=false secret=no combat=no")
+    contains(state.find("probe Revenge "), "usable=false noMana=false secret=no combat=no")
+    state.slash("debug")
+    contains(state.find("debug probe "), "on=true spells=Overpower,Revenge")
+end)
+test("probe: one line only when a spell's usable state changes, in or out of combat", function()
+    local state = fixture({class = "WARRIOR", known = {[OVERPOWER] = true, [REVENGE] = true, [EXECUTE] = true}})
+    state.slash("probe on")
+    state.clear()
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#probeLines(state), 0, "no change, no line")
+    state.combat = true
+    state.usable = {Overpower = {true, false}}
+    state.emit("SPELL_UPDATE_USABLE")
+    state.emit("SPELL_UPDATE_USABLE")
+    local lines = probeLines(state)
+    equal(#lines, 1, "one line for one change")
+    equal(lines[1], "DBR: probe Overpower usable=true noMana=false secret=no combat=yes")
+    state.usable = {Overpower = {false, true}}
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(probeLines(state)[2], "DBR: probe Overpower usable=false noMana=true secret=no combat=yes")
+end)
+test("probe: a secret answer is reported as secret, never compared or printed", function()
+    local state = fixture({class = "WARRIOR", known = {[OVERPOWER] = true}})
+    state.slash("probe on")
+    state.clear()
+    state.combat = true
+    state.usable = {Overpower = "secret"}
+    state.emit("SPELL_UPDATE_USABLE")
+    state.emit("SPELL_UPDATE_USABLE")
+    local lines = probeLines(state)
+    equal(#lines, 1, "the secret state counts as one state")
+    equal(lines[1], "DBR: probe Overpower usable=secret noMana=secret secret=yes combat=yes")
+end)
+test("probe: spell glows are printed with their spell ID and name; secret IDs as secret", function()
+    local state = fixture({class = "WARRIOR", known = {[OVERPOWER] = true}})
+    state.slash("probe on")
+    state.clear()
+    state.emit("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW", OVERPOWER)
+    state.combat = true
+    state.emit("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE", OVERPOWER)
+    state.emit("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW", state.secret())
+    local lines = probeLines(state)
+    equal(lines[1], "DBR: probe glow show spellID=7384 name=Overpower combat=no")
+    equal(lines[2], "DBR: probe glow hide spellID=7384 name=Overpower combat=yes")
+    equal(lines[3], "DBR: probe glow show spellID=secret name=nil combat=yes")
+end)
+test("probe: off stops it; it starts again after a reload; output is capped", function()
+    local state = fixture({class = "WARRIOR", known = {[OVERPOWER] = true}})
+    state.slash("probe on")
+    state.slash("probe off")
+    equal(state.dbr.db.probe, false)
+    contains(state.last(), "probe off.")
+    state.clear()
+    state.emit("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW", OVERPOWER)
+    equal(#probeLines(state), 0, "nothing after off")
+    local again = fixture({class = "WARRIOR", known = {[OVERPOWER] = true}, db = {probe = true}})
+    equal(again.find("probe on:") ~= nil, true, "on again after a reload")
+    again.clear()
+    for _ = 1, 30 do again.emit("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW", OVERPOWER) end
+    equal(#probeLines(again), 19, "at most 20 lines per 10 seconds; the state line at login was one")
+    equal(again.count("too many lines"), 1)
+    again.advance(11)
+    again.emit("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW", OVERPOWER)
+    equal(#probeLines(again), 20, "lines again after the window")
+    local priest = fixture({class = "PRIEST"})
+    priest.slash("probe on")
+    contains(priest.find("probe on:"), "none known")
+    priest.slash("probe maybe")
+    contains(priest.last(), "/dbr probe on|off", "anything else shows the usage")
 end)
 
 local failed = 0

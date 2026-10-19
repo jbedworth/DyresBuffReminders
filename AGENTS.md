@@ -172,6 +172,55 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   author); DBR warns once about older ones
   with their chimes on.
 
+### Proc sounds (built; author-approved)
+
+- A sound when a proc buff appears on the player, also in combat, played by
+  the game: `C_UnitAuras.AddAuraSound` (trigger Added, `unitToken` player,
+  `outputChannel` master, `throttleSeconds` 1, one registration per buff ID,
+  the file from `DyresSounds.AuraSound`), as WTF plays Nightfall.
+  Registration waits out an Encounter restriction
+  (`C_RestrictedActions.IsAddOnRestrictionActive`) and runs again on
+  `ADDON_RESTRICTION_STATE_CHANGED`. Without the API the section is hidden.
+- Data in ProcSpells.lua `PROC_SOUNDS`, per class: key, label, buff (the
+  client's buff name), spells (Classic IDs; author: start with Classic's),
+  on, sound. Warlock Nightfall (Shadow Trance 17941, off, sound impspell, as
+  WTF); Mage Clearcasting 12536 (off: author, the game plays a sound for it);
+  Druid Clearcasting 16870 (off, same reason) and Nature's Grace 16886 (on);
+  Shaman Clearcasting 16246 (off); Warrior Flurry 12966-12970 (off). No source
+  confirmed these on Forever (ForeverAuras lists only spells the author has
+  had; TalentsForeverBook says Forever changed Nightfall, Nature's Grace, and
+  Flurry): an ID is used only when `C_Spell.GetSpellName` names it the buff,
+  and out of combat only (`UNIT_AURA` for the player, `PLAYER_REGEN_ENABLED`)
+  DBR reads `GetAuraDataBySpellName(player, buff).spellId` for switched-on
+  procs, saves it (`db.procs.learned`), and registers it too. Never read
+  auras in combat. `/dbr debug` shows confirmed (learned) or unverified.
+- Saved in `db.procs` (enabled, spells, sounds, learned). Sounds must be
+  aura sounds (files): menus use filter "aura"; a saved non-file key falls
+  back to the default (`magical`, Nightfall's `impspell`). First run (no
+  `db.procs`): on a Warlock, copy `WarlockToolsForeverDB.alerts.nightfall`
+  and `.nightfallSound` (read only). WTF's Nightfall stands aside for DBR
+  0.3.0+ from WTF 0.3.3-beta (`OTHER_PROCS`, `asideFrom` {0, 3, 3}); with an
+  older WTF whose Nightfall is on while DBR's is on too, DBR warns once at
+  login (naming only CurseForge to update) and keeps playing, as it treats
+  older MTF and WTF chimes (author's rule, chosen for consistency).
+- Settings: a "Proc Sounds" section after the chimes, for a class with
+  procs: Proc sounds, then one row per proc (switch and sound, aura filter),
+  with the same two-row fallback as the chimes.
+
+### Reactive-ability probe (debug only; author-approved for a test)
+
+- `/dbr probe on|off` (saved per character as `db.probe`, off by default; no
+  frames, no settings). While on, for the class's reactive spells you know
+  (`PROBE_SPELLS`: Warrior Overpower 7384, Revenge 6572, Execute 5308; Rogue
+  Riposte 14251; Hunter Mongoose Bite 1495, Counterattack 19306; asked for by
+  name), on `SPELL_UPDATE_USABLE` it reads `C_Spell.IsSpellUsable` and prints
+  one line only when a spell's state changes (usable, noMana, whether either
+  is secret, in combat or not); it prints each
+  `SPELL_ACTIVATION_OVERLAY_GLOW_SHOW`/`_HIDE` with its spellID and name.
+  State is kept as text, "secret" for a secret value, so nothing secret is
+  compared or printed. At most 20 lines per 10 seconds. It answers the
+  phase 2 questions in the notes for the tracker design (reactive abilities).
+
 ### Commands and settings
 
 - `/dbr` and `/dbr options` (not in combat), `unlock`, `lock`, `reset`,
@@ -192,20 +241,23 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   0.1.2-beta; Blizzard's control greys the sound while the switch is off).
   With an older Dyre's Sounds (no `SetupCheckboxMenu`) or a client without
   that initializer, the switch, then its dropdown on its own row nested under
-  it (`SetupMenu`). The settings and saved keys are the same either way. Section
-  headings appear where the client has
+  it (`SetupMenu`). The settings and saved keys are the same either way. Then
+  the "Proc Sounds" section (see above). Section headings appear where the
+  client has
   `CreateSettingsListSectionHeaderInitializer`.
 
 ## Project structure
 
 - Runtime files: DyresBuffReminders.toc, Commands.lua, Core.lua, Layout.lua,
   Buffs.lua, Reminders.lua, Seals.lua, ChimeSpells.lua, Chimes.lua,
-  Options.lua, loaded in that order. Commands parses `/dbr`; Core owns saved
+  ProcSpells.lua, Procs.lua, Probe.lua, Options.lua, loaded in that order. Commands
+  parses `/dbr`; Core owns saved
   settings and their repair, the login banner, install and API checks, slash
   conflict reporting, the lock and grid, and startup; Layout snaps frames;
   Buffs holds the buff lists; Reminders the icons; Seals the Paladin seal
   timer; ChimeSpells the chime lists; Chimes the chimes and Dyre's Sounds;
-  Options the settings page.
+  ProcSpells the proc lists; Procs the proc sounds; Probe the debug-only
+  reactive-ability probe; Options the settings page.
 - artwork/ holds the logo (SVG source, 1024 and 512 PNG renders) and
   screenshots/ for listings; it is never packaged.
 - tests/run.lua holds the Lua 5.1 mock suite. tests/test_*.py cover the
@@ -286,7 +338,7 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   and fails without it.
 - Package only DyresBuffReminders.toc, Commands.lua, Core.lua, Layout.lua,
   Buffs.lua, Reminders.lua, Seals.lua, ChimeSpells.lua, Chimes.lua,
-  Options.lua, and LICENSE under the top-level
+  ProcSpells.lua, Procs.lua, Probe.lua, Options.lua, and LICENSE under the top-level
   `DyresBuffReminders/` folder, named `DyresBuffReminders-<version>-forever.zip`,
   with the builder's BigWigs-format `release.json` (flavor `forever`) attached
   for WowUp.

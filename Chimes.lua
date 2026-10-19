@@ -72,17 +72,34 @@ end
 -- Where to get Dyre's Sounds: CurseForge only, for now (author-approved).
 local SOUNDS_WHERE = " Get it from CurseForge."
 local SOUNDS_MESSAGES = {
-    missing = "Install Dyre's Sounds to hear the cooldown chimes. Without it, DBR still times them but plays "
-        .. "nothing; the buff reminders work as usual." .. SOUNDS_WHERE,
-    old = "Update Dyre's Sounds to hear the cooldown chimes. This version is too old for DBR, so it plays "
-        .. "nothing." .. SOUNDS_WHERE,
+    missing = "Install Dyre's Sounds to hear the cooldown chimes and proc sounds. Without it, DBR still times "
+        .. "the chimes but plays nothing; the buff reminders work as usual." .. SOUNDS_WHERE,
+    old = "Update Dyre's Sounds to hear the cooldown chimes and proc sounds. This version is too old for DBR, "
+        .. "so it plays nothing." .. SOUNDS_WHERE,
 }
 
+-- Whether any sound on this character wants Dyre's Sounds: the chimes (on,
+-- with a class list) or a switched-on proc sound.
+local function WantsSounds(classFile)
+    if DBR.db.chimes.enabled and #DBR.ClassChimes(classFile) > 0 then
+        return true
+    end
+    local procs = DBR.db.procs
+    if procs and procs.enabled and DBR.ClassProcs then
+        for _, proc in ipairs(DBR.ClassProcs(classFile)) do
+            if procs.spells[proc.key] then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 -- Says once per session what to install when the sounds are missing, and only
--- to a player whose chimes are on and whose class has some.
+-- to a player with sounds on.
 function DBR.ReportMissingSounds(classFile)
     local library, state = DBR.SoundLibrary()
-    if library or DBR.soundsReported or not DBR.db.chimes.enabled or #DBR.ClassChimes(classFile) == 0 then
+    if library or DBR.soundsReported or not WantsSounds(classFile) then
         return
     end
     DBR.soundsReported = true
@@ -143,13 +160,15 @@ end
 
 -- Other AddOns' chimes ----------------------------------------------------------
 
-local function AddOnLoaded(name)
+-- Whether another AddOn is loaded; shared with Procs.
+function DBR.AddOnLoaded(name)
     if type(C_AddOns) ~= "table" or type(C_AddOns.IsAddOnLoaded) ~= "function" then
         return false
     end
     local loaded = C_AddOns.IsAddOnLoaded(name)
     return loaded == true
 end
+local AddOnLoaded = DBR.AddOnLoaded
 
 -- While Dyre's Cooldown Chimes is still installed, it plays the chimes and DBR
 -- plays none, so nothing chimes twice; DBR says once to remove it.
@@ -170,7 +189,8 @@ DBR.OTHER_CHIMES = {
 
 -- Whether another AddOn's TOC version (major.minor.patch) is at least the one
 -- that stands aside for DBR. A version that cannot be read counts as older.
-local function StandsAside(other)
+-- Shared with Procs.
+function DBR.StandsAside(other)
     if type(C_AddOns) ~= "table" or type(C_AddOns.GetAddOnMetadata) ~= "function" then
         return false
     end
@@ -192,7 +212,7 @@ end
 function DBR.OtherChimes(classFile)
     local titles = {}
     for _, other in ipairs(DBR.OTHER_CHIMES) do
-        if other.class == classFile and AddOnLoaded(other.addon) and not StandsAside(other) then
+        if other.class == classFile and AddOnLoaded(other.addon) and not DBR.StandsAside(other) then
             local saved = rawget(_G, other.db)
             local otherChimes = type(saved) == "table" and saved.chimes
             -- Their chimes are on by default.

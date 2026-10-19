@@ -21,7 +21,8 @@ from pathlib import Path
 
 ADDON = "DyresBuffReminders"
 RUNTIME_FILES = ("Commands.lua", "Core.lua", "Layout.lua", "Buffs.lua", "Reminders.lua", "Seals.lua",
-                 "ChimeSpells.lua", "Chimes.lua", "Options.lua")
+                 "ChimeSpells.lua", "Chimes.lua", "ProcSpells.lua", "Procs.lua", "Probe.lua",
+                 "Options.lua")
 TEXT_FILES = (ADDON + ".toc",) + RUNTIME_FILES + ("LICENSE",)
 PACKAGE_FILES = TEXT_FILES
 # Release metadata: the TOC Interface, CurseForge game version, and the build last
@@ -248,7 +249,8 @@ def _release_notes(version, changes):
   icon for each class buff missing on you or your group, or about to run out,
   out of combat. Click it to cast the buff. Paladins also get a seal timer.
 - Cooldown chimes for every class: a sound just before your chosen spells are
-  ready again, also in combat. The sounds come from Dyre's Sounds.
+  ready again, also in combat, and proc sounds (Clearcasting, Nightfall, and
+  so on). The sounds come from Dyre's Sounds.
 - Settings in Options > AddOns, or `/dbr`; `/dbr unlock` to move the icons.
 '''
 
