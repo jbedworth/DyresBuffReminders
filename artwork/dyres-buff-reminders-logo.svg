@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
+  <title id="title">Dyre's Buff Reminders</title>
+  <desc id="description">An original emblem: a gold-framed hourglass tilted 30 degrees, its last glowing sand slipping through the neck, on a blue buff icon whose glowing gold border pulses outward in fading rings, on a rich dark-brown field framed by a fine gold border.</desc>
+  <defs>
+    <radialGradient id="background" cx="50%" cy="42%" r="70%">
+      <stop offset="0" stop-color="#49301c"/>
+      <stop offset="0.6" stop-color="#2b190f"/>
+      <stop offset="1" stop-color="#170e09"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f4d38b"/>
+      <stop offset="0.32" stop-color="#d5a956"/>
+      <stop offset="0.64" stop-color="#96703a"/>
+      <stop offset="1" stop-color="#e9bf6a"/>
+    </linearGradient>
+    <linearGradient id="sand" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff0a8"/>
+      <stop offset="0.5" stop-color="#ffcf4a"/>
+      <stop offset="1" stop-color="#d9962a"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#dff0ff" stop-opacity="0.42"/>
+      <stop offset="0.5" stop-color="#dff0ff" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#dff0ff" stop-opacity="0.22"/>
+    </linearGradient>
+    <radialGradient id="face" cx="45%" cy="38%" r="75%">
+      <stop offset="0" stop-color="#5f9dff"/>
+      <stop offset="0.55" stop-color="#27378a"/>
+      <stop offset="1" stop-color="#101640"/>
+    </radialGradient>
+    <radialGradient id="aura" cx="50%" cy="50%" r="50%">
+      <stop offset="0" stop-color="#ffe9a8" stop-opacity="0.30"/>
+      <stop offset="0.7" stop-color="#c9a24f" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#3a2410" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="-35%" y="-35%" width="170%" height="170%">
+      <feDropShadow dx="0" dy="14" stdDeviation="12" flood-color="#080502" flood-opacity="0.7"/>
+    </filter>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+    <filter id="sandGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+    <!-- The hourglass is drawn upright around the neck at (512, 480) and
+         tilted 30 degrees; the sand is drawn level, clipped to the tilted
+         bulbs, so it lies and falls as gravity says. -->
+    <path id="topBulb" d="M432 342 C432 424 503 452 503 480 L521 480 C521 452 592 424 592 342 Z"/>
+    <path id="bottomBulb" d="M503 480 C503 508 432 536 432 618 L592 618 C592 536 521 508 521 480 Z"/>
+    <clipPath id="topClip">
+      <use href="#topBulb" transform="rotate(30 512 480) translate(512 480) scale(0.95) translate(-512 -480)"/>
+    </clipPath>
+    <clipPath id="bottomClip">
+      <use href="#bottomBulb" transform="rotate(30 512 480) translate(512 480) scale(0.95) translate(-512 -480)"/>
+    </clipPath>
+  </defs>
+  <path d="M0 0H1024V1024H0Z" fill="url(#background)"/>
+  <rect x="46" y="46" width="932" height="932" rx="94" fill="none" stroke="url(#gold)" stroke-width="5"/>
+  <rect x="62" y="62" width="900" height="900" rx="80" fill="none" stroke="#b48b45" stroke-opacity="0.28" stroke-width="2"/>
+  <path d="M512 91 L525 108 L512 125 L499 108 Z M512 899 L525 916 L512 933 L499 916 Z" fill="url(#gold)"/>
+  <!-- A warm aura behind the emblem. -->
+  <circle cx="512" cy="480" r="360" fill="url(#aura)"/>
+  <!-- The pulse: fading gold rings spreading out from the icon's border. -->
+  <rect x="266" y="234" width="492" height="492" rx="84" fill="none" stroke="#f0ca78" stroke-opacity="0.16" stroke-width="3"/>
+  <rect x="294" y="262" width="436" height="436" rx="62" fill="none" stroke="#f0ca78" stroke-opacity="0.32" stroke-width="5"/>
+  <g filter="url(#shadow)">
+    <rect x="322" y="290" width="380" height="380" rx="40" fill="url(#face)"/>
+    <!-- The sand: a little left on top, lying level by the neck; a thin
+         glowing stream falling straight down; a heap below. -->
+    <g clip-path="url(#topClip)">
+      <rect x="300" y="444" width="420" height="48" fill="url(#sand)"/>
+    </g>
+    <g clip-path="url(#bottomClip)">
+      <path d="M300 552 L474 552 Q500 518 526 552 L720 552 L720 700 L300 700 Z" fill="url(#sand)"/>
+    </g>
+    <path d="M512 484 L512 532" stroke="#ffe27a" stroke-width="10" stroke-linecap="round" filter="url(#sandGlow)" opacity="0.9"/>
+    <path d="M512 484 L512 532" stroke="#fff3b8" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="508" cy="506" r="3" fill="#fff3b8"/>
+    <circle cx="516" cy="520" r="3" fill="#fff3b8"/>
+    <!-- The tilted hourglass: glass, then the gold frame. -->
+    <g transform="rotate(30 512 480) translate(512 480) scale(0.95) translate(-512 -480)">
+      <use href="#topBulb" fill="url(#glass)" stroke="#eef6ff" stroke-opacity="0.95" stroke-width="8" stroke-linejoin="round"/>
+      <use href="#bottomBulb" fill="url(#glass)" stroke="#eef6ff" stroke-opacity="0.95" stroke-width="8" stroke-linejoin="round"/>
+      <path d="M456 360 C458 410 486 440 498 462" fill="none" stroke="#ffffff" stroke-opacity="0.55" stroke-width="5" stroke-linecap="round"/>
+      <path d="M456 600 C458 560 474 536 490 520" fill="none" stroke="#ffffff" stroke-opacity="0.4" stroke-width="5" stroke-linecap="round"/>
+      <rect x="414" y="342" width="14" height="276" rx="5" fill="url(#gold)" stroke="#5a3a0a" stroke-width="3"/>
+      <rect x="596" y="342" width="14" height="276" rx="5" fill="url(#gold)" stroke="#5a3a0a" stroke-width="3"/>
+      <rect x="398" y="314" width="228" height="32" rx="13" fill="url(#gold)" stroke="#5a3a0a" stroke-width="4"/>
+      <rect x="398" y="614" width="228" height="32" rx="13" fill="url(#gold)" stroke="#5a3a0a" stroke-width="4"/>
+      <circle cx="512" cy="330" r="8" fill="#d8261c" stroke="#5a1410" stroke-width="2"/>
+      <circle cx="512" cy="630" r="8" fill="#d8261c" stroke="#5a1410" stroke-width="2"/>
+    </g>
+    <!-- The gold border that pulses in game, with its glow. -->
+    <rect x="322" y="290" width="380" height="380" rx="40" fill="none" stroke="#ffd96a" stroke-width="26" filter="url(#glow)" opacity="0.8"/>
+    <rect x="322" y="290" width="380" height="380" rx="40" fill="none" stroke="url(#gold)" stroke-width="16"/>
+    <!-- Fine outer rings, as on the other Forever logos. -->
+    <circle cx="512" cy="480" r="338" fill="none" stroke="#f0ca78" stroke-opacity="0.45" stroke-width="2"/>
+    <circle cx="512" cy="480" r="350" fill="none" stroke="#b48b45" stroke-opacity="0.35" stroke-width="2" stroke-dasharray="3 12"/>
+  </g>
+  <path d="M359 850H457 M567 850H665" fill="none" stroke="#b98e47" stroke-opacity="0.5" stroke-width="3" stroke-linecap="round"/>
+  <path d="M512 837 L524 850 L512 863 L500 850 Z" fill="url(#gold)"/>
+</svg>
