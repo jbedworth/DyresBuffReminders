@@ -5,6 +5,12 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.0.0
+
+The first full release for WoW: Forever, no longer marked beta: it was play tested on the Forever beta client 1.60.1, build 70450. CurseForge now offers it as a release, so the app updates it and installs what it needs for every player.
+
+- The CurseForge app installs Dyre's Toolkit and Dyre's Sounds with it.
+
 ## 0.3.1-beta
 
 - Works with Dyre's Toolkit: one layout mode for all Dyre's AddOns (unlocking DBR unlocks them all, and their frames snap to each other and to the toolkit's grid), and DBR's settings sit under "Dyre's AddOns" in Options > AddOns and in the AddOn list. Without the toolkit DBR works as before and says once where to get it (CurseForge).

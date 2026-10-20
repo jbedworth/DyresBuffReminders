@@ -144,7 +144,7 @@ reminders" switch, or DBR's.
 
 ## Compatibility
 
-Beta, for the Forever beta client 1.60.1 (Interface 16001). DBR keeps working
+For the Forever beta client 1.60.1 (Interface 16001). DBR keeps working
 on later beta builds; if a client update removes an API it needs, it says so
 in chat and stays off.
 

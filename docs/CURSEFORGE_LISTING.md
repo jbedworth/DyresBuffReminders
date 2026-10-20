@@ -74,7 +74,7 @@ Unlock to drag each icon and scroll to resize it. Icons snap beside each other, 
 - `/buffreminders` works the same, in case another AddOn uses `/dbr`.
 
 ### Compatibility
-Beta, for the Forever beta client 1.60.1. If a client update removes an API it needs, it says so in chat and stays off.
+For the Forever beta client 1.60.1. If a client update removes an API it needs, it says so in chat and stays off.
 
 WowUp users (2.24.0 or later): install from the repository URL; GitHub releases carry the Forever metadata WowUp needs.
 
