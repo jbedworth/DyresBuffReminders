@@ -16,7 +16,7 @@ tested.
 | Author shown | Dyre, set through the CurseForge account's username |
 | License | MIT License |
 | Logo | artwork/dyres-buff-reminders-logo.png (1024 x 1024); artwork/dyres-buff-reminders-logo-512.png if a smaller square is wanted |
-| Relations | Dyre's Sounds, required dependency (slug `dyres-sounds`), for the cooldown chimes' sounds. CI uploads set it; add it by hand on any file uploaded through the website. |
+| Relations | Dyre's Sounds (slug `dyres-sounds`), for the chimes' and procs' sounds, and Dyre's Toolkit (slug `dyres-toolkit`), for one layout mode and settings home: both required dependencies. CI uploads set them; add them by hand on any file uploaded through the website. |
 | Screenshots | artwork/screenshots/ (none taken yet; see artwork/README.md) |
 | Source | https://github.com/jbedworth/DyresBuffReminders |
 | Issues | https://github.com/jbedworth/DyresBuffReminders/issues |

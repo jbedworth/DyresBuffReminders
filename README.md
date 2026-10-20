@@ -53,12 +53,19 @@ turns it off.
 
 ## Moving the icons
 
-**Unlock to move them** (or `/dbr unlock`) shows every icon (and the seal
-timer) to drag; scroll
-over one to resize it (50-200%). Drop one near another and it snaps beside
-it, lined up; Shift-drag moves a snapped group. A faint grid with red center
-lines helps you line them up (it can be turned off). `/dbr lock` locks them
-again and `/dbr reset` puts them back in a row.
+`/dbr unlock` (or, without Dyre's Toolkit, **Unlock to move them** on DBR's
+settings page; with it, the toolkit's **Unlock frames**) shows every icon (and
+the seal timer) to drag; scroll over one to resize it (50-200%). Drop one near
+another and it snaps beside it, lined up; Shift-drag moves a snapped group.
+`/dbr lock` locks them again and `/dbr reset` puts them back in a row.
+
+**With Dyre's Toolkit** (install it from CurseForge; the CurseForge app
+installs it with DBR): unlocking DBR unlocks every Dyre's AddOn at once (as
+`/dyre unlock` does), their frames snap to each other and, if you choose, to
+the toolkit's grid, and DBR's settings sit under "Dyre's AddOns" in
+Options → AddOns. Without it, DBR draws its own faint grid while unlocked
+(it can be turned off) and has its own settings page, and says once at login
+where to get the toolkit.
 
 ## Cooldown chimes
 

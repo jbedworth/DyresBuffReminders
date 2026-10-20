@@ -357,8 +357,8 @@ local function InForm()
     return false
 end
 
--- The /cast text for an action: a group version by name and rank, since its
--- rank decides the reagent.
+-- The spell text for an action's macro line: a group version by name and
+-- rank, since its rank decides the reagent.
 local function CastText(action)
     if type(action.cast) ~= "number" or type(C_Spell.GetSpellSubtext) ~= "function" then
         return action.spell
@@ -371,13 +371,16 @@ local function CastText(action)
 end
 
 -- Out of combat only. A Druid in a form (author-approved) leaves it first:
--- the click runs "/cancelform" then the cast, as one macro.
+-- the click runs "/cancelform" then the cast, as one macro. /use rather than
+-- /cast (author: every character counts): /use tries an item of that name
+-- first, then casts the spell (pinned SlashCommands.lua:378-388); no item is
+-- known to share these buffs' names.
 local function ApplyClick(icon, reminder, action)
     if action and reminder.cancelForm and InForm() then
         action.leavesForm = true
         icon.action = action
         icon:SetAttribute("type1", "macro")
-        icon:SetAttribute("macrotext1", "/cancelform\n/cast [@" .. action.unit .. "] " .. CastText(action))
+        icon:SetAttribute("macrotext1", "/cancelform\n/use [@" .. action.unit .. "] " .. CastText(action))
         icon:SetAttribute("spell1", nil)
         icon:SetAttribute("unit1", nil)
         return

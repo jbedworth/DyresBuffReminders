@@ -233,7 +233,15 @@ function DBR.InitializeOptions()
     if not HasSettingsAPI() then
         return
     end
-    category, layout = Settings.RegisterVerticalLayoutCategory(TITLE)
+    -- Under Dyre's Toolkit's "Dyre's AddOns" home when it is installed, else our own page.
+    local ownPage = true
+    if DBR.toolkit then
+        category, layout = DBR.toolkit.RegisterSettingsCategory(TITLE)
+        ownPage = category == nil
+    end
+    if ownPage then
+        category, layout = Settings.RegisterVerticalLayoutCategory(TITLE)
+    end
     Heading("Buff Reminders")
     local master = Flag("DBR_ENABLED", "Buff reminders", nil, "enabled", true,
         "An icon with a pulsing border for each buff you lack, out of combat. Click it to cast the buff.",
@@ -273,20 +281,27 @@ function DBR.InitializeOptions()
             .. "time. 0 shows it when the buff is gone. Out of combat only: a buff that runs out in a fight "
             .. "shows after it.")
     Nest(leadSlider, master, Enabled)
-    local unlocked = Settings.RegisterProxySetting(category, "DBR_UNLOCKED", Settings.VarType.Boolean,
-        "Unlock to move them", false,
-        function() return not DBR.db.locked end,
-        function(value) DBR.SetLocked(value ~= true) end)
-    Settings.CreateCheckbox(category, unlocked,
-        "Outline every buff reminder so you can drag it, and scroll over one to resize it; untick to lock them "
-            .. "again. Drop one near another and it snaps beside it. /dbr unlock and /dbr lock do the same, and "
-            .. "/dbr reset moves them back to their default places.")
-    Flag("DBR_GRID", "Show a grid while unlocked", nil, "grid", true,
-        "While the reminders are unlocked, draw a faint grid over the screen with the center lines in red, "
-            .. "so you can line them up.", DBR.RefreshGrid)
+    -- With the toolkit, its "Dyre's AddOns" page holds the one unlock switch and
+    -- grid (author: no redundant switch here); /dbr unlock and /dbr lock still
+    -- work. Without it, this switch is the page's only way to unlock.
+    if not DBR.toolkit then
+        local unlocked = Settings.RegisterProxySetting(category, "DBR_UNLOCKED", Settings.VarType.Boolean,
+            "Unlock to move them", false,
+            function() return not DBR.db.locked end,
+            function(value) DBR.SetLocked(value ~= true) end)
+        Settings.CreateCheckbox(category, unlocked,
+            "Outline every buff reminder so you can drag it, and scroll over one to resize it; untick to lock "
+                .. "them again. Drop one near another and it snaps beside it. /dbr unlock and /dbr lock do the "
+                .. "same, and /dbr reset moves them back to their default places.")
+        Flag("DBR_GRID", "Show a grid while unlocked", nil, "grid", true,
+            "While the reminders are unlocked, draw a faint grid over the screen with the center lines in red, "
+                .. "so you can line them up.", DBR.RefreshGrid)
+    end
     AddChimesSection()
     AddProcsSection()
-    Settings.RegisterAddOnCategory(category)
+    if ownPage then
+        Settings.RegisterAddOnCategory(category)
+    end
 end
 
 function DBR.OpenSettings()

@@ -71,7 +71,7 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   counts as on. In combat nothing changes; a buff that ran out shows after.
   The tooltip splits "Missing" from "Running out".
 - Druid forms (author-approved): buffs with `cancelForm` (Mark of the Wild,
-  Thorns) click as a `macrotext` "/cancelform" then "/cast [@unit] Name"
+  Thorns) click as a `macrotext` "/cancelform" then "/use [@unit] Name"
   while any form is active (`GetShapeshiftFormInfo`, refreshed on
   `UPDATE_SHAPESHIFT_FORM`); a group version is cast as `Name(Rank N)`
   (`C_Spell.GetSpellSubtext`) for its reagent. Going back into the form
@@ -221,6 +221,30 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   compared or printed. At most 20 lines per 10 seconds. It answers the
   phase 2 questions in the notes for the tracker design (reactive abilities).
 
+### Dyre's Toolkit (author-approved, 2026-10-19)
+
+- Shared infrastructure owned by the coordinator (src/DyresToolkit; never
+  edit it here; ask the coordinator). TOC `## OptionalDeps: DyresSounds,
+  DyresToolkit`; CurseForge `requiredDependency` on `dyres-toolkit`
+  (`RELATIONS`, tested).
+- With `DyresToolkit.RequireContract(1)` and the functions DBR uses
+  (`DBR.Toolkit`, checked at login before any frame exists): DBR's
+  `RegisterMovable`, `BeginDrag`, `EndDrag`, and `ScaleKeepingCenter` are the
+  toolkit's (frames snap across AddOns and to its grid; DBR saves its own
+  positions through `save`); DBR draws no grid and has no grid setting; its
+  lock state is the toolkit's (`IsLocked` at login; frames start locked).
+  `/dbr unlock`, `/dbr lock`, and the settings switch call
+  `toolkit.SetLocked`, which calls back `DBR.ApplyLocked` (quietly; the
+  toolkit says one line). At the end of login DBR registers with
+  `RegisterAddOn({addon, title, setLocked = DBR.ApplyLocked, openSettings =
+  DBR.OpenSettings})`. Its settings page is
+  `RegisterSettingsCategory("Dyre's Buff Reminders")` under "Dyre's AddOns";
+  when that returns nil, DBR's own top-level page.
+- Without the toolkit (or with a newer contract only): DBR behaves as
+  before (Layout.lua, its own grid and page) and says once at login: "Install
+  Dyre's Toolkit from CurseForge for one layout mode and settings home for all
+  Dyre's AddOns." Layout.lua and its copy test stay for this.
+
 ### Commands and settings
 
 - `/dbr` and `/dbr options` (not in combat), `unlock`, `lock`, `reset`,
@@ -232,7 +256,9 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
 - One settings page (vertical layout, proxy settings on
   `DyresBuffRemindersDB`): Buff reminders, one switch per class buff with its
   group switch nested under it, Seal timer (Paladins), Remind before a buff
-  runs out (seconds), Unlock to move them, Show a grid while unlocked; then a
+  runs out (seconds), and only without the toolkit Unlock to move them and
+  Show a grid while unlocked (author: with the toolkit, its "Dyre's AddOns"
+  page has the one unlock switch and grid); then a
   "Cooldown Chimes" section: Cooldown chimes, Chime early (seconds), and one
   row per class spell (author-approved): its switch and Sound dropdown on
   the same row, Blizzard's `CreateSettingsCheckboxDropdownInitializer`
@@ -273,8 +299,11 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
 - The project uses the MIT License. The public author name is `Dyre` (TOC
   `## Author`, login banner, listings); LICENSE keeps the legal name, John
   Bedworth, and the release builder requires that exact notice.
-- The TOC uses `## Category: Buffs & Debuffs`; keep it identical to the
-  CurseForge main category, because the in-game AddOn list groups by exact text.
+- The TOC has `## Group: DyresToolkit` (author, 2026-10-19), so DBR nests
+  under Dyre's Toolkit's "Dyre's AddOns" section in the in-game AddOn list;
+  `## Category: Buffs & Debuffs` stays for when the toolkit is missing (a child
+  without its parent shows at the top level) and matches the CurseForge main
+  category.
 - No runtime assets. Add none without agreement.
 - Git origin: git@github.com:jbedworth/DyresBuffReminders.git (public, as all
   of the author's AddOns). Inspect Git state before acting and preserve user
@@ -283,9 +312,10 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
 
 ## Client and API verification
 
-- Target: Forever beta 1.60.1, build 70338, Interface 16001, Lua 5.1. Pin
-  source review to Gethe/wow-ui-source commit
-  `943764493e6b16d63ded3ab304150d1f05e58b57`. Treat target-client
+- Target: Forever beta 1.60.1, build 70450 (tested in client), Interface
+  16001, Lua 5.1. Pin source review to Gethe/wow-ui-source commit
+  `943764493e6b16d63ded3ab304150d1f05e58b57` (the 70338 source; the client
+  was tested on 70450, still Interface 16001). Treat target-client
   documentation and FrameXML as authoritative; Retail and Classic examples are
   references only.
 - Do not gate the runtime on client version, build, or Interface. Gate only on

@@ -5,6 +5,11 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 0.3.1-beta
+
+- Works with Dyre's Toolkit: one layout mode for all Dyre's AddOns (unlocking DBR unlocks them all, and their frames snap to each other and to the toolkit's grid), and DBR's settings sit under "Dyre's AddOns" in Options > AddOns and in the AddOn list. Without the toolkit DBR works as before and says once where to get it (CurseForge).
+- With Dyre's Toolkit, DBR's settings page no longer has its own "Unlock to move them" switch: use "Unlock frames" on the Dyre's AddOns page, the minimap button, `/dyre unlock`, or `/dbr unlock`. Without the toolkit the switch stays.
+
 ## 0.3.0-beta
 
 - New: proc sounds. A sound the moment a proc appears on you, also in combat: a Warlock's Nightfall (Shadow Trance), Clearcasting for Mages, Druids, and Shamans, a Druid's Nature's Grace, and a Warrior's Flurry. Each has its own switch and sound (only sounds the game can play for a buff); turn them all on or off under "Proc Sounds" in `/dbr`.

@@ -19,6 +19,34 @@ function DBR.Report(message)
     DEFAULT_CHAT_FRAME:AddMessage("DBR: " .. tostring(message))
 end
 
+-- Dyre's Toolkit (author-approved, 2026-10-19), when installed with the
+-- contract DBR needs: one layout mode, grid, and snapping for every Dyre's
+-- AddOn, and the "Dyre's AddOns" settings home. The TOC lists it as
+-- OptionalDeps; without it DBR keeps its own Layout.lua, grid, and page.
+local TOOLKIT_CONTRACT = 1
+local TOOLKIT_FUNCTIONS = {"RegisterAddOn", "IsLocked", "SetLocked", "RegisterMovable", "BeginDrag", "EndDrag",
+    "ScaleKeepingCenter", "RegisterSettingsCategory", "OpenSettings"}
+-- Where to get it: CurseForge only, for now (author).
+local TOOLKIT_MESSAGE = "Install Dyre's Toolkit from CurseForge for one layout mode and settings home for all "
+    .. "Dyre's AddOns."
+
+function DBR.Toolkit()
+    local toolkit = rawget(_G, "DyresToolkit")
+    if type(toolkit) ~= "table" or type(toolkit.RequireContract) ~= "function" then
+        return nil
+    end
+    toolkit = toolkit.RequireContract(TOOLKIT_CONTRACT)
+    if type(toolkit) ~= "table" then
+        return nil
+    end
+    for _, name in ipairs(TOOLKIT_FUNCTIONS) do
+        if type(toolkit[name]) ~= "function" then
+            return nil
+        end
+    end
+    return toolkit
+end
+
 -- Combat data can be a secret value on the target client: code may store and
 -- pass it on, but never compare, concatenate, or print it.
 function DBR.IsSecret(value)
@@ -214,7 +242,8 @@ local function BuildGrid()
 end
 
 function DBR.RefreshGrid()
-    local wanted = not DBR.db.locked and DBR.db.grid
+    -- With the toolkit, its grid is the one grid.
+    local wanted = not DBR.toolkit and not DBR.db.locked and DBR.db.grid
     if not grid then
         if not wanted then
             return
@@ -244,12 +273,25 @@ local function HasReminders()
     return false
 end
 
--- /dbr unlock and /dbr lock, and the settings page's "Unlock to move them".
-function DBR.SetLocked(locked)
-    DBR.db.locked = locked
+-- /dbr unlock and /dbr lock, and, without the toolkit, the settings page's
+-- "Unlock to move them".
+-- Shows or hides DBR's samples and outlines, quietly: the toolkit's setLocked
+-- callback, and the first half of DBR's own lock.
+function DBR.ApplyLocked(locked)
+    DBR.db.locked = locked == true
     DBR.RefreshReminders()
     DBR.RefreshSeal()
     DBR.RefreshGrid()
+end
+
+-- With the toolkit, one layout mode for every Dyre's AddOn: it calls back
+-- ApplyLocked and says one line for all.
+function DBR.SetLocked(locked)
+    if DBR.toolkit then
+        DBR.toolkit.SetLocked(locked)
+        return
+    end
+    DBR.ApplyLocked(locked)
     if not HasReminders() then
         return
     end
@@ -347,6 +389,18 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     -- loads, says so, and shows nothing. Called here rather than from each
     -- file's own PLAYER_LOGIN handler, so startup never depends on event
     -- handler order.
+    -- Before any frame exists: with the toolkit, its layout replaces
+    -- Layout.lua's, and its lock state is DBR's (frames start locked).
+    DBR.toolkit = DBR.Toolkit()
+    if DBR.toolkit then
+        DBR.RegisterMovable = DBR.toolkit.RegisterMovable
+        DBR.BeginDrag = DBR.toolkit.BeginDrag
+        DBR.EndDrag = DBR.toolkit.EndDrag
+        DBR.ScaleKeepingCenter = DBR.toolkit.ScaleKeepingCenter
+        DBR.db.locked = DBR.toolkit.IsLocked() ~= false
+    else
+        DBR.Report(TOOLKIT_MESSAGE)
+    end
     local _, class = UnitClass("player")
     class = not DBR.IsSecret(class) and class or nil
     DBR.classFile = class
@@ -369,4 +423,8 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     DBR.InitializeProbe()
     DBR.RefreshGrid()
     DBR.InitializeOptions()
+    if DBR.toolkit then
+        DBR.toolkit.RegisterAddOn({addon = addonName, title = DEFAULT_TITLE, setLocked = DBR.ApplyLocked,
+            openSettings = DBR.OpenSettings})
+    end
 end)

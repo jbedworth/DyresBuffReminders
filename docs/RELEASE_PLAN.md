@@ -368,8 +368,9 @@ publishes the tested bytes through GitHub CLI and the documented CurseForge
 Upload API after approval. CurseForge's Upload API accepts multipart `metadata`
 and `file` fields; metadata includes `gameVersions`, `releaseType`, and
 `changelog`/`changelogType`, plus `relations`: Dyre's Sounds (slug
-`dyres-sounds`) as a required dependency, so the CurseForge app installs the
-chimes' sounds with DBR (the TOC keeps it optional). Record the returned file ID and distinguish
+`dyres-sounds`) and Dyre's Toolkit (slug `dyres-toolkit`) as required
+dependencies, so the CurseForge app installs them with DBR (the TOC keeps
+both optional). Record the returned file ID and distinguish
 successful upload from moderator approval.
 
 BigWigsMods/packager was evaluated as an alternative (reviewed upstream commit

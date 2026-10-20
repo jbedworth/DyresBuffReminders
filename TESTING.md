@@ -4,7 +4,8 @@
 
 1. **Pinned source review.** Client behavior is read from Blizzard's FrameXML
    and generated API documentation at Gethe/wow-ui-source commit
-   `943764493e6b16d63ded3ab304150d1f05e58b57` (`1.60.1.70338`). Source
+   `943764493e6b16d63ded3ab304150d1f05e58b57` (`1.60.1.70338`, the source; the client was tested on
+   build 70450, still Interface 16001). Source
    establishes declared APIs, templates, and code paths, not operational behavior.
 2. **Automated mock tests.** `tests/run.lua` exercises commands, saved
    settings, each class's reminders, group counts and click targets, combat
@@ -113,7 +114,7 @@ the check.
 4. Whether `expirationTime` is readable (not secret, not 0) out of combat for
    your own buffs and for buffs on group members; where it is not, the icon
    shows only once the buff is gone.
-5. Whether `/cancelform` then `/cast` in one secure macro click casts the buff
+5. Whether `/cancelform` then `/use` in one secure macro click casts the buff
    in Bear or Cat Form, and whether `Gift of the Wild(Rank 1)` casts that rank.
 6. Seal timer: whether the aura container's slot (seal icon, sweep, bar)
    fully covers the secure button's "missing" picture while a seal is up, in
@@ -147,6 +148,17 @@ out of combat; `/dbr debug` then shows `status=confirmed` and `learned=`.
 | Warrior Flurry | Flurry | 12966, 12967, 12968, 12969, 12970 |
 
 ## In-client checklist
+
+- [ ] With Dyre's Toolkit installed: the AddOn list shows DBR under "Dyre's
+      AddOns"; Options > AddOns > Dyre's AddOns > Dyre's Buff Reminders is
+      DBR's page (no top-level DBR page, no grid row, no "Unlock to move
+      them" switch: the toolkit's "Unlock frames" on the Dyre's AddOns page is
+      the one); no install line at login. `/dbr unlock` (or `/dyre unlock`) unlocks DBR's icons and the
+      seal timer together with the other AddOns' frames, with one chat line
+      from the toolkit; DBR's icons snap to another AddOn's frames and, with
+      "Snap to the grid", to the toolkit's grid; `/dbr lock` locks them all.
+- [ ] Without Dyre's Toolkit: one login line naming CurseForge; DBR's own
+      page, grid, and "Unlock to move them" switch work as before.
 
 One class at a time. Reload after each copy (`/reload` loads new files).
 

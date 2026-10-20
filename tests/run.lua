@@ -413,6 +413,52 @@ local function fixture(options)
         end
     end
     state.soundsWithoutCheckboxMenu = options.soundsWithoutCheckboxMenu
+    -- Dyre's Toolkit (contract 1): records what DBR registers; one lock for all.
+    if options.toolkit then
+        local toolkit = {members = {}, movables = {}, pages = {}, locked = true, drags = {}, lockCalls = 0}
+        state.toolkit = toolkit
+        function toolkit.RequireContract(required)
+            if options.toolkit == "newer" then return nil end
+            if required == 1 then return toolkit end
+        end
+        function toolkit.RegisterAddOn(info)
+            toolkit.members[#toolkit.members + 1] = info
+            if not toolkit.locked and info.setLocked then info.setLocked(false) end
+            return true
+        end
+        function toolkit.IsLocked() return toolkit.locked end
+        function toolkit.SetLocked(locked)
+            toolkit.locked, toolkit.lockCalls = locked == true, toolkit.lockCalls + 1
+            for _, info in ipairs(toolkit.members) do
+                if info.setLocked then info.setLocked(toolkit.locked) end
+            end
+            state.messages[#state.messages + 1] = "Dyre: Frames " .. (toolkit.locked and "locked." or "unlocked.")
+        end
+        function toolkit.Lock() toolkit.SetLocked(true) end
+        function toolkit.Unlock() toolkit.SetLocked(false) end
+        function toolkit.RegisterMovable(frame, save) toolkit.movables[frame] = save end
+        function toolkit.BeginDrag(frame) toolkit.drags[#toolkit.drags + 1] = {"begin", frame} end
+        function toolkit.EndDrag(frame) toolkit.drags[#toolkit.drags + 1] = {"end", frame} end
+        function toolkit.ScaleKeepingCenter(frame, scale)
+            frame:SetScale(scale)
+            toolkit.scaled = {frame, scale}
+        end
+        function toolkit.RegisterSettingsCategory(name)
+            if options.noToolkitPage then return nil end
+            local category = {name = name, initializers = {}, parent = "Dyre's AddOns"}
+            function category:GetID() return "toolkit:" .. name end
+            local layout = {}
+            function layout:AddInitializer(initializer)
+                if initializer.heading then state.headings[#state.headings + 1] = initializer end
+                category.initializers[#category.initializers + 1] = initializer
+            end
+            state.categories[name] = category
+            toolkit.pages[name] = category
+            return category, layout
+        end
+        function toolkit.OpenSettings(category) state.opened = category:GetID() end
+        env.DyresToolkit = toolkit
+    end
     env.C_Secrets = {GetSpellCooldownSecrecy = function() return state.combat and state.secret() or 2 end}
     local sounds = options.sounds or "fake"
     if sounds == "fake" then
@@ -741,7 +787,11 @@ test("login says the version and author, and that DBR is ready", function()
     local state = fixture()
     equal(state.messages[1], "DBR: Dyre's Buff Reminders " .. state.toc.Version .. " by Dyre")
     equal(state.messages[2], "DBR:   Ready. Type /dbr to open the settings.")
-    equal(#state.messages, 2, "nothing else on a Mage")
+    equal(state.messages[3], "DBR: Install Dyre's Toolkit from CurseForge for one layout mode and settings home "
+        .. "for all Dyre's AddOns.", "without the toolkit, once")
+    equal(#state.messages, 3, "nothing else on a Mage")
+    local with = fixture({toolkit = true})
+    equal(#with.messages, 2, "with the toolkit, no install line")
 end)
 test("a mixed install stays off and says what to do", function()
     local state = fixture({files = {"Commands.lua", "Core.lua", "Layout.lua", "Buffs.lua", "Seals.lua",
@@ -1107,14 +1157,14 @@ test("Druid: in a form, a click leaves it first, then casts", function()
     state.form = 1
     state.update("UPDATE_SHAPESHIFT_FORM")
     equal(mark.attributes.type1, "macro")
-    equal(mark.attributes.macrotext1, "/cancelform\n/cast [@player] Mark of the Wild")
+    equal(mark.attributes.macrotext1, "/cancelform\n/use [@player] Mark of the Wild", "/use: every character counts")
     equal(mark.attributes.spell1, nil)
     mark.scripts.OnEnter(mark)
     equal(state.tooltip[3], "Click: Mark of the Wild on you (leaves your form first).")
     state.buff("player", "Mark of the Wild")
     state.carried[WILD_BERRIES] = 1
     state.party({{name = "Tanky", class = "WARRIOR"}, {name = "Stabby", class = "ROGUE"}})
-    equal(mark.attributes.macrotext1, "/cancelform\n/cast [@party1] Gift of the Wild(Rank 1)",
+    equal(mark.attributes.macrotext1, "/cancelform\n/use [@party1] Gift of the Wild(Rank 1)",
         "the group version by rank, for its reagent")
     state.form = nil
     state.update("UPDATE_SHAPESHIFT_FORM")
@@ -2240,6 +2290,87 @@ test("probe: off stops it; it starts again after a reload; output is capped", fu
     contains(priest.find("probe on:"), "none known")
     priest.slash("probe maybe")
     contains(priest.last(), "/dbr probe on|off", "anything else shows the usage")
+end)
+
+-- Dyre's Toolkit -----------------------------------------------------------------------------
+
+test("toolkit: the TOC nests under it and lists it as optional", function()
+    local text = assert(io.open(ADDON .. ".toc")):read("*a")
+    contains(text, "## OptionalDeps: DyresSounds, DyresToolkit")
+    contains(text, "## Group: DyresToolkit")
+    contains(text, "## Category: Buffs & Debuffs", "kept for when the toolkit is missing")
+    equal(text:find("## Dependencies", 1, true), nil)
+end)
+test("toolkit: DBR registers, its page sits under Dyre's AddOns, and no grid row", function()
+    local state = fixture({toolkit = true, known = {[INTELLECT] = true}})
+    local toolkit = state.toolkit
+    equal(#toolkit.members, 1)
+    local info = toolkit.members[1]
+    equal(info.addon, "DyresBuffReminders")
+    equal(info.title, "Dyre's Buff Reminders")
+    equal(type(info.setLocked), "function")
+    local page = toolkit.pages["Dyre's Buff Reminders"]
+    equal(page ~= nil, true, "the toolkit's page")
+    equal(state.registered, nil, "no top-level page of DBR's own")
+    equal(state.row("DBR_GRID"), nil, "the toolkit draws the one grid")
+    equal(state.row("DBR_UNLOCKED"), nil, "no unlock switch: the toolkit's page has the one")
+    equal(state.settings.DBR_UNLOCKED, nil)
+    equal(state.row("DBR_ENABLED") ~= nil, true)
+    info.openSettings()
+    equal(state.opened, "toolkit:Dyre's Buff Reminders")
+    local noPage = fixture({toolkit = true, noToolkitPage = true})
+    equal(noPage.registered ~= nil, true, "without a toolkit page, DBR's own top-level page")
+end)
+test("toolkit: one lock for every AddOn; DBR shows its frames quietly", function()
+    local state = fixture({toolkit = true, known = {[INTELLECT] = true}})
+    local intellect = state.icon("arcaneIntellect")
+    equal(state.dbr.db.locked, true, "frames start locked")
+    state.clear()
+    state.slash("unlock")
+    equal(state.toolkit.lockCalls, 1, "/dbr unlock asks the toolkit")
+    equal(state.dbr.db.locked, false)
+    equal(intellect.mover.shown, true, "DBR's frames show to drag")
+    equal(#state.messages, 1, "one line, the toolkit's")
+    contains(state.messages[1], "Dyre: Frames unlocked.")
+    equal(state.dbr.grid, nil, "no grid of DBR's own")
+    state.slash("lock")
+    equal(state.toolkit.locked, true, "/dbr lock asks the toolkit too")
+    equal(intellect.mover.shown, false)
+    state.toolkit.Unlock()
+    equal(intellect.mover.shown, true, "the toolkit's switch, /dyre unlock, or another AddOn's unlock unlocks DBR")
+    state.toolkit.Lock()
+    equal(intellect.mover.shown, false)
+end)
+test("toolkit: every movable frame is the toolkit's, so frames snap across AddOns", function()
+    local state = fixture({toolkit = true, class = "PALADIN", known = {[25780] = true, [21084] = true}})
+    local fury, seal = state.icon("righteousFury"), state.env.DyresBuffRemindersSeal
+    equal(type(state.toolkit.movables[fury]), "function", "a reminder icon")
+    equal(type(state.toolkit.movables[seal]), "function", "the seal timer")
+    equal(fury.scripts.OnDragStart, state.toolkit.BeginDrag)
+    equal(fury.scripts.OnDragStop, state.toolkit.EndDrag)
+    equal(seal.scripts.OnDragStart, state.toolkit.BeginDrag)
+    state.toolkit.movables[fury]({point = "CENTER", relativePoint = "BOTTOMLEFT", x = 10, y = 20})
+    equal(state.dbr.db.icons.righteousFury.position.x, 10, "DBR saves its own positions")
+    state.slash("unlock")
+    fury.scripts.OnMouseWheel(fury, 1)
+    equal(state.toolkit.scaled[1], fury, "resizing keeps its center through the toolkit")
+    equal(state.dbr.db.icons.righteousFury.scale, 110)
+end)
+test("toolkit: a newer toolkit contract or none at all: DBR keeps its own layout", function()
+    local state = fixture({toolkit = "newer", known = {[INTELLECT] = true}})
+    equal(state.find("Install Dyre's Toolkit") ~= nil, true)
+    equal(#state.toolkit.members, 0)
+    equal(state.registered ~= nil, true, "its own top-level page")
+    equal(state.row("DBR_GRID") ~= nil, true, "its own grid row")
+    equal(state.row("DBR_UNLOCKED") ~= nil, true, "its own unlock switch, the page's only way to unlock")
+    state.settings.DBR_UNLOCKED:SetValue(true)
+    equal(state.dbr.db.locked, false)
+    state.settings.DBR_UNLOCKED:SetValue(false)
+    equal(state.dbr.db.locked, true)
+    state.slash("unlock")
+    contains(state.last(), "Buff reminders unlocked")
+    equal(state.dbr.grid.shown, true, "its own grid")
+    equal(state.icon("arcaneIntellect").scripts.OnDragStart ~= state.toolkit.BeginDrag, true, "Layout.lua's drag")
 end)
 
 local failed = 0
