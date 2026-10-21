@@ -1,18 +1,19 @@
 local _, DBR = ...
 
--- One settings page in Blizzard's vertical layout, with proxy settings that
--- read and write DyresBuffRemindersDB directly, in two sections: the buff
--- reminders, then the cooldown chimes (author-approved: Dyre's Cooldown
--- Chimes merged into DBR, with its own switch). Only your class's buffs and
--- chime spells show; each spell's sound sits in a dropdown under its switch.
+-- One settings page under Dyre's Toolkit's "Dyre's AddOns", in Blizzard's
+-- vertical layout, with proxy settings that read and write
+-- DyresBuffRemindersDB directly: the buff reminders, each widget's size and
+-- opacity (the toolkit's sliders), then the cooldown chimes (author-approved:
+-- Dyre's Cooldown Chimes merged into DBR, with its own switch) and the proc
+-- sounds. Only your class's buffs and spells show.
 local TITLE = "Dyre's Buff Reminders"
 local UNAVAILABLE = "The AddOn settings page is unavailable on this client. Use /dbr unlock, /dbr lock, "
     .. "and /dbr reset."
 
 local REQUIRED_SETTINGS = {
-    "RegisterVerticalLayoutCategory", "RegisterProxySetting", "RegisterAddOnCategory", "CreateCheckbox",
-    "CreateSlider", "CreateSliderOptions", "OpenToCategory",
+    "RegisterProxySetting", "CreateCheckbox", "CreateSlider", "CreateSliderOptions", "OpenToCategory",
 }
+local BAR_TITLES = {groupbuffs = "Group buffs", mybuffs = "My buffs"}
 
 local NO_CHIME_SPELLS = "Your class has no chime spells yet."
 
@@ -170,13 +171,13 @@ local function AddProcsSection()
         return
     end
     local library = DBR.SoundLibrary()
-    Heading("Proc Sounds")
+    Heading("Procs")
     local tooltip = "A sound the moment a proc appears on you (Clearcasting, Nightfall, and so on), also in "
         .. "combat. The game plays it, from a sound you choose."
     if not library then
         tooltip = tooltip .. " Install Dyre's Sounds to hear them and to choose each proc's sound."
     end
-    local procsSwitch = Flag("DBR_PROCS_ENABLED", "Proc sounds", "procs", "enabled", true, tooltip,
+    local procsSwitch = Flag("DBR_PROCS_ENABLED", "Enable", "procs", "enabled", true, tooltip,
         DBR.ApplyProcSounds)
     for _, proc in ipairs(spells) do
         AddProc(proc, library, procsSwitch)
@@ -186,13 +187,13 @@ end
 -- The cooldown chimes section: its own switch, the lead, then your class's spells.
 local function AddChimesSection()
     local library = DBR.SoundLibrary()
-    Heading("Cooldown Chimes")
+    Heading("Chimes")
     local tooltip = "A sound just before your chosen spells are ready again, also in combat. Every rank of a "
         .. "spell counts."
     if not library then
         tooltip = tooltip .. " Install Dyre's Sounds to hear them and to choose each spell's sound."
     end
-    local chimesSwitch = Flag("DBR_CHIMES_ENABLED", "Cooldown chimes", "chimes", "enabled", true, tooltip,
+    local chimesSwitch = Flag("DBR_CHIMES_ENABLED", "Enable", "chimes", "enabled", true, tooltip,
         function() end)
     local lead = Settings.RegisterProxySetting(category, "DBR_CHIME_LEAD", Settings.VarType.Number,
         "Chime early (seconds)", DBR.DEFAULT_CHIME_LEAD,
@@ -209,6 +210,106 @@ local function AddChimesSection()
     for _, chime in ipairs(spells) do
         AddChime(chime, library, chimesSwitch)
     end
+end
+
+-- Each widget's Size and Opacity, then "Reset size" (Dyre's Toolkit's
+-- sliders, with a gold mark at the default). Moving them is the toolkit's
+-- unlock: /dbr unlock, /dyre unlock, or "Unlock frames" on Dyre's AddOns.
+local function AddSizesSection()
+    local rows = {}
+    for _, bar in ipairs(DBR.ReminderBars()) do
+        rows[#rows + 1] = {widget = bar.widget, title = BAR_TITLES[bar.key]}
+    end
+    local consumables = DBR.ConsumablesWidget()
+    if consumables then
+        rows[#rows + 1] = {widget = consumables, title = "Consumables"}
+    end
+    local sealWidget = DBR.SealWidget()
+    if sealWidget then
+        rows[#rows + 1] = {widget = sealWidget, title = "Seal timer"}
+    end
+    if #rows == 0 then
+        return
+    end
+    Heading("Size and Opacity")
+    for _, row in ipairs(rows) do
+        DBR.toolkit.AddWidgetSettings(category, layout, row.widget, {
+            labels = {scale = row.title .. ": size (%)", opacity = row.title .. ": opacity"},
+        })
+    end
+end
+
+-- A Hunter's combat aspect button, under the Aspect switch, then its sound at
+-- combat start (its own switch and choice, Dyre's Sounds) on one row, or two
+-- with an older Dyre's Sounds or client, or the switch alone without it.
+local function AddCombatAspect(aspectSwitch, key)
+    local combat = Flag("DBR_COMBAT_ASPECT", "Combat aspect reminder", "combatAspect", "enabled", true,
+        "When combat starts with Aspect of the Cheetah or the Pack up, show the combat aspect a click casts "
+            .. "(your last, else Hawk, else Monkey). It is set up out of combat, so the game shows it the moment "
+            .. "the fight starts.", DBR.RefreshReminders)
+    -- Listed under Aspect, but its own switch: it works with the Aspect reminder off.
+    Nest(combat, aspectSwitch, function() return DBR.db.enabled end)
+    local function CombatOn()
+        return DBR.db.enabled and DBR.db.combatAspect.enabled
+    end
+    local saved = DBR.db.combatAspect
+    local label, tooltip = "Sound at combat start", "Play a sound when combat starts with Aspect of the "
+        .. "Cheetah or the Pack up."
+    local setting = Settings.RegisterProxySetting(category, "DBR_COMBAT_ASPECT_SOUND_ON", Settings.VarType.Boolean,
+        label, true, function() return saved.soundOn end,
+        function(value) saved.soundOn = value == true end)
+    local library = DBR.SoundLibrary()
+    if not library or (type(Settings.CreateDropdown) ~= "function" and not HasCheckboxDropdown(library)) then
+        Nest(Settings.CreateCheckbox(category, setting, tooltip), combat, CombatOn)
+        return
+    end
+    local sound = Settings.RegisterProxySetting(category, "DBR_COMBAT_ASPECT_SOUND", Settings.VarType.String, "Sound",
+        DBR.DEFAULT_CHIME_SOUND, function() return saved.sound end,
+        function(value)
+            local resolved = library.Resolve(value)
+            if resolved then
+                saved.sound = resolved
+                DBR.PreviewCombatAspect()
+            end
+        end)
+    local soundTooltip = "The sound at combat start. Choosing one plays it once. Text to Speech says which aspect "
+        .. "is up."
+    if HasCheckboxDropdown(library) then
+        local row = CreateSettingsCheckboxDropdownInitializer(setting, label, tooltip, sound, library.Choices(),
+            "Sound", soundTooltip)
+        layout:AddInitializer(row)
+        library.SetupCheckboxMenu(row)
+        Nest(row, combat, CombatOn)
+        return
+    end
+    local switch = Settings.CreateCheckbox(category, setting, tooltip)
+    Nest(switch, combat, CombatOn)
+    local dropdown = Settings.CreateDropdown(category, sound, library.Choices(), soundTooltip)
+    library.SetupMenu(dropdown)
+    Nest(dropdown, switch, function() return CombatOn() and saved.soundOn end)
+end
+
+-- Consumables (Part B): Enable, then Ammo and its Warn at.
+local function AddConsumablesSection()
+    Heading("Consumables")
+    local saved = DBR.db.consumables
+    local master = Flag("DBR_CONSUMABLES_ENABLED", "Enable", "consumables", "enabled", true,
+        "Show what your class's abilities use up, also in combat: for now, your ammo.", DBR.RefreshConsumables)
+    local ammoSwitch = Flag("DBR_CONSUMABLE_AMMO", "Ammo", "consumables", "ammo", true,
+        "With a bow, crossbow, or gun in your ranged slot: your equipped arrows or bullets and how many are left. "
+            .. "The count turns red and pulses at or below Warn at; out of ammo, or none equipped, it shows as "
+            .. "missing.", DBR.RefreshConsumables)
+    Nest(ammoSwitch, master, function() return saved.enabled end)
+    local warn = Settings.RegisterProxySetting(category, "DBR_AMMO_WARN", Settings.VarType.Number, "Warn at",
+        DBR.DEFAULT_AMMO_WARN, function() return saved.ammoWarn end,
+        function(value)
+            saved.ammoWarn = DBR.SanitizeAmmoWarn(value)
+            DBR.RefreshConsumables()
+        end)
+    local slider = Settings.CreateSlider(category, warn,
+        SliderOptions(DBR.AMMO_WARN_MIN, DBR.AMMO_WARN_MAX, DBR.AMMO_WARN_STEP),
+        "The ammo count that turns red and pulses.")
+    Nest(slider, ammoSwitch, function() return saved.enabled and saved.ammo end)
 end
 
 local function GroupTooltip(reminder)
@@ -233,17 +334,12 @@ function DBR.InitializeOptions()
     if not HasSettingsAPI() then
         return
     end
-    -- Under Dyre's Toolkit's "Dyre's AddOns" home when it is installed, else our own page.
-    local ownPage = true
-    if DBR.toolkit then
-        category, layout = DBR.toolkit.RegisterSettingsCategory(TITLE)
-        ownPage = category == nil
+    category, layout = DBR.toolkit.RegisterSettingsCategory(TITLE)
+    if not category then
+        return
     end
-    if ownPage then
-        category, layout = Settings.RegisterVerticalLayoutCategory(TITLE)
-    end
-    Heading("Buff Reminders")
-    local master = Flag("DBR_ENABLED", "Buff reminders", nil, "enabled", true,
+    Heading("Reminders")
+    local master = Flag("DBR_ENABLED", "Enable", nil, "enabled", true,
         "An icon with a pulsing border for each buff you lack, out of combat. Click it to cast the buff.",
         function()
             DBR.RefreshReminders()
@@ -260,6 +356,9 @@ function DBR.InitializeOptions()
             local group = Flag("DBR_GROUP_" .. key:upper(), reminder.label .. ": also your group", "groups", key,
                 true, GroupTooltip(reminder), DBR.RefreshReminders)
             Nest(group, buff, function() return DBR.db.enabled and DBR.db.spells[key] end)
+        end
+        if reminder.combatAspect and DBR.CombatAspectWidget() then
+            AddCombatAspect(buff, key)
         end
     end
     if DBR.HasSealTimer() then
@@ -281,27 +380,10 @@ function DBR.InitializeOptions()
             .. "time. 0 shows it when the buff is gone. Out of combat only: a buff that runs out in a fight "
             .. "shows after it.")
     Nest(leadSlider, master, Enabled)
-    -- With the toolkit, its "Dyre's AddOns" page holds the one unlock switch and
-    -- grid (author: no redundant switch here); /dbr unlock and /dbr lock still
-    -- work. Without it, this switch is the page's only way to unlock.
-    if not DBR.toolkit then
-        local unlocked = Settings.RegisterProxySetting(category, "DBR_UNLOCKED", Settings.VarType.Boolean,
-            "Unlock to move them", false,
-            function() return not DBR.db.locked end,
-            function(value) DBR.SetLocked(value ~= true) end)
-        Settings.CreateCheckbox(category, unlocked,
-            "Outline every buff reminder so you can drag it, and scroll over one to resize it; untick to lock "
-                .. "them again. Drop one near another and it snaps beside it. /dbr unlock and /dbr lock do the "
-                .. "same, and /dbr reset moves them back to their default places.")
-        Flag("DBR_GRID", "Show a grid while unlocked", nil, "grid", true,
-            "While the reminders are unlocked, draw a faint grid over the screen with the center lines in red, "
-                .. "so you can line them up.", DBR.RefreshGrid)
-    end
+    AddConsumablesSection()
+    AddSizesSection()
     AddChimesSection()
     AddProcsSection()
-    if ownPage then
-        Settings.RegisterAddOnCategory(category)
-    end
 end
 
 function DBR.OpenSettings()
@@ -314,5 +396,5 @@ function DBR.OpenSettings()
         DBR.Report("The settings open out of combat. Type /dbr again when the fight is over.")
         return
     end
-    Settings.OpenToCategory(category:GetID())
+    DBR.toolkit.OpenSettings(category)
 end

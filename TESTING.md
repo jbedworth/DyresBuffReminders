@@ -9,19 +9,20 @@
    establishes declared APIs, templates, and code paths, not operational behavior.
 2. **Automated mock tests.** `tests/run.lua` exercises commands, saved
    settings, each class's reminders, group counts and click targets, combat
-   handling, moving and snapping, the seal timer, the cooldown chimes (timing,
+   handling, the buff bars (as Dyre's Toolkit widgets: packing, sizes,
+   opacity, the mouse, combat waits, settings rows), the seal timer, the cooldown chimes (timing,
    ranks, resets, sounds through a stand-in Dyre's Sounds and, when a sibling
    checkout exists, the real one), and the settings page against a minimal mock
    of the client. Mocks model secret values as values that raise errors on
    comparison, concatenation, indexing, or printing.
-   `tests/test_layout_copy.py` checks that Layout.lua matches Mage Tools
-   Forever's and Warlock Tools Forever's copies but for the namespace (skipped
-   where there are no sibling checkouts, as in CI).
+   The suite loads Dyre's Toolkit's real Core, Layout, Widgets, and Settings
+   from tests/toolkit; a test fails when that copy differs from
+   ../DyresToolkit (skipped where there is no sibling checkout, as in CI).
 3. **In-client checks.** The checklist below covers everything mocks cannot.
 
 ```sh
 .tools/luarocks-3.13.0-win32/win32/lua5.1/bin/lua5.1.exe tests/run.lua
-.tools/luarocks-3.13.0-win32/win32/lua5.1/bin/luac5.1.exe -p Commands.lua Core.lua Layout.lua Buffs.lua Reminders.lua Seals.lua ChimeSpells.lua Chimes.lua ProcSpells.lua Procs.lua Probe.lua Options.lua tests/run.lua
+.tools/luarocks-3.13.0-win32/win32/lua5.1/bin/luac5.1.exe -p Commands.lua Core.lua Buffs.lua Reminders.lua Seals.lua Consumables.lua ChimeSpells.lua Chimes.lua ProcSpells.lua Procs.lua Probe.lua Options.lua tests/run.lua
 .tools/python-3.13.7/python.exe -m unittest discover -s tests -p 'test_*.py'
 .tools/actionlint-1.7.12/actionlint.exe .github/workflows/*.yml
 ```
@@ -76,8 +77,8 @@ say `unknownIDs=none`.
 |---|---|---|
 | Arcane Intellect | 1459, 1460, 1461, 10156, 10157 | Arcane Brilliance 23028 (Arcane Powder 17020) |
 | Frost / Ice / Mage Armor | 168, 7300, 7301 / 7302, 7320, 10219, 10220 / 6117, 22782, 22783 | |
-| Dampen / Amplify Magic | 604, 8450, 8451, 10173, 10174 / 1008, 8455, 10169, 10170 | |
 | Demon Skin / Demon Armor | 687, 696 / 706, 1086, 11733, 11734, 11735 | |
+| Aspect of the Hawk / Monkey / Wild / Beast / Cheetah / Pack | 13165, 14318, 14319, 14320, 14321, 14322, 25296 / 13163 / 20043, 20190 / 13161 / 5118 / 13159 | |
 | Mark of the Wild | 1126, 5232, 6756, 5234, 8907, 9884, 9885 | Gift of the Wild 21849 (Wild Berries 17021), 21850 (Wild Thornroot 17026) |
 | Thorns | 467, 782, 1075, 8914, 9756, 9910 | |
 | Power Word: Fortitude | 1243, 1244, 1245, 2791, 10937, 10938 | Prayer of Fortitude 21562 (Holy Candle 17028), 21564 (Sacred Candle 17029) |
@@ -149,22 +150,22 @@ out of combat; `/dbr debug` then shows `status=confirmed` and `learned=`.
 
 ## In-client checklist
 
-- [ ] With Dyre's Toolkit installed: the AddOn list shows DBR under "Dyre's
-      AddOns"; Options > AddOns > Dyre's AddOns > Dyre's Buff Reminders is
-      DBR's page (no top-level DBR page, no grid row, no "Unlock to move
-      them" switch: the toolkit's "Unlock frames" on the Dyre's AddOns page is
-      the one); no install line at login. `/dbr unlock` (or `/dyre unlock`) unlocks DBR's icons and the
-      seal timer together with the other AddOns' frames, with one chat line
-      from the toolkit; DBR's icons snap to another AddOn's frames and, with
-      "Snap to the grid", to the toolkit's grid; `/dbr lock` locks them all.
-- [ ] Without Dyre's Toolkit: one login line naming CurseForge; DBR's own
-      page, grid, and "Unlock to move them" switch work as before.
+- [ ] With Dyre's Toolkit 2.0 installed: the AddOn list shows DBR under
+      "Dyre's AddOns"; Options > AddOns > Dyre's AddOns > Buff Reminders is
+      DBR's page (no grid row, no unlock switch: the toolkit's "Unlock
+      frames" is the one), with a "Size and Opacity" section. `/dbr unlock`
+      (or `/dyre unlock`) unlocks DBR's bars and the seal timer together with
+      the other AddOns' frames, with one chat line from the toolkit; they
+      snap to another AddOn's frames and, with "Snap to the grid", to the
+      toolkit's grid; `/dbr lock` locks them all.
+- [ ] Without Dyre's Toolkit, or with one older than 2.0: one login line
+      naming CurseForge, and no DBR frames.
 
 One class at a time. Reload after each copy (`/reload` loads new files).
 
 - [ ] Any class: the login banner shows the version and Dyre; `/dbr` opens
       Options > AddOns > Dyre's Buff Reminders; `/dbr debug` runs. A Warrior,
-      Rogue, Hunter, Paladin, or Shaman gets one line saying there are no
+      Rogue, or Shaman gets one line saying there are no
       reminders for the class, and no icons.
 - [ ] Mage: Arcane Intellect and armor icons pulse while missing and go away
       when cast; Arcane Brilliance counts. A click casts Arcane Intellect on
@@ -172,6 +173,27 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       Arcane Brilliance. Armor recasts the one you used last.
 - [ ] Warlock: Demon Armor pulses while neither armor is on; a click casts
       Demon Armor (Demon Skin before you learn it).
+- [ ] Hunter: with no aspect up, the Aspect icon pulses in My buffs; any
+      aspect (Cheetah and Pack too) hides it. Cast Monkey, then remove it:
+      a click casts Monkey. Cast Cheetah, then remove it: a click still casts
+      Monkey. `/dbr debug` shows `debug aspect ... unknownIDs=none
+      last=Aspect of the Monkey`.
+- [ ] Hunter, combat aspect: with Aspect of the Cheetah up, out of combat,
+      nothing shows; pull a mob: the combat aspect icon shows at once (your
+      last combat aspect, else Hawk), with the sound if on. Click it: the
+      aspect goes up and the icon goes away. Again with Cheetah, but cast
+      Hawk from your own bar: the icon dims to about 40% and stays where it
+      was. Click the dimmed icon with Hawk up: Hawk stays up ("!"). Pack
+      works the same. It shows on My buffs' Aspect slot; `/dbr unlock` shows
+      one outline (My buffs), and after dragging that bar the combat icon
+      appears at its new place. After combat, `/dbr debug` shows
+      `debug combatAspect`.
+- [ ] Ammo, on a Hunter (and a Warrior with a gun if you have one): with a
+      bow and arrows equipped, the Consumables bar shows the arrows' icon and
+      count, also in combat as you shoot. Set Warn at above your count: the
+      count turns red and pulses. Unequip the arrows (keep them in a bag):
+      missing, tooltip "Equip your arrows." A thrown weapon or wand: nothing
+      shows. `/dbr debug` shows `debug ammo ... countAPI=ok`.
 - [ ] Paladin: Righteous Fury pulses while off; a click casts it; no group
       count.
 - [ ] Paladin seal timer: out of combat, a seal shows its icon with the time
@@ -183,6 +205,16 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       the click. `/dbr debug` shows `last=` the seal you cast. A
       seal cast in combat becomes the click after combat. Every seal counts;
       `/dbr debug` shows a seal line with `unknownIDs=none`.
+- [ ] Druid, Thorns: solo, it watches you ("Thorns: on you"); in a group
+      with yourself as Tank, still you; with another member as Tank, it
+      watches them and a click casts it on them ("Thorns: on <name>"); with
+      the tank dead or offline, it watches you again; walking far from the
+      tank (past the group frames' range, where their frame greys) switches
+      it to you at once, and coming back to the tank; between Thorns' range
+      and that, the switch waits for the next buff, roster, or role change;
+      a role
+      change in combat applies after combat. `/dbr debug` shows `click=` the
+      unit.
 - [ ] Druid: Mark of the Wild and Thorns pulse; in a party, the count and
       tooltip name members without it (warriors too); a click casts on the
       next one; Gift of the Wild with Wild Berries or Wild Thornroot. In Bear
@@ -197,17 +229,29 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       click refreshes it. With a party member whose buff is running out, the
       tooltip names them. A buff running out in combat shows after combat.
 - [ ] In combat the icons hide, and come back after; nothing errors in chat.
+- [ ] Take a flight path with a buff missing: the icons hide in flight (the
+      ammo count stays) and come back on landing.
+- [ ] Ammo: with 1000 or more arrows the count fits inside the icon, at 100%
+      and at the bar's smallest Size.
 - [ ] `/reload` in combat: the icons appear once combat ends.
-- [ ] Unlock: every switched-on icon shows to drag, with the grid; scroll
-      resizes; icons snap beside each other; Shift-drag moves a snapped group;
-      lock and `/dbr reset` work; the "Unlock to move them" switch stays in
-      step with `/dbr unlock` and `/dbr lock`.
+- [ ] Buff bars: group buffs in one bar, self buffs in the other; the
+      icons shown sit side by side from the bar's left edge with no gaps, and
+      move left as buffs land. Locked, a click in a bar's empty part reaches
+      the world (click-through); an icon still casts. A Priest with Divine
+      Spirit off has a one-slot Group buffs bar; switching it on (once
+      known) grows the bar to two. No Dampen or Amplify Magic icon.
+- [ ] Unlock: each bar shows its gold outline at its full size, with its
+      switched-on icons; a drag on an icon or the bar moves the bar; Size and
+      Opacity change it; "Reset size" and `/dbr reset` work. Opacity fades
+      the icons, borders, and counts together.
+- [ ] Coming from 1.0.0: the seal timer keeps its place and size; the
+      buff icons start in their bars' default places.
 - [ ] With Mage Tools Forever on a Mage, or Warlock Tools Forever on a
       Warlock: from MTF/WTF 0.3.0-beta, only DBR's icons show, and their
       reminder settings are greyed out; with an older MTF or WTF, two sets
       show.
 - [ ] Cooldown chimes, with Dyre's Sounds installed: nothing about it at
-      login; `/dbr` shows a "Cooldown Chimes" section after the reminders,
+      login; `/dbr` shows a "Chimes" section after the reminders,
       with one row per class spell: its switch, and its sound on the same
       row, greyed while the switch is off; the sound menu shows the full name
       of the choice, its submenus open, and choosing a sound plays it. With
@@ -215,7 +259,7 @@ One class at a time. Reload after each copy (`/reload` loads new files).
 - [ ] As a Mage: Blink and Frost Nova chime half a second before they are
       ready, in and out of combat; a higher rank of Frost Nova chimes too;
       Cold Snap cancels Frost Nova's chime; Text to Speech says "Blink ready";
-      the "Chime early" slider moves the chime; "Cooldown chimes" off
+      the "Chime early" slider moves the chime; "Enable" under Chimes off
       silences them while the buff reminders keep working.
 - [ ] On each other class: `/dbr debug` shows `name=` for every chime spell,
       and a spell on by default chimes after a cast in combat. As a Rogue,
@@ -229,7 +273,7 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       with the same settings.
 - [ ] With MTF on a Mage (or WTF on a Warlock) that still chimes: DBR says
       once at login to turn theirs off; with theirs off, it says nothing.
-- [ ] Proc sounds, one class at a time: `/dbr` shows a "Proc Sounds" section
+- [ ] Proc sounds, one class at a time: `/dbr` shows a "Procs" section
       with one row per proc; the sound menu lists only file sounds; choosing
       one plays it. Switch the proc on, get the proc in combat: the sound
       plays. After the fight, while the buff is still on you (or the next time

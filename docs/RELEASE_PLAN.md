@@ -37,10 +37,10 @@ DyresBuffReminders/
     DyresBuffReminders.toc
     Commands.lua
     Core.lua
-    Layout.lua
     Buffs.lua
     Reminders.lua
     Seals.lua
+    Consumables.lua
     ChimeSpells.lua
     Chimes.lua
     ProcSpells.lua
@@ -63,7 +63,7 @@ Validate the actual archive, not only the staging folder:
 
 1. Check CRC/integrity, non-empty files, and the exact file list.
 2. Reject absolute paths, traversal paths, symlinks, and extra root folders.
-3. Verify the TOC name, Interface `16001`, and Commands/Core/Layout/Buffs/Reminders/Seals/ChimeSpells/Chimes/ProcSpells/Procs/Probe/Options load order. Every listed runtime file must exist inside the archive.
+3. Verify the TOC name, Interface `16001`, and Commands/Core/Buffs/Reminders/Seals/Consumables/ChimeSpells/Chimes/ProcSpells/Procs/Probe/Options load order. Every listed runtime file must exist inside the archive.
 4. Verify the packaged version matches the selected tag, with one leading `v`
    removed. Verify the packaged MIT copyright/permission notice is intact.
 5. Check the packaged Lua files with Lua 5.1 syntax validation.

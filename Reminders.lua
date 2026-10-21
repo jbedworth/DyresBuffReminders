@@ -1,11 +1,20 @@
-local _, DBR = ...
+local addonName, DBR = ...
 
 -- Buff reminders (author-approved, from Mage Tools Forever and Warlock Tools
 -- Forever, for any class): one icon per buff, shown while the buff is missing
 -- or about to run out (author-approved: a few seconds before, a setting), with
--- a pulsing gold border that draws the eye. Each icon moves and
--- resizes on its own while frames are unlocked (drag to move, scroll to
--- resize), then locks with everything else. Icons are magnetic (Layout.lua).
+-- a pulsing gold border that draws the eye.
+--
+-- The icons sit in two bars (author-approved, 1.1.0): "Group buffs" (buffs
+-- that can go on another player) and "My buffs" (self-only buffs). Each bar is a Dyre's
+-- Toolkit widget, so the toolkit places, drags, sizes, and saves it; DBR only
+-- fills it. A bar is as wide as the icons this character can show (the buff
+-- is known and switched on), and grows or shrinks from its left edge when
+-- that changes, out of combat. Unlocked, every one of them shows (the buffs
+-- that are on, dimmed), so the outline holds a real icon in every slot.
+-- Locked, the missing ones pack in from the left edge, and the bar itself
+-- takes no mouse, so its empty part is click-through. A bar with none to show
+-- is hidden, also while unlocked.
 --
 -- Clicking an icon casts the missing buff: on you first, then the first group
 -- member in range who lacks it, so each click moves down the list as the buff
@@ -15,31 +24,38 @@ local _, DBR = ...
 --
 -- Aura APIs refuse AddOn code in combat on Forever, so DBR checks only out of
 -- combat. The icons are secure buttons, which change only out of combat, so
--- they sit in a holder the game hides for combat with a state driver: a
--- reminder is for between pulls. A buff that runs out in combat shows after.
+-- the game hides each bar for combat with a state driver: a reminder is for
+-- between pulls. A buff that runs out in combat shows after.
 --
 -- "About to run out" needs the aura's expirationTime, read out of combat; a
 -- one-shot timer refreshes the icons when the earliest buff reaches the lead
 -- time (no polling). A buff without a readable time counts as on.
 
-DBR.REMINDER_SCALE_MIN = 50
-DBR.REMINDER_SCALE_MAX = 200
-DBR.REMINDER_SCALE_STEP = 10
-DBR.DEFAULT_REMINDER_SCALE = 100
+-- Every DBR widget's sizes: Size 50-200% (the range the loose icons had),
+-- and Opacity.
+DBR.WIDGET_SIZES = {scale = {min = 50, max = 200, step = 10, default = 100}, opacity = true}
 -- Seconds before a buff runs out that its icon shows; 0 shows it as it falls.
 DBR.LEAD_MIN = 0
 DBR.LEAD_MAX = 30
 DBR.DEFAULT_LEAD = 5
 
 local ICON_SIZE = 40
--- The default row's gap, the snapped gap.
-local ICON_GAP = 20
+-- Wide enough that two icons' pulsing borders never touch.
+local ICON_GAP = 8
 local BORDER = 3
 local GOLD = {1, 0.82, 0}
 local PULSE_SECONDS = 0.6
 local PULSE_LOW_ALPHA = 0.15
-local DEFAULT_Y = 180
+-- In the order they are made; y is each bar's default place above the center.
+local BARS = {
+    {key = "groupbuffs", name = "DyresBuffRemindersGroupBuffs", title = "Group buffs", y = 180},
+    {key = "mybuffs", name = "DyresBuffRemindersMyBuffs", title = "My buffs", y = 130},
+}
 local COMBAT_DRIVER = "[combat] hide; show"
+local HIDDEN_DRIVER = "hide"
+local COMBAT_ONLY_DRIVER = "[combat] show; hide"
+-- Unlocked, a buff that is on shows this solid, so the missing ones stand out.
+local DIM_ALPHA = 0.4
 -- Classes without mana need no mana buffs (Arcane Intellect, Divine Spirit).
 local NO_MANA = {WARRIOR = true, ROGUE = true}
 local MAX_PARTY = 4
@@ -51,8 +67,13 @@ local REFRESH_DELAY = 0.2
 -- A timer can fire a hair early; this much past the lead time still counts.
 local TIMER_SLACK = 0.05
 
-local reminders = {list = {}, icons = {}, names = {}, spellKeys = {}}
-local holder
+local reminders = {list = {}, icons = {}, names = {}, spellKeys = {}, spellNames = {}, bars = {}}
+
+-- The bar a reminder sits in: Group buffs for any buff that can go on
+-- another player (Buffs.lua's group or others), My buffs for self-only ones.
+local function BarKey(reminder)
+    return (reminder.group or reminder.others) and "groupbuffs" or "mybuffs"
+end
 
 -- The reminders for your class, or an empty list.
 function DBR.ClassReminders()
@@ -66,23 +87,26 @@ function DBR.SanitizeLead(value)
     return math.max(DBR.LEAD_MIN, math.min(DBR.LEAD_MAX, value))
 end
 
-function DBR.SanitizeReminderScale(value)
-    if type(value) ~= "number" or value ~= math.floor(value) then
-        return DBR.DEFAULT_REMINDER_SCALE
-    end
-    local stepped = math.floor(value / DBR.REMINDER_SCALE_STEP + 0.5) * DBR.REMINDER_SCALE_STEP
-    return math.max(DBR.REMINDER_SCALE_MIN, math.min(DBR.REMINDER_SCALE_MAX, stepped))
-end
-
 -- The saved reminder settings for every class's buffs, repaired; Core calls
--- this from SanitizeDB. Keys no class has are dropped.
+-- this from SanitizeDB. Keys no class has are dropped. Each bar's place and
+-- sizes are the toolkit's to clamp; before 1.1.0 each icon had its own place
+-- (db.icons), which no bar can take, so the bars start at their defaults.
 function DBR.SanitizeReminders(db, sanitizePosition)
     local spells = type(db.spells) == "table" and db.spells or {}
     local groups = type(db.groups) == "table" and db.groups or {}
-    local icons = type(db.icons) == "table" and db.icons or {}
     local last = type(db.last) == "table" and db.last or {}
-    db.spells, db.groups, db.icons, db.last = {}, {}, {}, {}
+    local bars = type(db.bars) == "table" and db.bars or {}
+    db.spells, db.groups, db.last, db.bars, db.icons = {}, {}, {}, {}, nil
     db.lead = DBR.SanitizeLead(db.lead)
+    local aspect = type(db.combatAspect) == "table" and db.combatAspect or {}
+    -- Its place, size, and opacity are My buffs' (a pre-release had its own).
+    db.combatAspect = {enabled = aspect.enabled ~= false, soundOn = aspect.soundOn ~= false,
+        sound = DBR.SanitizeChimeSound and DBR.SanitizeChimeSound(aspect.sound) or aspect.sound}
+    for _, bar in ipairs(BARS) do
+        local saved = type(bars[bar.key]) == "table" and bars[bar.key] or {}
+        db.bars[bar.key] = {position = sanitizePosition(saved.position), scale = saved.scale,
+            opacity = saved.opacity}
+    end
     for _, list in pairs(DBR.BUFFS) do
         for _, reminder in ipairs(list) do
             local key = reminder.key
@@ -94,9 +118,6 @@ function DBR.SanitizeReminders(db, sanitizePosition)
             if reminder.group then
                 db.groups[key] = groups[key] ~= false
             end
-            local icon = type(icons[key]) == "table" and icons[key] or {}
-            db.icons[key] = {position = sanitizePosition(icon.position),
-                scale = DBR.SanitizeReminderScale(icon.scale)}
             if reminder.prefer and type(last[key]) == "string" then
                 db.last[key] = last[key]
             end
@@ -189,7 +210,9 @@ local function BuffState(unit, reminder)
     return "on"
 end
 
-local function Usable(unit, reminder)
+-- Another group member who is alive, online, and in sight (out of sight, a
+-- unit's buffs may not be known).
+local function Reachable(unit)
     if not UnitExists(unit) or UnitIsUnit(unit, "player") then
         return false
     end
@@ -197,9 +220,12 @@ local function Usable(unit, reminder)
     if DBR.IsSecret(dead) or dead == true or DBR.IsSecret(connected) or connected == false then
         return false
     end
-    -- Out of sight, a unit's buffs may not be known.
     local visible = UnitIsVisible(unit)
-    if DBR.IsSecret(visible) or visible == false then
+    return not DBR.IsSecret(visible) and visible ~= false
+end
+
+local function Usable(unit, reminder)
+    if not Reachable(unit) then
         return false
     end
     if not reminder.group.mana then
@@ -223,13 +249,55 @@ local function GroupUnits()
     return units
 end
 
--- Who needs the buff, as {unit, name, soon}: you first, then group members.
--- soon: still on, but about to run out.
+local function IsTank(unit)
+    local role = UnitGroupRolesAssigned(unit)
+    return not DBR.IsSecret(role) and role == "TANK"
+end
+
+-- In range of the buff's spell; an unreadable (secret or missing) answer
+-- counts as in range, as for the click.
+local function SpellInRange(reminder, unit)
+    if type(C_Spell.IsSpellInRange) ~= "function" then
+        return true
+    end
+    local inRange = C_Spell.IsSpellInRange(reminder.spells[1], unit)
+    return DBR.IsSecret(inRange) or inRange ~= false
+end
+
+-- A tank buff's unit (author): your group's tank, the first in group order
+-- who is alive, online, in sight, and in range; else you (author: "Tank dead,
+-- out of range, etc., watch me"): also when you are the tank, are not in a
+-- group, the group has no tank, or without the role API. A secret role
+-- counts as not a tank. Out of combat only, as every aura read.
+local function Watched(reminder)
+    if not reminder.tank or type(UnitGroupRolesAssigned) ~= "function" or IsTank("player") then
+        return "player"
+    end
+    for _, unit in ipairs(GroupUnits()) do
+        if Reachable(unit) and IsTank(unit) and SpellInRange(reminder, unit) then
+            return unit
+        end
+    end
+    return "player"
+end
+
+local function UnitLabel(unit)
+    if unit == "player" then
+        return "you"
+    end
+    local name = UnitName(unit)
+    return (not DBR.IsSecret(name) and name) or unit
+end
+
+-- Who needs the buff, as {unit, name, soon}: you (or, for a tank buff, the
+-- unit it watches) first, then group members. soon: still on, but about to
+-- run out.
 local function Missing(reminder)
     local missing = {}
-    local state = BuffState("player", reminder)
+    local watched = Watched(reminder)
+    local state = BuffState(watched, reminder)
     if state ~= "on" then
-        missing[#missing + 1] = {unit = "player", name = "you", soon = state == "soon"}
+        missing[#missing + 1] = {unit = watched, name = UnitLabel(watched), soon = state == "soon"}
     end
     if reminder.group and DBR.db.groups[reminder.key] then
         for _, unit in ipairs(GroupUnits()) do
@@ -282,8 +350,9 @@ local function SingleSpell(reminder)
     if not reminder.prefer then
         return Known(reminder) and C_Spell.GetSpellName(reminder.spells[1]) or nil
     end
+    -- Only a spell that may be remembered: never a forgotten one (Cheetah).
     local last = DBR.db.last[reminder.key]
-    if last then
+    if last and reminders.spellNames[last] == reminder.key then
         for _, id in ipairs(reminder.spells) do
             if Knows(id) and C_Spell.GetSpellName(id) == last then
                 return last
@@ -375,12 +444,43 @@ end
 -- /cast (author: every character counts): /use tries an item of that name
 -- first, then casts the spell (pinned SlashCommands.lua:378-388); no item is
 -- known to share these buffs' names.
+-- The picture is always the spell the click casts, the one the tooltip names
+-- (author): the action's spell, else (unlocked, or nothing missing) the spell
+-- a click would cast now, else your best rank. A name is drawn from your
+-- highest known rank of it.
+local function ClickTexture(reminder, action)
+    local cast = action and action.cast or SingleSpell(reminder)
+    if type(cast) == "number" then
+        return C_Spell.GetSpellTexture(cast)
+    end
+    if cast then
+        for index = #reminder.spells, 1, -1 do
+            local id = reminder.spells[index]
+            if Knows(id) and C_Spell.GetSpellName(id) == cast then
+                return C_Spell.GetSpellTexture(id)
+            end
+        end
+    end
+    return BestTexture(reminder)
+end
+
 local function ApplyClick(icon, reminder, action)
     if action and reminder.cancelForm and InForm() then
         action.leavesForm = true
         icon.action = action
         icon:SetAttribute("type1", "macro")
         icon:SetAttribute("macrotext1", "/cancelform\n/use [@" .. action.unit .. "] " .. CastText(action))
+        icon:SetAttribute("spell1", nil)
+        icon:SetAttribute("unit1", nil)
+        return
+    end
+    -- "/use !Name" (author): never toggles an aspect that is already up.
+    -- /use hands the "!" name to CastSpellByName, as /cast does (pinned
+    -- SlashCommands.lua:377-387).
+    if action and reminder.bang then
+        icon.action = action
+        icon:SetAttribute("type1", "macro")
+        icon:SetAttribute("macrotext1", "/use !" .. CastText(action))
         icon:SetAttribute("spell1", nil)
         icon:SetAttribute("unit1", nil)
         return
@@ -404,8 +504,56 @@ end
 
 local function ShowIcon(icon, shown, count)
     icon.count:SetText(count and count > 1 and count or "")
+    icon.wanted = shown == true
     icon:SetShown(shown)
     Pulse(icon, shown)
+end
+
+local function BarWidth(count)
+    return math.max(count, 1) * ICON_SIZE + math.max(count - 1, 0) * ICON_GAP
+end
+
+-- Whether this character can show the reminder: known and switched on.
+local function Countable(reminder)
+    return DBR.db.enabled and DBR.db.spells[reminder.key] and Known(reminder) or false
+end
+
+-- Out of combat: the bar's size follows its countable icons (from its left
+-- edge), it hides with none, and the icons shown pack in from the left, in
+-- Buffs.lua's order.
+local function Pack(bar)
+    local count = 0
+    for _, icon in ipairs(bar.icons) do
+        if icon.countable then
+            count = count + 1
+        end
+    end
+    if bar.count ~= count then
+        bar.count = count
+        bar.frame:SetContentSize(BarWidth(count), ICON_SIZE, "LEFT")
+    end
+    local driver = count > 0 and COMBAT_DRIVER or HIDDEN_DRIVER
+    if bar.driver ~= driver then
+        bar.driver = driver
+        RegisterStateDriver(bar.frame, "visibility", driver)
+    end
+    local slot = 0
+    for _, icon in ipairs(bar.icons) do
+        if icon.wanted then
+            icon:ClearAllPoints()
+            icon:SetPoint("LEFT", bar.frame, "LEFT", slot * (ICON_SIZE + ICON_GAP), 0)
+            slot = slot + 1
+        end
+    end
+end
+
+-- A secret or missing answer counts as not on a taxi.
+local function OnTaxi()
+    if type(UnitOnTaxi) ~= "function" then
+        return false
+    end
+    local onTaxi = UnitOnTaxi("player")
+    return not DBR.IsSecret(onTaxi) and onTaxi == true
 end
 
 function DBR.RefreshReminders()
@@ -413,7 +561,7 @@ function DBR.RefreshReminders()
     if not reminders.ready then
         return
     end
-    -- Secure icons change only out of combat; the holder hides them for combat.
+    -- Secure icons change only out of combat; their bars hide for combat.
     if InCombatLockdown() then
         reminders.dirty = true
         return
@@ -422,20 +570,24 @@ function DBR.RefreshReminders()
     local db = DBR.db
     local unlocked = not db.locked
     reminders.nextCheck = nil
-    local canCheck = db.enabled and UnitIsDeadOrGhost("player") ~= true
+    -- No reminders you cannot act on: dead, or on a flight path (author;
+    -- pinned UnitDocumentation.lua:2570). Unlocked, the samples still show.
+    local canCheck = db.enabled and UnitIsDeadOrGhost("player") ~= true and not OnTaxi()
     for _, reminder in ipairs(reminders.list) do
         local icon = reminders.icons[reminder.key]
-        icon:SetScale(db.icons[reminder.key].scale / 100)
-        icon.texture:SetTexture(BestTexture(reminder))
-        icon.mover:SetShown(unlocked)
-        icon:EnableMouseWheel(unlocked)
-        local wanted = db.enabled and db.spells[reminder.key]
+        local countable = Countable(reminder)
+        icon.countable = countable
         icon.missing, icon.soon = nil, nil
+        icon.watching = reminder.tank and UnitLabel(Watched(reminder)) or nil
+        icon.texture:SetAlpha(1)
         if unlocked then
-            -- Dragging must not cast.
+            -- Dragging must not cast. A buff that is on shows dimmed, still.
             ApplyClick(icon, reminder, nil)
-            ShowIcon(icon, wanted, nil)
-        elseif wanted and canCheck and Known(reminder) then
+            local missing = countable and canCheck and #Missing(reminder) > 0
+            ShowIcon(icon, countable, nil)
+            Pulse(icon, missing)
+            icon.texture:SetAlpha((missing or not canCheck) and 1 or DIM_ALPHA)
+        elseif countable and canCheck then
             local missing = Missing(reminder)
             icon.missing, icon.soon = MissingNames(missing, false), MissingNames(missing, true)
             ApplyClick(icon, reminder, ClickAction(reminder, missing))
@@ -445,6 +597,14 @@ function DBR.RefreshReminders()
             ShowIcon(icon, false)
         end
     end
+    for _, reminder in ipairs(reminders.list) do
+        local icon = reminders.icons[reminder.key]
+        icon.texture:SetTexture(ClickTexture(reminder, icon.action))
+    end
+    for _, bar in ipairs(reminders.bars) do
+        Pack(bar)
+    end
+    DBR.RefreshCombatAspect(canCheck)
     -- One timer for the next buff to reach the lead time; a newer refresh
     -- makes older timers do nothing.
     reminders.expiryToken = (reminders.expiryToken or 0) + 1
@@ -465,60 +625,15 @@ local function ScheduleRefresh()
     end
 end
 
-local function DefaultPoint(index)
-    local offset = (index - (#reminders.list + 1) / 2) * (ICON_SIZE + ICON_GAP)
-    return {point = "CENTER", relativePoint = "CENTER", x = offset, y = DEFAULT_Y}
-end
-
-local function Place(icon, index)
-    local position = DBR.db.icons[icon.key].position or DefaultPoint(index)
-    icon:ClearAllPoints()
-    icon:SetPoint(position.point, UIParent, position.relativePoint, position.x, position.y)
-end
-
-local function PlaceAll()
-    for index, reminder in ipairs(reminders.list) do
-        Place(reminders.icons[reminder.key], index)
-    end
-end
-
--- Returns false when the icons move after combat.
-function DBR.ResetRemindersPosition()
-    for _, reminder in ipairs(reminders.list) do
-        local saved = DBR.db.icons[reminder.key]
-        saved.position, saved.scale = nil, DBR.DEFAULT_REMINDER_SCALE
-    end
-    if not reminders.ready then
-        return true
-    end
-    if InCombatLockdown() then
-        reminders.placeDirty = true
-        return false
-    end
-    PlaceAll()
-    DBR.RefreshReminders()
-    return true
-end
-
--- Dragging and snapping: Layout.lua. The mouse wheel resizes in 10% steps,
--- keeping the icon's center.
-local function Resize(icon, delta)
-    if DBR.db.locked or InCombatLockdown() then
-        return
-    end
-    local saved = DBR.db.icons[icon.key]
-    local step = delta > 0 and DBR.REMINDER_SCALE_STEP or -DBR.REMINDER_SCALE_STEP
-    saved.scale = DBR.SanitizeReminderScale(saved.scale + step)
-    DBR.ScaleKeepingCenter(icon, saved.scale / 100)
-end
-
 local function ShowTooltip(icon)
     GameTooltip:SetOwner(icon, "ANCHOR_TOP")
     GameTooltip:SetText(icon.label, GOLD[1], GOLD[2], GOLD[3])
     if not DBR.db.locked then
-        GameTooltip:AddLine("Drag to move; drop near another to snap; Shift-drag to move a snapped group; "
-            .. "scroll to resize.", 1, 1, 1, true)
+        GameTooltip:AddLine("Drag to move this bar.", 1, 1, 1, true)
     else
+        if icon.watching then
+            GameTooltip:AddLine(icon.label .. ": on " .. icon.watching, 1, 1, 1, true)
+        end
         if icon.missing and #icon.missing > 0 then
             GameTooltip:AddLine("Missing: " .. table.concat(icon.missing, ", "), 1, 1, 1, true)
         end
@@ -535,19 +650,13 @@ local function ShowTooltip(icon)
     GameTooltip:Show()
 end
 
-local function CreateIcon(reminder)
-    local icon = CreateFrame("Button", "DyresBuffRemindersIcon_" .. reminder.key, holder,
-        "SecureActionButtonTemplate")
+local function CreateIcon(reminder, bar, name, template)
+    local icon = CreateFrame("Button", name or ("DyresBuffRemindersIcon_" .. reminder.key), bar,
+        template or "SecureActionButtonTemplate")
     icon.key, icon.label = reminder.key, reminder.label
     icon:SetSize(ICON_SIZE, ICON_SIZE)
-    icon:SetMovable(true)
-    icon:SetClampedToScreen(true)
     icon:RegisterForClicks("AnyUp", "AnyDown")
     icon:SetAttribute("useOnKeyDown", false)
-    icon:RegisterForDrag("LeftButton")
-    icon:SetScript("OnDragStart", DBR.BeginDrag)
-    icon:SetScript("OnDragStop", DBR.EndDrag)
-    icon:SetScript("OnMouseWheel", Resize)
     icon:SetScript("OnEnter", ShowTooltip)
     icon:SetScript("OnLeave", function() GameTooltip:Hide() end)
     icon.texture = icon:CreateTexture(nil, "ARTWORK")
@@ -571,18 +680,169 @@ local function CreateIcon(reminder)
     fade:SetToAlpha(PULSE_LOW_ALPHA)
     fade:SetDuration(PULSE_SECONDS)
     icon.pulse = pulse
-    icon.mover = DBR.CreateMover(icon)
-    icon.mover.hint:SetText("")
-    DBR.RegisterMovable(icon, function(position) DBR.db.icons[reminder.key].position = position end)
     icon:Hide()
     return icon
 end
 
--- The armor (or Dampen/Amplify Magic) you cast is what a click recasts.
+-- The armor you cast is what a click recasts.
+-- The combat aspect button (author, a Hunter player: "I commonly forget and
+-- end up fighting with Cheetah up by accident"). When combat starts with
+-- Aspect of the Cheetah or the Pack up, it shows the combat aspect a click
+-- casts (the Aspect reminder's: your last, else Hawk, else Monkey). AddOn code
+-- cannot read auras or change secure frames in combat, so it is armed out of
+-- combat only: while a travel aspect is up, its click is set and the game
+-- shows it for combat ("[combat] show; hide"); otherwise "hide". A click
+-- casts with "!" and hides it (a secure wrap may Hide in combat). Your own
+-- combat-aspect cast from elsewhere dims it (alpha 0.4, no pulse), never to
+-- 0: an invisible frame must not take clicks (MTF 0.3.2's bug); a stray
+-- click casts with "!", which takes nothing down.
+--
+-- To the player it is the Aspect slot of My buffs (author: "this should
+-- behave like 1 widget"): not a widget of its own, it sits on that slot (or
+-- the bar's start edge when the Aspect reminder is off) with the bar's scale
+-- and opacity, and has no sample of its own. It is anchored to the bar, not
+-- its child: the bar's state driver hides the bar in combat, when this must
+-- show. Anchors and scale change out of combat only; an anchor to a hidden
+-- frame still places it.
+local combat = {}
+
+-- Out of combat: the travel aspect on you, by name, or nil. A secret aura
+-- reads as none.
+local function TravelUp(reminder)
+    for _, id in ipairs(reminder.forget or {}) do
+        local name = C_Spell.GetSpellName(id)
+        if name then
+            local aura = C_UnitAuras.GetAuraDataBySpellName("player", name, "HELPFUL")
+            if not DBR.IsSecret(aura) and aura ~= nil then
+                return name
+            end
+        end
+    end
+end
+
+-- Out of combat: on the Aspect slot of My buffs, with its scale.
+local function PlaceCombatAspect()
+    local button, bar = combat.button, combat.bar
+    if not button or not bar or InCombatLockdown() then
+        return
+    end
+    local aspectIcon = reminders.icons[combat.reminder.key]
+    local slot = 0
+    if aspectIcon.countable then
+        for _, icon in ipairs(bar.icons) do
+            if icon == aspectIcon then
+                break
+            end
+            if icon.countable then
+                slot = slot + 1
+            end
+        end
+    end
+    button:SetScale(bar.frame:GetScale())
+    button:ClearAllPoints()
+    button:SetPoint("LEFT", bar.frame, "LEFT", slot * (ICON_SIZE + ICON_GAP), 0)
+end
+
+-- Out of combat only.
+function DBR.RefreshCombatAspect(canCheck)
+    local button = combat.button
+    if not button then
+        return
+    end
+    PlaceCombatAspect()
+    local reminder = combat.reminder
+    local saved = DBR.db.combatAspect
+    -- Its own switch: it works with the Aspect reminder off too.
+    local wanted = DBR.db.enabled and saved.enabled and Known(reminder)
+    local unlocked = not DBR.db.locked
+    local spell = SingleSpell(reminder)
+    local travel = wanted and canCheck and not unlocked and spell and TravelUp(reminder) or nil
+    combat.travel, combat.spell = travel, spell
+    button.texture:SetTexture(ClickTexture(reminder, nil))
+    button.texture:SetAlpha(1)
+    Pulse(button, true)
+    local macro = travel and ("/use !" .. spell) or nil
+    button:SetAttribute("type1", macro and "macro" or nil)
+    button:SetAttribute("macrotext1", macro)
+    local driver = travel and COMBAT_ONLY_DRIVER or HIDDEN_DRIVER
+    if combat.driver ~= driver then
+        combat.driver = driver
+        RegisterStateDriver(button, "visibility", driver)
+    end
+end
+
+-- In combat: your own combat-aspect cast (readable then) dims the button.
+local function CombatAspectCast(name)
+    if combat.travel and name and reminders.spellNames[name] == combat.reminder.key then
+        combat.button.texture:SetAlpha(DIM_ALPHA)
+        Pulse(combat.button, false)
+    end
+end
+
+-- Combat starts: the optional sound (Dyre's Sounds, its own switch and choice).
+local function CombatStarts()
+    local saved = DBR.db.combatAspect
+    if not combat.travel or not saved.soundOn then
+        return
+    end
+    local library = DBR.SoundLibrary()
+    if library and not library.Play(saved.sound, combat.travel .. " is up") then
+        library.Play(DBR.DEFAULT_CHIME_SOUND, combat.travel .. " is up")
+    end
+end
+
+function DBR.PreviewCombatAspect()
+    local library = DBR.SoundLibrary()
+    if library then
+        library.Play(DBR.db.combatAspect.sound, "Aspect of the Cheetah is up")
+    end
+end
+
+local function CombatAspectTooltip(button)
+    GameTooltip:SetOwner(button, "ANCHOR_TOP")
+    GameTooltip:SetText("Combat aspect", GOLD[1], GOLD[2], GOLD[3])
+    if combat.travel then
+        GameTooltip:AddLine(combat.travel .. " is up.", 1, 1, 1, true)
+        GameTooltip:AddLine("Click: " .. combat.spell .. ".", 0.7, 0.7, 0.7, true)
+    end
+    GameTooltip:Show()
+end
+
+local function CreateCombatAspect(reminder)
+    local button = CreateIcon(reminder, UIParent, "DyresBuffRemindersCombatAspect",
+        "SecureActionButtonTemplate, SecureHandlerBaseTemplate")
+    -- One click event per click (on release), so the wrap hides it after the cast.
+    button:RegisterForClicks("AnyUp")
+    button:SetScript("OnEnter", CombatAspectTooltip)
+    SecureHandlerWrapScript(button, "OnClick", button, "return nil, true", "self:Hide()")
+    combat.button, combat.reminder = button, reminder
+    for _, bar in ipairs(reminders.bars) do
+        if bar.key == BarKey(reminder) then
+            combat.bar = bar
+        end
+    end
+    if combat.bar then
+        button:SetAlpha(combat.bar.frame:GetAlpha())
+    end
+    PlaceCombatAspect()
+end
+
+-- The combat aspect button, for the settings page (a Hunter's); nil without.
+function DBR.CombatAspectWidget()
+    return combat.button
+end
+
+-- By ID, else by name (a rank Forever renumbered); forgotten spells never.
 local function RememberCast(spellID)
-    local key = not DBR.IsSecret(spellID) and reminders.spellKeys[spellID]
+    if DBR.IsSecret(spellID) then
+        return
+    end
+    local name = C_Spell.GetSpellName(spellID)
+    local key = reminders.spellKeys[spellID] or (name and reminders.spellNames[name])
     if key then
-        DBR.db.last[key] = C_Spell.GetSpellName(spellID)
+        DBR.db.last[key] = name
+        -- The click and its picture change with it (after combat, in combat).
+        ScheduleRefresh()
     end
 end
 
@@ -593,22 +853,91 @@ local function GroupUnit(unit)
 end
 
 local events = CreateFrame("Frame")
+-- Events about one unit; only your own and your group's count.
+local UNIT_EVENTS = {UNIT_AURA = true, UNIT_IN_RANGE_UPDATE = true, UNIT_CONNECTION = true}
+-- For a tank buff (Thorns): the game says when a group member comes into or
+-- leaves its party range (UNIT_IN_RANGE_UPDATE, pinned
+-- UnitDocumentation.lua:4328; the group frames' range, not the spell's, so a
+-- tank between the two is re-checked at the next event) or goes offline
+-- (UNIT_CONNECTION). No polling: the family rule.
+local TANK_EVENTS = {"UNIT_IN_RANGE_UPDATE", "UNIT_CONNECTION"}
 
--- The holder, the icons, and their events; out of combat only.
-local function SetUp()
-    holder = CreateFrame("Frame", "DyresBuffRemindersHolder", UIParent)
-    holder:SetAllPoints(UIParent)
-    holder:EnableMouse(false)
+-- A bar for the class's reminders that go in it, sized for all of them; nil
+-- when none do. The toolkit owns its place, size, opacity, and mouse (the
+-- default, "unlocked": the bar takes clicks only while unlocked, to drag).
+local function CreateBar(spec)
+    local list = {}
     for _, reminder in ipairs(reminders.list) do
-        reminders.icons[reminder.key] = CreateIcon(reminder)
+        if BarKey(reminder) == spec.key then
+            list[#list + 1] = reminder
+        end
     end
-    PlaceAll()
-    RegisterStateDriver(holder, "visibility", COMBAT_DRIVER)
+    if #list == 0 then
+        return nil
+    end
+    local frame = CreateFrame("Frame", spec.name, UIParent)
+    local bar = {key = spec.key, frame = frame, icons = {}, count = 0}
+    -- The combat aspect button follows its bar's size and opacity.
+    local function OnLayout()
+        if combat.bar == bar then
+            PlaceCombatAspect()
+        end
+    end
+    local function OnOpacity(_, alpha)
+        if combat.bar == bar then
+            combat.button:SetAlpha(alpha)
+        end
+    end
+    for _, reminder in ipairs(list) do
+        local icon = CreateIcon(reminder, frame)
+        reminders.icons[reminder.key] = icon
+        bar.icons[#bar.icons + 1] = icon
+        if Countable(reminder) then
+            bar.count = bar.count + 1
+        end
+    end
+    -- Made at its size now, so it does not jump at the first refresh.
+    DBR.toolkit.CreateWidget({
+        addon = addonName, key = spec.key, title = spec.title, frame = frame, store = DBR.db.bars[spec.key],
+        width = BarWidth(bar.count), height = ICON_SIZE,
+        point = {point = "CENTER", relativePoint = "CENTER", x = 0, y = spec.y}, sizes = DBR.WIDGET_SIZES,
+        onLayout = OnLayout, onOpacity = OnOpacity,
+    })
+    -- The icons cover the bar: a drag that starts on one moves it.
+    for _, icon in ipairs(bar.icons) do
+        frame:AddDragHandle(icon)
+    end
+    bar.driver = bar.count > 0 and COMBAT_DRIVER or HIDDEN_DRIVER
+    RegisterStateDriver(frame, "visibility", bar.driver)
+    return bar
+end
+
+-- The bars, the icons, and their events; out of combat only.
+local function SetUp()
+    for _, spec in ipairs(BARS) do
+        reminders.bars[#reminders.bars + 1] = CreateBar(spec)
+    end
+    for _, reminder in ipairs(reminders.list) do
+        -- Needs the secure wrap that hides it on a click; without it, no button.
+        if reminder.combatAspect and type(SecureHandlerWrapScript) == "function" then
+            CreateCombatAspect(reminder)
+            events:RegisterEvent("PLAYER_REGEN_DISABLED")
+        end
+    end
     reminders.ready = true
     for _, event in ipairs({"UNIT_AURA", "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "SPELLS_CHANGED",
         "PLAYER_REGEN_ENABLED", "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST", "BAG_UPDATE_DELAYED",
-        "UPDATE_SHAPESHIFT_FORM"}) do
+        "UPDATE_SHAPESHIFT_FORM", "PLAYER_ROLES_ASSIGNED", "ROLE_CHANGED_INFORM",
+        -- Taking off and landing on a flight path (pinned LossOfControlDocumentation.lua:133-139).
+        "PLAYER_CONTROL_LOST", "PLAYER_CONTROL_GAINED"}) do
         events:RegisterEvent(event)
+    end
+    for _, reminder in ipairs(reminders.list) do
+        if reminder.tank then
+            for _, event in ipairs(TANK_EVENTS) do
+                events:RegisterEvent(event)
+            end
+        end
     end
     events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
     DBR.RefreshReminders()
@@ -617,9 +946,16 @@ end
 events:SetScript("OnEvent", function(_, event, unit, _, spellID)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         RememberCast(spellID)
+        if combat.button and InCombatLockdown() and not DBR.IsSecret(spellID) then
+            CombatAspectCast(C_Spell.GetSpellName(spellID))
+        end
         return
     end
-    if event == "UNIT_AURA" and (DBR.IsSecret(unit) or not GroupUnit(unit)) then
+    if event == "PLAYER_REGEN_DISABLED" then
+        CombatStarts()
+        return
+    end
+    if UNIT_EVENTS[event] and (DBR.IsSecret(unit) or not GroupUnit(unit)) then
         return
     end
     if InCombatLockdown() then
@@ -630,10 +966,6 @@ events:SetScript("OnEvent", function(_, event, unit, _, spellID)
             reminders.setupPending = false
             SetUp()
             return
-        end
-        if reminders.placeDirty then
-            reminders.placeDirty = false
-            PlaceAll()
         end
         DBR.RefreshReminders()
         return
@@ -646,8 +978,22 @@ function DBR.InitializeReminders(class)
     for _, reminder in ipairs(reminders.list) do
         reminders.names[reminder.key] = BuffNames(reminder)
         if reminder.prefer then
+            local forget = {}
+            for _, id in ipairs(reminder.forget or {}) do
+                forget[id] = true
+                local name = C_Spell.GetSpellName(id)
+                if name then
+                    forget[name] = true
+                end
+            end
             for _, id in ipairs(reminder.spells) do
-                reminders.spellKeys[id] = reminder.key
+                local name = C_Spell.GetSpellName(id)
+                if not forget[id] and not (name and forget[name]) then
+                    reminders.spellKeys[id] = reminder.key
+                    if name then
+                        reminders.spellNames[name] = reminder.key
+                    end
+                end
             end
         end
     end
@@ -661,6 +1007,24 @@ function DBR.InitializeReminders(class)
         return
     end
     SetUp()
+end
+
+-- The bars' widgets, for the settings page: {key, widget}, in BARS order.
+function DBR.ReminderBars()
+    local list = {}
+    for _, bar in ipairs(reminders.bars) do
+        list[#list + 1] = {key = bar.key, widget = bar.frame}
+    end
+    return list
+end
+
+local function ReportCombatAspectDebug()
+    if combat.button then
+        DBR.Report(string.format("debug combatAspect on=%s armed=%s travel=%s macro=%s driver=%s sound=%s",
+            tostring(DBR.db.combatAspect.enabled), tostring(combat.travel ~= nil), tostring(combat.travel),
+            tostring(combat.button:GetAttribute("macrotext1")), tostring(combat.driver),
+            DBR.db.combatAspect.soundOn and tostring(DBR.db.combatAspect.sound) or "off"))
+    end
 end
 
 -- /dbr debug: each reminder, whether you know it, who lacks it, and the click.
@@ -688,10 +1052,11 @@ function DBR.ReportRemindersDebug()
             missing = table.concat(MissingNames(Missing(reminder)), ",")
         end
         local action = icon and icon.action
-        DBR.Report(string.format("debug %s on=%s group=%s known=%s shown=%s missing=%s click=%s unknownIDs=%s",
-            reminder.key, tostring(DBR.db.spells[reminder.key]), tostring(DBR.db.groups[reminder.key]),
+        DBR.Report(string.format("debug %s bar=%s on=%s group=%s known=%s shown=%s missing=%s click=%s "
+            .. "unknownIDs=%s last=%s", reminder.key, BarKey(reminder), tostring(DBR.db.spells[reminder.key]), tostring(DBR.db.groups[reminder.key]),
             tostring(Known(reminder)), tostring(icon and icon:IsShown()), missing,
             action and (tostring(action.cast) .. "@" .. action.unit) or "none",
-            #unknown > 0 and table.concat(unknown, ",") or "none"))
+            #unknown > 0 and table.concat(unknown, ",") or "none", tostring(DBR.db.last[reminder.key])))
     end
+    ReportCombatAspectDebug()
 end

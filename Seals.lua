@@ -1,4 +1,4 @@
-local _, DBR = ...
+local addonName, DBR = ...
 
 -- The seal timer, for Paladins (author-approved): while any seal is up, its
 -- icon with the time left (a cooldown sweep with numbers, and a bar under the
@@ -14,6 +14,10 @@ local _, DBR = ...
 -- seal is up. The slot takes no mouse, so a click reaches the button. Its
 -- attributes change only out of combat: a seal you cast in combat becomes
 -- the click after combat.
+--
+-- The timer is a Dyre's Toolkit widget (1.1.0): the toolkit places, drags,
+-- sizes, and saves it, under the keys the timer had (db.seal.position and
+-- scale), so a place from before carries over.
 
 -- Every rank; the seal's buff has its spell's ID. Classic IDs, and Forever's
 -- Seal of Fury (found in client: a seal Classic lacks, so the timer missed
@@ -42,7 +46,7 @@ local GOLD = {1, 0.82, 0}
 local BAR_COLOR = {1, 0.82, 0}
 local PULSE_SECONDS = 0.6
 local PULSE_LOW_ALPHA = 0.15
--- Above the reminder row's default place.
+-- Above the buff bars' default places.
 local DEFAULT_POINT = {point = "CENTER", relativePoint = "CENTER", x = 0, y = 240}
 local AURA_FILTER = "HELPFUL"
 local CONTAINER_TEMPLATE = "CustomAuraContainerTemplate"
@@ -56,8 +60,9 @@ local seal = {ids = {}, count = 0}
 
 function DBR.SanitizeSeal(saved, sanitizePosition)
     saved = type(saved) == "table" and saved or {}
-    return {enabled = saved.enabled ~= false, position = sanitizePosition(saved.position),
-        scale = DBR.SanitizeReminderScale(saved.scale)}
+    -- The toolkit clamps the sizes when it makes the widget.
+    return {enabled = saved.enabled ~= false, position = sanitizePosition(saved.position), scale = saved.scale,
+        opacity = saved.opacity}
 end
 
 local function Knows(id)
@@ -182,7 +187,6 @@ local function InitializeSlot(button)
     bar:SetStatusBarColor(BAR_COLOR[1], BAR_COLOR[2], BAR_COLOR[3])
     local direction = Enum and Enum.StatusBarTimerDirection and Enum.StatusBarTimerDirection.RemainingTime
     button:SetDurationBar(bar, {direction = direction})
-    seal.slot = button
 end
 
 -- A slot's spell IDs are fixed once added, so a new seal in your spellbook
@@ -255,37 +259,12 @@ local function CreateButton()
     seal.button = button
 end
 
-local function Place()
-    local position = DBR.db.seal.position or DEFAULT_POINT
-    seal.display:ClearAllPoints()
-    seal.display:SetPoint(position.point, UIParent, position.relativePoint, position.x, position.y)
-end
-
--- Dragging and snapping: Layout.lua, as the reminder icons.
-local function Resize(display, delta)
-    if DBR.db.locked or InCombatLockdown() then
-        return
-    end
-    local saved = DBR.db.seal
-    local step = delta > 0 and DBR.REMINDER_SCALE_STEP or -DBR.REMINDER_SCALE_STEP
-    saved.scale = DBR.SanitizeReminderScale(saved.scale + step)
-    DBR.ScaleKeepingCenter(display, saved.scale / 100)
-end
-
 local function CreateDisplay()
     local display = CreateFrame("Frame", "DyresBuffRemindersSeal", UIParent)
-    display:SetSize(ICON_SIZE, ICON_SIZE)
-    display:SetMovable(true)
-    display:SetClampedToScreen(true)
-    display:RegisterForDrag("LeftButton")
-    display:SetScript("OnDragStart", DBR.BeginDrag)
-    display:SetScript("OnDragStop", DBR.EndDrag)
-    display:SetScript("OnMouseWheel", Resize)
     display:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
         GameTooltip:SetText("Seal timer", GOLD[1], GOLD[2], GOLD[3])
-        GameTooltip:AddLine("Drag to move; drop near another to snap; Shift-drag to move a snapped group; "
-            .. "scroll to resize.", 1, 1, 1, true)
+        GameTooltip:AddLine("Drag to move it.", 1, 1, 1, true)
         GameTooltip:Show()
     end)
     display:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -294,13 +273,19 @@ local function CreateDisplay()
     display.sample:SetAllPoints()
     display.sample:SetTexCoord(0.07, 0.93, 0.07, 0.93)
     seal.display = display
-    display.mover = DBR.CreateMover(display)
-    display.mover.hint:SetText("")
-    DBR.RegisterMovable(display, function(position) DBR.db.seal.position = position end)
 end
 
--- Out of combat only: the click, the missing picture, size, lock, and
--- whether the timer shows at all.
+-- After the secure button exists, so the toolkit treats the timer as
+-- protected: it moves and resizes only out of combat.
+local function CreateWidget()
+    DBR.toolkit.CreateWidget({
+        addon = addonName, key = "seal", title = "Seal timer", frame = seal.display, store = DBR.db.seal,
+        width = ICON_SIZE, height = ICON_SIZE, point = DEFAULT_POINT, sizes = DBR.WIDGET_SIZES,
+    })
+end
+
+-- Out of combat only: the click, the missing picture, the sample while
+-- unlocked, and whether the timer shows at all.
 function DBR.RefreshSeal()
     if not seal.ready then
         return
@@ -326,12 +311,8 @@ function DBR.RefreshSeal()
     local texture = id and C_Spell.GetSpellTexture(id)
     button.texture:SetTexture(texture)
     seal.display.sample:SetTexture(texture)
-    seal.display:SetScale(db.seal.scale / 100)
     seal.display:SetShown(db.enabled and db.seal.enabled)
     seal.display.sample:SetShown(unlocked)
-    seal.display.mover:SetShown(unlocked)
-    seal.display:EnableMouse(unlocked)
-    seal.display:EnableMouseWheel(unlocked)
     -- Unlocked, the button stays hidden so the drag reaches the display.
     local driver = (wanted and not unlocked) and COMBAT_ONLY or NEVER
     if seal.driver ~= driver then
@@ -340,26 +321,14 @@ function DBR.RefreshSeal()
     end
 end
 
-function DBR.ResetSealPosition()
-    if not DBR.db.seal then
-        return true
-    end
-    DBR.db.seal.position, DBR.db.seal.scale = nil, DBR.DEFAULT_REMINDER_SCALE
-    if not seal.ready then
-        return true
-    end
-    if InCombatLockdown() then
-        seal.placeDirty = true
-        return false
-    end
-    Place()
-    DBR.RefreshSeal()
-    return true
-end
-
 -- Whether this character has the seal timer (a Paladin with the container).
 function DBR.HasSealTimer()
     return seal.ready == true
+end
+
+-- The timer's widget, for the settings page; nil without the timer.
+function DBR.SealWidget()
+    return seal.ready and seal.display or nil
 end
 
 -- A seal you cast becomes the click, by name, so any seal counts; own casts
@@ -393,10 +362,6 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
             SetUp()
             return
         end
-        if seal.placeDirty then
-            seal.placeDirty = false
-            Place()
-        end
         if not seal.dirty then
             return
         end
@@ -409,7 +374,7 @@ function SetUp()
     CreateDisplay()
     CreateButton()
     CreateContainer()
-    Place()
+    CreateWidget()
     seal.ready = true
     events:RegisterEvent("SPELLS_CHANGED")
     events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")

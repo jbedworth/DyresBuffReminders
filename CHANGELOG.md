@@ -5,6 +5,31 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.1.0
+
+### Features
+
+- Druid: Thorns follows your group's tank. With a member set to the Tank role, it reminds you when the tank lacks Thorns, and a click casts it on them. Solo, with no tank, as the tank yourself, or when the tank is dead, offline, or out of range, it watches you and a click casts it on you; it switches back to you as the tank's party frame greys out. The tooltip says whom it watches.
+- Hunter: an Aspect reminder in My buffs. Any aspect counts as up; with none up, a click recasts the last combat aspect you cast (Hawk, Monkey, Wild, or Beast), else Hawk, else Monkey. Cheetah and Pack are never recast, since they daze you when you are hit, and a click never takes down an aspect that is already up.
+- Hunter: a combat aspect reminder. Start a fight with Aspect of the Cheetah or the Pack up, and an icon with your combat aspect appears the moment combat starts; one click puts it up and the icon goes away. Cast a combat aspect yourself and the icon dims. It sits on the Aspect slot of My buffs, with an optional sound at combat start (its own switch and sound choice). Turn it off with "Combat aspect reminder" under Aspect in `/dbr`.
+- Ammo for any bow, gun, or crossbow, Warriors and Rogues too: a new Consumables bar shows your equipped arrows or bullets and how many are left, also in combat. At or below "Warn at" (200 at first) the count and the icon's border turn red and pulse; out of ammo, or with none equipped, it shows as missing, and its tooltip says to equip the ones in your bags. Turn it off under "Consumables" in `/dbr`.
+- Two buff bars: Group buffs, for buffs that can go on another player (Arcane Intellect, Mark of the Wild, Thorns, Fortitude, Divine Spirit, Shadow Protection), and My buffs, for buffs only you can have (armors, aspects, Inner Fire, Righteous Fury). Each shows only the buffs you are missing, side by side from its left edge, and a click on its empty part goes through to the world. Unlocked, a bar shows all of its buffs, those already on dimmed.
+- Each bar, the ammo bar, and the Paladin seal timer has its own Size (50-200%) and Opacity, with Reset size, under "Size and Opacity" in `/dbr`.
+
+### Fixes
+
+- No buff reminders show on a flight path, where you cannot cast them; they come back when you land.
+- A reminder's icon now always shows the spell a click casts, as its tooltip says: your armor shows the armor you cast last, and a group buff shows Arcane Brilliance, Gift of the Wild, or a Prayer when a click casts it. Before, it showed your highest-ranked spell of the reminder.
+
+### Other changes
+
+- DBR now needs Dyre's Toolkit 2.0 or later, which places, drags, snaps, and sizes its bars for all Dyre's AddOns alike. The CurseForge app installs it with DBR; without it, DBR stays off and says where to get it.
+- The seal timer keeps its place and size. The buff icons' own places from 1.0.0 cannot carry over to a bar: the bars start in their default places, once.
+- Scrolling over an icon no longer resizes it: use Size in the settings. `/dbr reset` puts the bars back in place; Reset size puts back their size.
+- In the settings, the sections are now "Reminders", "Chimes", and "Procs", and each one's on/off switch is "Enable". Your settings stay as they were.
+- Dampen and Amplify Magic are no longer reminded: you cast them on chosen members when a fight needs them, as with Paladin Blessings.
+- DBR's own grid and "Unlock to move them" switch are gone: the toolkit's grid and "Unlock frames" are the ones for every Dyre's AddOn.
+
 ## 1.0.0
 
 The first full release for WoW: Forever, no longer marked beta: it was play tested on the Forever beta client 1.60.1, build 70450. CurseForge now offers it as a release, so the app updates it and installs what it needs for every player.

@@ -29,7 +29,9 @@ MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 RECEIPT_NAME = "curseforge-upload.json"
 # Dyre's Sounds (the chimes' and procs' sounds) and Dyre's Toolkit (one layout
 # mode and settings home) are required on CurseForge, so the app installs them
-# with DBR; the TOC lists both as OptionalDeps, so DBR still loads without them.
+# with DBR; the TOC lists the toolkit as Dependencies and Dyre's Sounds as
+# OptionalDeps (DBR stays off without the toolkit, and plays no sounds without
+# Dyre's Sounds).
 RELATIONS = {"projects": [{"slug": "dyres-sounds", "type": "requiredDependency"},
                           {"slug": "dyres-toolkit", "type": "requiredDependency"}]}
 

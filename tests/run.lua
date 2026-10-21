@@ -31,6 +31,11 @@ local function tocFiles()
     return files
 end
 local RUNTIME_FILES = tocFiles()
+-- Dyre's Toolkit's files the tests load (a copy in tests/toolkit, checked
+-- against ../DyresToolkit when that folder is there). Not the minimap, which
+-- needs the embedded libraries.
+local TOOLKIT_FILES = {"Core.lua", "Layout.lua", "Widgets.lua", "Settings.lua"}
+local PAGE = "Buff Reminders"
 
 -- Classic spell names for the IDs in Buffs.lua, as the client would name them.
 local SPELLS = {}
@@ -57,6 +62,12 @@ name("Prayer of Spirit", 27681)
 name("Shadow Protection", 976, 10957, 10958)
 name("Prayer of Shadow Protection", 27683)
 name("Righteous Fury", 25780)
+name("Aspect of the Hawk", 13165, 14318, 14319, 14320, 14321, 14322, 25296)
+name("Aspect of the Monkey", 13163)
+name("Aspect of the Wild", 20043, 20190)
+name("Aspect of the Beast", 13161)
+name("Aspect of the Cheetah", 5118)
+name("Aspect of the Pack", 13159)
 name("Seal of Righteousness", 21084, 20154, 20287, 20288, 20289, 20290, 20291, 20292, 20293)
 name("Seal of Command", 20375, 20915, 20918, 20919, 20920)
 name("Seal of Fury", 20163, 20419, 20421, 20422, 20423, 1311649, 1311656)
@@ -263,6 +274,14 @@ local function fixture(options)
     env.UnitIsConnected = function(unit) return state.units[unit] ~= nil and state.units[unit].offline ~= true end
     env.UnitIsVisible = function(unit) return state.units[unit] ~= nil and state.units[unit].far ~= true end
     env.IsInRaid = function() return state.group == "raid" end
+    env.UnitOnTaxi = function(unit) return unit == "player" and state.taxi == true end
+    if not options.noRoles then
+        env.UnitGroupRolesAssigned = function(unit)
+            local data = state.units[unit]
+            if data and data.secretRole then return state.secret() end
+            return data and data.role or "NONE"
+        end
+    end
     env.IsInGroup = function() return state.group ~= nil end
 
     env.C_Spell = {
@@ -310,6 +329,31 @@ local function fixture(options)
         if item then return {spellID = item.spellID, name = item.name, itemType = item.itemType or 1} end
     end
     env.C_Item = {GetItemCount = function(id) return state.carried[id] or 0 end}
+    -- Equipment and bags: state.equipped[slot] = itemID (18 ranged, 0 ammo),
+    -- state.ammoCount (a number or "secret"), state.bags[bag] = {itemIDs}.
+    state.equipped, state.bags = {}, {}
+    local ITEMS = {[2504] = {2, 2, 4001}, [2508] = {2, 3, 4002}, [15807] = {2, 18, 4003}, [2947] = {2, 16, 4004},
+        [5069] = {2, 19, 4005}, [2512] = {6, 2, 3001, "Rough Arrow"}, [2516] = {6, 3, 3002, "Light Shot"}}
+    env.C_Item.GetItemInfoInstant = function(id)
+        local item = ITEMS[id]
+        if item then return id, "", "", "", item[3], item[1], item[2] end
+    end
+    env.C_Item.GetItemNameByID = function(id) return ITEMS[id] and ITEMS[id][4] end
+    env.GetInventoryItemID = function(unit, slot)
+        equal(unit, "player")
+        return state.equipped[slot]
+    end
+    if not options.noAmmoAPI then
+        env.GetInventoryItemCount = function(unit, slot)
+            equal(slot, 0, "the ammo slot")
+            if state.ammoCount == "secret" then return state.secret() end
+            return state.ammoCount or 0
+        end
+    end
+    env.C_Container = {
+        GetContainerNumSlots = function(bag) return state.bags[bag] and #state.bags[bag] or 0 end,
+        GetContainerItemID = function(bag, slot) return state.bags[bag] and state.bags[bag][slot] end,
+    }
     env.C_UnitAuras = {
         -- As in client, AddOn code cannot read auras in combat.
         GetAuraDataBySpellName = function(unit, spell, filter)
@@ -375,6 +419,8 @@ local function fixture(options)
                 frame.shown = not state.combat
             elseif driver == "[combat] show; hide" then
                 frame.shown = state.combat
+            elseif driver == "show" then
+                frame.shown = true
             else
                 equal(driver, "hide", "a known driver")
                 frame.shown = false
@@ -386,6 +432,20 @@ local function fixture(options)
         if state.combat then error("RegisterStateDriver in combat") end
         state.drivers[frame] = driver
         state.applyDrivers()
+    end
+    -- Secure wraps: recorded; state.secureClick runs a wrapped frame's click as
+    -- the game would (the cast, then the post-body, which may Hide in combat).
+    state.wraps = {}
+    if not options.noSecureWrap then
+        env.SecureHandlerWrapScript = function(frame, script, header, preBody, postBody)
+            state.wraps[frame] = {script = script, header = header, pre = preBody, post = postBody}
+        end
+    end
+    function state.secureClick(frame)
+        state.clicked = state.clicked or {}
+        state.clicked[#state.clicked + 1] = frame.attributes.macrotext1 or frame.attributes.spell1
+        local wrap = state.wraps[frame]
+        if wrap and wrap.post == "self:Hide()" then frame.shown = false end
     end
     env.GameTooltip = {
         SetOwner = function() state.tooltip = {} end,
@@ -413,52 +473,6 @@ local function fixture(options)
         end
     end
     state.soundsWithoutCheckboxMenu = options.soundsWithoutCheckboxMenu
-    -- Dyre's Toolkit (contract 1): records what DBR registers; one lock for all.
-    if options.toolkit then
-        local toolkit = {members = {}, movables = {}, pages = {}, locked = true, drags = {}, lockCalls = 0}
-        state.toolkit = toolkit
-        function toolkit.RequireContract(required)
-            if options.toolkit == "newer" then return nil end
-            if required == 1 then return toolkit end
-        end
-        function toolkit.RegisterAddOn(info)
-            toolkit.members[#toolkit.members + 1] = info
-            if not toolkit.locked and info.setLocked then info.setLocked(false) end
-            return true
-        end
-        function toolkit.IsLocked() return toolkit.locked end
-        function toolkit.SetLocked(locked)
-            toolkit.locked, toolkit.lockCalls = locked == true, toolkit.lockCalls + 1
-            for _, info in ipairs(toolkit.members) do
-                if info.setLocked then info.setLocked(toolkit.locked) end
-            end
-            state.messages[#state.messages + 1] = "Dyre: Frames " .. (toolkit.locked and "locked." or "unlocked.")
-        end
-        function toolkit.Lock() toolkit.SetLocked(true) end
-        function toolkit.Unlock() toolkit.SetLocked(false) end
-        function toolkit.RegisterMovable(frame, save) toolkit.movables[frame] = save end
-        function toolkit.BeginDrag(frame) toolkit.drags[#toolkit.drags + 1] = {"begin", frame} end
-        function toolkit.EndDrag(frame) toolkit.drags[#toolkit.drags + 1] = {"end", frame} end
-        function toolkit.ScaleKeepingCenter(frame, scale)
-            frame:SetScale(scale)
-            toolkit.scaled = {frame, scale}
-        end
-        function toolkit.RegisterSettingsCategory(name)
-            if options.noToolkitPage then return nil end
-            local category = {name = name, initializers = {}, parent = "Dyre's AddOns"}
-            function category:GetID() return "toolkit:" .. name end
-            local layout = {}
-            function layout:AddInitializer(initializer)
-                if initializer.heading then state.headings[#state.headings + 1] = initializer end
-                category.initializers[#category.initializers + 1] = initializer
-            end
-            state.categories[name] = category
-            toolkit.pages[name] = category
-            return category, layout
-        end
-        function toolkit.OpenSettings(category) state.opened = category:GetID() end
-        env.DyresToolkit = toolkit
-    end
     env.C_Secrets = {GetSpellCooldownSecrecy = function() return state.combat and state.secret() or 2 end}
     local sounds = options.sounds or "fake"
     if sounds == "fake" then
@@ -477,6 +491,9 @@ local function fixture(options)
         end
     end
     if not options.noSettings then
+        env.CreateSettingsButtonInitializer = function(label, buttonText, click, tooltip)
+            return {kind = "button", label = label, buttonText = buttonText, click = click, tooltip = tooltip}
+        end
         local function initializer(category, setting, tooltip)
             local object = {setting = setting, tooltip = tooltip}
             function object:SetParentInitializer(parent, predicate)
@@ -498,6 +515,12 @@ local function fixture(options)
                 end
                 return category, layout
             end,
+            RegisterVerticalLayoutSubcategory = function(parent, title)
+                local category, layout = env.Settings.RegisterVerticalLayoutCategory(title)
+                category.parent = parent
+                return category, layout
+            end,
+            NotifyUpdate = function() end,
             CreateDropdown = function(category, setting, choices, tooltip)
                 local object = initializer(category, setting, tooltip)
                 object.choices, object.kind = choices, "dropdown"
@@ -534,13 +557,20 @@ local function fixture(options)
         if parent and parent.children then parent.children[#parent.children + 1] = object end
         function object:SetBackdropBorderColor(...) self.backdropBorder = {...} end
         function object:SetBackdrop(backdrop) self.backdrop = backdrop end
-        function object:EnableMouse(value) self.mouse = value == true end
+        function object:EnableMouse(value)
+            if state.combat and self.protected then error("EnableMouse in combat") end
+            self.mouse = value == true
+        end
+        function object:SetAlpha(value) self.alpha = value end
+        function object:GetAlpha() return self.alpha or 1 end
         function object:EnableMouseWheel(value) self.wheel = value == true end
         -- As in client, secure frames refuse changes in combat.
         function object:SetScale(value)
             if state.combat and self.protected then error("SetScale in combat") end
             self.scale = value
         end
+        function object:GetScale() return self.scale or 1 end
+        function object:GetNumPoints() return #self.points end
         function object:GetEffectiveScale()
             local parentScale = 1
             if self.parent and self.parent.GetEffectiveScale then parentScale = self.parent:GetEffectiveScale() end
@@ -550,7 +580,10 @@ local function fixture(options)
         function object:GetHeight() return self.height or 0 end
         function object:SetWidth(width) self.width = width end
         function object:SetHeight(height) self.height = height end
-        function object:SetSize(width, height) self.width, self.height = width, height end
+        function object:SetSize(width, height)
+            if state.combat and self.protected then error("SetSize in combat") end
+            self.width, self.height = width, height
+        end
         function object:GetCenter()
             local x, y = state.absCenter(self)
             local scale = self:GetEffectiveScale()
@@ -594,6 +627,16 @@ local function fixture(options)
         function object:StartMoving() self.moving = true end
         function object:StopMovingOrSizing() self.moving = false end
         function object:SetText(text) self.text = text end
+        function object:SetTextColor(...) self.textColor = {...} end
+        function object:SetFont(file, size, flags) self.font = {file, size, flags} end
+        function object:GetFont() return "Fonts\ARIALN.TTF", 14, "" end
+        function object:SetJustifyH(value) self.justifyH = value end
+        function object:SetShadowColor(...) self.shadowColor = {...} end
+        function object:SetShadowOffset(...) self.shadowOffset = {...} end
+        function object:SetWordWrap(value) self.wordWrap = value end
+        function object:SetDesaturated(value) self.desaturated = value == true end
+        function object:SetMouseClickEnabled(value) self.mouseClicks = value == true end
+        function object:SetMouseMotionEnabled(value) self.mouseMotion = value == true end
         function object:SetTexture(texture) self.texture = texture end
         function object:SetColorTexture(...) self.color = {...} end
         function object:CreateTexture() return widget("Texture", nil, self) end
@@ -648,7 +691,7 @@ local function fixture(options)
     env.CreateFrame = function(kind, frameName, parent, template)
         local frame = widget(kind, frameName, parent, template)
         if frameName then env[frameName] = frame end
-        if template == "SecureActionButtonTemplate" then
+        if template and template:find("SecureActionButtonTemplate", 1, true) then
             frame.protected = true
             if parent then parent.protected = true end
         end
@@ -687,6 +730,23 @@ local function fixture(options)
     end
 
     for _, globalName in ipairs(options.remove or {}) do env[globalName] = nil end
+    -- Dyre's Toolkit, its real files: DBR requires it. options.noToolkit leaves
+    -- it out; options.oldToolkit offers contract 1 only.
+    if not options.noToolkit then
+        state.toolkitNS = {InitializeMinimap = function() end}
+        for _, path in ipairs(TOOLKIT_FILES) do
+            local chunk = assert(loadfile("tests/toolkit/" .. path))
+            setfenv(chunk, env)
+            chunk("DyresToolkit", state.toolkitNS)
+        end
+        state.toolkit = env.DyresToolkit
+        if options.oldToolkit then
+            env.DyresToolkit.RequireContract = function(n)
+                if n == 1 then return env.DyresToolkit end
+            end
+        end
+        env.DyresToolkitDB = options.toolkitDB
+    end
     state.dbr = {}
     for _, path in ipairs(options.files or RUNTIME_FILES) do
         local chunk, message = loadfile(path)
@@ -696,6 +756,7 @@ local function fixture(options)
     end
     env.DyresBuffRemindersDB = options.db
     state.env = env
+    state.emit("ADDON_LOADED", "DyresToolkit")
     state.emit("ADDON_LOADED", ADDON)
     state.emit("PLAYER_LOGIN")
 
@@ -709,6 +770,10 @@ local function fixture(options)
         return false
     end
     function state.icon(key) return env["DyresBuffRemindersIcon_" .. key] end
+    function state.bar(key)
+        return env[key == "group" and "DyresBuffRemindersGroupBuffs" or "DyresBuffRemindersMyBuffs"]
+    end
+    function state.page() return state.categories[PAGE] end
     function state.cast(id, cooldown)
         if cooldown then state.cooldowns[id] = {start = state.now, duration = cooldown} end
         state.emit("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-guid", id)
@@ -773,11 +838,8 @@ end
 
 test("the TOC loads every runtime file in order, with the release metadata", function()
     equal(table.concat(RUNTIME_FILES, ","),
-        "Commands.lua,Core.lua,Layout.lua,Buffs.lua,Reminders.lua,Seals.lua,ChimeSpells.lua,Chimes.lua,"
+        "Commands.lua,Core.lua,Buffs.lua,Reminders.lua,Seals.lua,Consumables.lua,ChimeSpells.lua,Chimes.lua,"
             .. "ProcSpells.lua,Procs.lua,Probe.lua,Options.lua")
-    local text = assert(io.open(ADDON .. ".toc")):read("*a")
-    contains(text, "## OptionalDeps: DyresSounds")
-    equal(text:find("## Dependencies", 1, true), nil, "never a hard dependency")
     local state = fixture()
     equal(state.toc.Category, "Buffs & Debuffs")
     equal(state.toc.Author, "Dyre")
@@ -787,14 +849,10 @@ test("login says the version and author, and that DBR is ready", function()
     local state = fixture()
     equal(state.messages[1], "DBR: Dyre's Buff Reminders " .. state.toc.Version .. " by Dyre")
     equal(state.messages[2], "DBR:   Ready. Type /dbr to open the settings.")
-    equal(state.messages[3], "DBR: Install Dyre's Toolkit from CurseForge for one layout mode and settings home "
-        .. "for all Dyre's AddOns.", "without the toolkit, once")
-    equal(#state.messages, 3, "nothing else on a Mage")
-    local with = fixture({toolkit = true})
-    equal(#with.messages, 2, "with the toolkit, no install line")
+    equal(#state.messages, 2, "nothing else on a Mage")
 end)
 test("a mixed install stays off and says what to do", function()
-    local state = fixture({files = {"Commands.lua", "Core.lua", "Layout.lua", "Buffs.lua", "Seals.lua",
+    local state = fixture({files = {"Commands.lua", "Core.lua", "Buffs.lua", "Seals.lua",
         "ChimeSpells.lua", "Chimes.lua", "ProcSpells.lua", "Procs.lua", "Options.lua"}})
     equal(state.dbr.available, false)
     contains(state.last(), "missing ClassReminders")
@@ -803,13 +861,13 @@ test("a mixed install stays off and says what to do", function()
     contains(state.last(), "unavailable")
     state.slash("debug")
     contains(state.messages[2], "available=false", "debug still runs")
-    local noBuffs = fixture({files = {"Commands.lua", "Core.lua", "Layout.lua", "Reminders.lua", "Seals.lua", "Options.lua"}})
+    local noBuffs = fixture({files = {"Commands.lua", "Core.lua", "Reminders.lua", "Seals.lua", "Options.lua"}})
     contains(noBuffs.last(), "missing Buffs.lua, Seals.lua, ChimeSpells.lua, or ProcSpells.lua")
-    local noChimes = fixture({files = {"Commands.lua", "Core.lua", "Layout.lua", "Buffs.lua", "Reminders.lua",
-        "Seals.lua", "ChimeSpells.lua", "ProcSpells.lua", "Procs.lua", "Options.lua"}})
+    local noChimes = fixture({files = {"Commands.lua", "Core.lua", "Buffs.lua", "Reminders.lua",
+        "Seals.lua", "Consumables.lua", "ChimeSpells.lua", "ProcSpells.lua", "Procs.lua", "Options.lua"}})
     contains(noChimes.last(), "missing ClassChimes")
-    local noProcs = fixture({files = {"Commands.lua", "Core.lua", "Layout.lua", "Buffs.lua", "Reminders.lua",
-        "Seals.lua", "ChimeSpells.lua", "Chimes.lua", "ProcSpells.lua", "Options.lua"}})
+    local noProcs = fixture({files = {"Commands.lua", "Core.lua", "Buffs.lua", "Reminders.lua",
+        "Seals.lua", "Consumables.lua", "ChimeSpells.lua", "Chimes.lua", "ProcSpells.lua", "Options.lua"}})
     contains(noProcs.last(), "missing ClassProcs")
 end)
 test("a client without a required API stays off", function()
@@ -822,14 +880,14 @@ test("commands are one word, and anything else shows the usage", function()
     for _, text in ipairs({"nope", "unlock now", "debug_reminders"}) do
         state.clear()
         state.slash(text)
-        equal(state.last(), "DBR: Use /dbr (the settings, with the buff reminders and cooldown chimes), "
+        equal(state.last(), "DBR: Use /dbr (settings: Reminders, Consumables, Size and Opacity, Chimes, Procs), "
             .. "/dbr unlock, /dbr lock, /dbr reset, /dbr debug, or /dbr probe on|off.")
     end
     state.slash("")
-    equal(state.opened, "id:Dyre's Buff Reminders")
+    equal(state.opened, "id:" .. PAGE)
     state.opened = nil
     state.slash("  OPTIONS ")
-    equal(state.opened, "id:Dyre's Buff Reminders")
+    equal(state.opened, "id:" .. PAGE)
 end)
 test("the settings never open in combat", function()
     local state = fixture()
@@ -850,32 +908,37 @@ test("another AddOn's /dbr is reported once at login", function()
 end)
 test("damaged or old saved settings are repaired", function()
     local state = fixture({db = {enabled = "yes", locked = false, grid = 0, spells = {arcaneIntellect = false,
-        mageArmor = "on", gone = true}, groups = "bad", icons = {arcaneIntellect = {scale = 137,
+        mageArmor = "on", gone = true, dampenMagic = true}, groups = "bad", icons = {arcaneIntellect = {scale = 137,
         position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 10, y = 20}}, mageArmor = {scale = "x",
-        position = {point = 1}}}, last = {mageArmor = "Frost Armor", arcaneIntellect = "Arcane Intellect"}}})
+        position = {point = 1}}}, last = {mageArmor = "Frost Armor", arcaneIntellect = "Arcane Intellect",
+        dampenMagic = "Amplify Magic"}}})
     local db = state.dbr.db
     equal(db.enabled, true)
-    equal(db.locked, false)
-    equal(db.grid, true)
+    equal(db.locked, true, "frames start locked, as the toolkit's")
+    equal(db.grid, nil, "the toolkit draws the one grid")
     equal(db.spells.arcaneIntellect, false)
     equal(db.spells.mageArmor, true, "a bad value takes the default")
     equal(db.spells.gone, nil, "keys no class has are dropped")
-    equal(db.spells.dampenMagic, false, "off by default")
+    equal(db.spells.dampenMagic, nil, "Dampen or Amplify Magic is no longer a reminder: dropped")
+    equal(db.last.dampenMagic, nil)
     equal(db.spells.markOfTheWild, true, "every class's buffs keep a setting")
     equal(db.groups.arcaneIntellect, true)
     equal(db.groups.mageArmor, nil, "no group setting for a self buff")
-    equal(db.icons.arcaneIntellect.scale, 140, "stepped by 10")
-    equal(db.icons.arcaneIntellect.position.x, 10)
-    equal(db.icons.mageArmor.scale, 100)
-    equal(db.icons.mageArmor.position, nil)
+    equal(db.icons, nil, "the loose icons' places are dropped: no bar can take them")
+    equal(db.bars.groupbuffs.scale, 100, "the toolkit's default")
+    equal(db.bars.mybuffs.position, nil)
     equal(db.last.mageArmor, "Frost Armor")
     equal(db.last.arcaneIntellect, nil, "only buffs with several spells remember")
     equal(db.lead, 5, "5 seconds by default")
     equal(state.dbr.SanitizeLead(99), 30)
     equal(state.dbr.SanitizeLead(-2), 0)
     equal(state.dbr.SanitizeLead(2.5), 5)
-    equal(state.dbr.SanitizeReminderScale(10), 50)
-    equal(state.dbr.SanitizeReminderScale(500), 200)
+    local bad = fixture({db = {bars = {groupbuffs = {scale = 137, opacity = "x",
+        position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 10, y = 20}}, mybuffs = "bad"}}})
+    equal(bad.dbr.db.bars.groupbuffs.scale, 140, "stepped by 10")
+    equal(bad.dbr.db.bars.groupbuffs.opacity, 100)
+    equal(bad.dbr.db.bars.groupbuffs.position.x, 10)
+    equal(bad.dbr.db.bars.mybuffs.scale, 100)
 end)
 
 -- The buff lists ---------------------------------------------------------------------
@@ -908,12 +971,15 @@ test("a class without buffs loads, says so once, and shows nothing", function()
     local state = fixture({class = "WARRIOR", known = {[INTELLECT] = true}})
     equal(state.dbr.available, true)
     contains(state.last(), "no buff reminders for your class yet")
-    equal(state.env.DyresBuffRemindersHolder, nil)
+    equal(state.bar("group"), nil)
+    equal(state.bar("my"), nil)
     equal(state.icon("arcaneIntellect"), nil)
-    equal(state.categories["Dyre's Buff Reminders"] ~= nil, true, "the settings page still opens")
+    equal(#state.toolkit.Widgets(ADDON), 1, "only the Consumables bar (any class may carry a gun)")
+    equal(state.env.DyresBuffRemindersConsumables.shown, false, "hidden without an ammo weapon")
+    equal(state.page() ~= nil, true, "the settings page still opens")
     state.clear()
     state.slash("unlock")
-    contains(state.last(), "no buff reminders for your class")
+    contains(state.last(), "Frames unlocked", "the toolkit's one lock")
     state.slash("reset")
     state.slash("debug")
     equal(state.find("no buff reminders for this class") ~= nil, true)
@@ -929,7 +995,7 @@ test("Mage: an icon shows while you lack a buff you know, with a pulsing border"
     equal(intellect.glow.animation.looping, "BOUNCE")
     equal(intellect.texture.texture, 2000 + INTELLECT)
     equal(armor.shown, true)
-    equal(state.icon("dampenMagic").shown, false, "off by default, and not known")
+    equal(state.icon("dampenMagic"), nil, "no Dampen or Amplify Magic reminder (author: situational)")
     state.buff("player", "Arcane Intellect")
     state.buff("player", "Ice Armor")
     state.update("UNIT_AURA", "player")
@@ -950,10 +1016,11 @@ test("Mage: unknown buffs never show, and learning one shows it", function()
 end)
 test("reminders hide in combat, never read auras then, and come back after", function()
     local state = fixture({known = {[INTELLECT] = true}})
-    local intellect, holder = state.icon("arcaneIntellect"), state.env.DyresBuffRemindersHolder
+    local intellect, holder = state.icon("arcaneIntellect"), state.bar("group")
     equal(intellect.shown, true)
     equal(holder.shown, true)
-    equal(state.drivers[holder], "[combat] hide; show", "the game hides the secure icons for combat")
+    equal(state.drivers[holder], "[combat] hide; show", "the game hides the bar for combat")
+    equal(state.drivers[state.bar("my")], "hide", "nothing it can show: hidden")
     state.combat = true
     state.applyDrivers()
     equal(holder.shown, false)
@@ -973,10 +1040,11 @@ test("reminders hide in combat, never read auras then, and come back after", fun
 end)
 test("a reload in combat waits for the end of combat to set up the icons", function()
     local state = fixture({known = {[INTELLECT] = true}, combat = true})
-    equal(state.env.DyresBuffRemindersHolder, nil, "no secure frames set up in combat")
+    equal(state.bar("group"), nil, "no secure frames set up in combat")
     state.combat = false
     state.emit("PLAYER_REGEN_ENABLED")
-    equal(state.drivers[state.env.DyresBuffRemindersHolder], "[combat] hide; show")
+    equal(state.drivers[state.bar("group")], "[combat] hide; show")
+    equal(state.bar("group").dyre ~= nil, true, "a widget")
     equal(state.icon("arcaneIntellect").shown, true)
 end)
 test("Arcane Intellect counts group members who use mana", function()
@@ -1048,11 +1116,13 @@ test("with two or more missing, Arcane Brilliance if you know it and carry Arcan
     state.carried[ARCANE_POWDER] = 5
     state.update("BAG_UPDATE_DELAYED")
     equal(intellect.attributes.spell1, BRILLIANCE, "the group version, by ID")
+    equal(intellect.texture.texture, 2000 + BRILLIANCE, "the picture is what the click casts")
     intellect.scripts.OnEnter(intellect)
     equal(state.tooltip[3], "Click: Arcane Brilliance.")
     state.buff("player", "Arcane Intellect")
     state.update("UNIT_AURA", "player")
     equal(intellect.attributes.spell1, "Arcane Intellect", "one missing: the single buff")
+    equal(intellect.texture.texture, 2000 + INTELLECT)
     equal(intellect.attributes.unit1, "party1")
     intellect.scripts.OnEnter(intellect)
     equal(state.tooltip[2], "Missing: Healy")
@@ -1133,6 +1203,133 @@ test("Druid: Mark of the Wild for you and the whole group, warriors too", functi
     equal(thorns.shown, false)
     equal(thorns.count.text, "", "no group count on a self buff")
 end)
+local function tooltip(state, icon)
+    icon.scripts.OnEnter(icon)
+    return table.concat(state.tooltip, "|")
+end
+test("Druid: Thorns watches you solo and in a group with no tank; a click casts it on you", function()
+    local state = fixture({class = "DRUID", known = {[THORNS] = true}})
+    local thorns = state.icon("thorns")
+    equal(thorns.shown, true)
+    equal(thorns.attributes.unit1, "player")
+    contains(tooltip(state, thorns), "Thorns: on you")
+    state.party({{name = "Stabby", class = "ROGUE"}, {name = "Healy", class = "PRIEST", role = "HEALER"}})
+    equal(thorns.attributes.unit1, "player", "no tank: you")
+    equal(table.concat(thorns.missing, ","), "you", "group members without Thorns do not count")
+    state.buff("player", "Thorns")
+    state.update("UNIT_AURA", "player")
+    equal(thorns.shown, false)
+    local bare = fixture({class = "DRUID", known = {[THORNS] = true}, noRoles = true})
+    bare.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
+    equal(bare.icon("thorns").attributes.unit1, "player", "without the role API: you")
+end)
+test("Druid: in a group with a tank, Thorns watches the tank and a click casts it on them", function()
+    local state = fixture({class = "DRUID", known = {[THORNS] = true}})
+    local thorns = state.icon("thorns")
+    state.buff("player", "Thorns")
+    state.party({{name = "Stabby", class = "ROGUE"}, {name = "Tanky", class = "WARRIOR", role = "TANK"},
+        {name = "Backup", class = "PALADIN", role = "TANK"}})
+    equal(thorns.shown, true, "the tank lacks it, though you have it")
+    equal(thorns.attributes.unit1, "party2", "the first tank in group order")
+    equal(table.concat(thorns.missing, ","), "Tanky")
+    contains(tooltip(state, thorns), "Thorns: on Tanky")
+    state.units.party2.dead = true
+    state.update("UNIT_AURA", "party2")
+    equal(thorns.attributes.unit1, "party3", "a dead tank is skipped")
+    state.units.party3.far = true
+    state.update("UNIT_AURA", "party3")
+    equal(thorns.attributes.unit1, nil, "no tank in reach: you, who have it")
+    equal(thorns.shown, false)
+    contains(tooltip(state, thorns), "Thorns: on you")
+    state.units.party2.dead, state.units.party3.far = false, false
+    state.buff("party2", "Thorns")
+    state.update("UNIT_AURA", "party2")
+    equal(thorns.shown, false, "the tank has it")
+    local secret = fixture({class = "DRUID", known = {[THORNS] = true}})
+    secret.party({{name = "Tanky", class = "WARRIOR", role = "TANK", secretRole = true}})
+    equal(secret.icon("thorns").attributes.unit1, "player", "a secret role is not read as a tank")
+end)
+test("Druid: with the tank dead, offline, out of sight, or out of range, Thorns watches you", function()
+    for _, case in ipairs({"dead", "offline", "far", "range"}) do
+        local state = fixture({class = "DRUID", known = {[THORNS] = true}})
+        local thorns = state.icon("thorns")
+        state.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
+        equal(thorns.attributes.unit1, "party1", case .. ": the tank first")
+        if case == "range" then
+            state.outOfRange = {party1 = true}
+        else
+            state.units.party1[case] = true
+        end
+        state.update("UNIT_AURA", "party1")
+        equal(thorns.attributes.unit1, "player", case .. ": a click casts it on you")
+        equal(table.concat(thorns.missing, ","), "you", case)
+        contains(tooltip(state, thorns), "Thorns: on you")
+        state.buff("player", "Thorns")
+        state.update("UNIT_AURA", "player")
+        equal(thorns.shown, false, case .. ": you have it, so nothing shows")
+    end
+    local secret = fixture({class = "DRUID", known = {[THORNS] = true}})
+    secret.secretRange = true
+    secret.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
+    equal(secret.icon("thorns").attributes.unit1, "party1", "an unreadable range counts as in range")
+    local noRange = fixture({class = "DRUID", known = {[THORNS] = true}, noRange = true})
+    noRange.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
+    equal(noRange.icon("thorns").attributes.unit1, "party1", "no range API: in range")
+end)
+test("Druid: walking out of or into the tank's range re-checks Thorns, from the game's range event", function()
+    local state = fixture({class = "DRUID", known = {[THORNS] = true}})
+    local thorns = state.icon("thorns")
+    state.buff("player", "Thorns")
+    state.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
+    equal(thorns.attributes.unit1, "party1")
+    state.outOfRange = {party1 = true}
+    state.update("UNIT_IN_RANGE_UPDATE", "party1", false)
+    equal(thorns.attributes.unit1, nil, "out of range: watches you, who have it")
+    equal(thorns.shown, false)
+    state.outOfRange = {}
+    state.update("UNIT_IN_RANGE_UPDATE", "party1", true)
+    equal(thorns.attributes.unit1, "party1", "back in range: the tank again")
+    state.units.party1.offline = true
+    state.update("UNIT_CONNECTION", "party1", false)
+    equal(thorns.attributes.unit1, nil, "offline: you")
+    local reads = state.auraReads
+    state.update("UNIT_IN_RANGE_UPDATE", "nameplate1", true)
+    equal(state.auraReads, reads, "units outside your group are ignored")
+    local mage = fixture({known = {[INTELLECT] = true}})
+    local frame
+    for _, candidate in ipairs(mage.frames) do
+        if candidate.events.UNIT_AURA then frame = candidate end
+    end
+    equal(frame.events.UNIT_IN_RANGE_UPDATE, nil, "only a class with a tank buff listens")
+end)
+test("Druid: as the tank yourself, Thorns watches you", function()
+    local state = fixture({class = "DRUID", known = {[THORNS] = true}})
+    state.units.player.role = "TANK"
+    state.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
+    local thorns = state.icon("thorns")
+    equal(thorns.attributes.unit1, "player")
+    contains(tooltip(state, thorns), "Thorns: on you")
+end)
+test("Druid: role and roster changes in combat apply after combat", function()
+    local state = fixture({class = "DRUID", known = {[THORNS] = true}})
+    local thorns = state.icon("thorns")
+    state.party({{name = "Tanky", class = "WARRIOR"}})
+    equal(thorns.attributes.unit1, "player")
+    state.combat = true
+    state.applyDrivers()
+    state.units.party1.role = "TANK"
+    state.update("PLAYER_ROLES_ASSIGNED")
+    state.update("ROLE_CHANGED_INFORM")
+    state.update("GROUP_ROSTER_UPDATE")
+    equal(thorns.attributes.unit1, "player", "no secure change in combat")
+    state.combat = false
+    state.applyDrivers()
+    state.emit("PLAYER_REGEN_ENABLED")
+    equal(thorns.attributes.unit1, "party1")
+    state.units.party1.role = "DAMAGER"
+    state.update("ROLE_CHANGED_INFORM")
+    equal(thorns.attributes.unit1, "player", "out of combat, a role change applies at once")
+end)
 test("Druid: Gift of the Wild casts the best rank you carry the reagent for", function()
     local state = fixture({class = "DRUID", known = {[MARK] = true, [GIFT_1] = true, [GIFT_2] = true}})
     local mark = state.icon("markOfTheWild")
@@ -1198,6 +1395,472 @@ end)
 
 -- Paladin -----------------------------------------------------------------------------
 
+local HAWK, HAWK_7, MONKEY, WILD, BEAST, CHEETAH, PACK = 13165, 25296, 13163, 20043, 13161, 5118, 13159
+test("Hunter: no aspect shows the Aspect reminder in My buffs; any aspect counts as up", function()
+    local state = fixture({class = "HUNTER", known = {[HAWK] = true, [MONKEY] = true, [CHEETAH] = true,
+        [PACK] = true, [WILD] = true, [BEAST] = true}})
+    local aspect = state.icon("aspect")
+    equal(aspect.parent, state.bar("my"))
+    equal(state.bar("group"), nil)
+    equal(aspect.shown, true)
+    equal(aspect.attributes.type1, "macro")
+    equal(aspect.attributes.macrotext1, "/use !Aspect of the Hawk", "nothing cast yet: Hawk, with \"!\" so it never toggles")
+    for _, name in ipairs({"Aspect of the Hawk", "Aspect of the Monkey", "Aspect of the Wild", "Aspect of the Beast",
+            "Aspect of the Cheetah", "Aspect of the Pack"}) do
+        state.units.player.buffs = {[name] = true}
+        state.update("UNIT_AURA", "player")
+        equal(aspect.shown, false, name .. " counts as up")
+    end
+    state.units.player.buffs = {}
+    state.update("UNIT_AURA", "player")
+    equal(aspect.shown, true)
+    equal(state.find("no buff reminders") == nil, true, "Hunters have a reminder now")
+end)
+test("Hunter: a click recasts the last combat aspect, never Cheetah or Pack", function()
+    local state = fixture({class = "HUNTER", known = {[HAWK] = true, [MONKEY] = true, [CHEETAH] = true,
+        [PACK] = true, [WILD] = true}})
+    local aspect = state.icon("aspect")
+    state.cast(MONKEY)
+    state.update("UNIT_AURA", "player")
+    equal(state.dbr.db.last.aspect, "Aspect of the Monkey")
+    equal(aspect.attributes.macrotext1, "/use !Aspect of the Monkey")
+    state.cast(CHEETAH)
+    state.cast(PACK)
+    state.update("UNIT_AURA", "player")
+    equal(state.dbr.db.last.aspect, "Aspect of the Monkey", "Cheetah and Pack are not remembered")
+    equal(aspect.attributes.macrotext1, "/use !Aspect of the Monkey")
+    state.cast(WILD)
+    state.update("UNIT_AURA", "player")
+    equal(aspect.attributes.macrotext1, "/use !Aspect of the Wild")
+    state.known[HAWK_7] = true
+    state.cast(HAWK_7)
+    state.update("UNIT_AURA", "player")
+    equal(state.dbr.db.last.aspect, "Aspect of the Hawk", "every rank counts")
+    local saved = fixture({class = "HUNTER", known = {[HAWK] = true, [CHEETAH] = true},
+        db = {last = {aspect = "Aspect of the Cheetah"}}})
+    equal(saved.icon("aspect").attributes.macrotext1, "/use !Aspect of the Hawk", "a saved Cheetah is never cast")
+end)
+test("a reminder's picture is always the spell its click casts, as its tooltip says", function()
+    local hunter = fixture({class = "HUNTER", known = {[HAWK] = true, [MONKEY] = true, [CHEETAH] = true,
+        [PACK] = true}})
+    local aspect = hunter.icon("aspect")
+    equal(aspect.texture.texture, 2000 + HAWK, "nothing cast: Hawk, not the last aspect in the list (Pack)")
+    hunter.cast(HAWK)
+    hunter.buff("player", "Aspect of the Cheetah")
+    hunter.cast(CHEETAH)
+    hunter.update("UNIT_AURA", "player")
+    hunter.units.player.buffs = {}
+    hunter.update("UNIT_AURA", "player")
+    equal(aspect.attributes.macrotext1, "/use !Aspect of the Hawk")
+    equal(aspect.texture.texture, 2000 + HAWK, "after Cheetah was up and cancelled: Hawk's picture")
+    contains(tooltip(hunter, aspect), "Click: Aspect of the Hawk on you.")
+    hunter.cast(MONKEY)
+    hunter.wait(1)
+    equal(aspect.texture.texture, 2000 + MONKEY, "a remembered cast changes the picture")
+    local mage = fixture({known = {[FROST_ARMOR] = true, [ICE_ARMOR] = true, [6117] = true}})
+    local armor = mage.icon("mageArmor")
+    equal(armor.texture.texture, 2000 + 6117, "nothing cast: your best, Mage Armor")
+    mage.cast(ICE_ARMOR)
+    mage.wait(1)
+    equal(armor.attributes.spell1, "Ice Armor")
+    equal(armor.texture.texture, 2000 + ICE_ARMOR, "last Ice Armor: Ice Armor's picture")
+    mage.slash("unlock")
+    equal(armor.texture.texture, 2000 + ICE_ARMOR, "the sample too")
+    contains(tooltip(mage, armor), "Drag to move")
+    mage.slash("lock")
+    contains(tooltip(mage, armor), "Click: Ice Armor on you.")
+end)
+test("Hunter: without a combat aspect cast, Hawk, then Monkey; off or unknown takes no slot", function()
+    local monkey = fixture({class = "HUNTER", known = {[MONKEY] = true, [CHEETAH] = true}})
+    equal(monkey.icon("aspect").attributes.macrotext1, "/use !Aspect of the Monkey", "no Hawk yet: Monkey")
+    local cheetah = fixture({class = "HUNTER", known = {[CHEETAH] = true}})
+    equal(cheetah.icon("aspect").attributes.macrotext1, nil, "only Cheetah known: nothing to cast")
+    local none = fixture({class = "HUNTER"})
+    equal(none.drivers[none.bar("my")], "hide", "no aspect known: no slot")
+    local off = fixture({class = "HUNTER", known = {[HAWK] = true}})
+    off.settings.DBR_BUFF_ASPECT:SetValue(false)
+    equal(off.drivers[off.bar("my")], "hide", "switched off: no slot")
+    equal(off.icon("aspect").shown, false)
+    off.clear()
+    off.slash("debug")
+    contains(off.find("debug aspect"), "unknownIDs=none last=nil")
+end)
+-- The combat aspect button.
+local function hunterFixture(options)
+    options = options or {}
+    options.class = "HUNTER"
+    options.known = options.known or {[HAWK] = true, [MONKEY] = true, [CHEETAH] = true, [PACK] = true}
+    local state = fixture(options)
+    return state, state.env.DyresBuffRemindersCombatAspect
+end
+local function enterCombat(state)
+    state.combat = true
+    state.applyDrivers()
+    state.emit("PLAYER_REGEN_DISABLED")
+end
+local function leaveCombat(state)
+    state.combat = false
+    state.applyDrivers()
+    state.emit("PLAYER_REGEN_ENABLED")
+end
+test("combat aspect: armed out of combat while Cheetah or Pack is up; the game shows it in combat", function()
+    local state, button = hunterFixture()
+    equal(state.drivers[button], "hide", "no travel aspect: never shows")
+    state.cast(MONKEY)
+    state.buff("player", "Aspect of the Cheetah")
+    state.update("UNIT_AURA", "player")
+    equal(state.drivers[button], "[combat] show; hide")
+    equal(button.attributes.type1, "macro")
+    equal(button.attributes.macrotext1, "/use !Aspect of the Monkey", "the last combat aspect, with \"!\"")
+    equal(button.texture.texture, 2000 + MONKEY)
+    equal(button.shown, false, "out of combat: hidden")
+    enterCombat(state)
+    equal(button.shown, true, "combat starts: shown by the game")
+    leaveCombat(state)
+    state.units.player.buffs = {}
+    state.update("UNIT_AURA", "player")
+    equal(state.drivers[button], "hide", "no travel aspect: hidden again")
+    equal(button.attributes.macrotext1, nil)
+    local pack, packButton = hunterFixture()
+    pack.buff("player", "Aspect of the Pack")
+    pack.update("UNIT_AURA", "player")
+    equal(packButton.attributes.macrotext1, "/use !Aspect of the Hawk", "Pack too; nothing cast: Hawk")
+    local monkey, monkeyButton = hunterFixture({known = {[MONKEY] = true, [CHEETAH] = true}})
+    monkey.buff("player", "Aspect of the Cheetah")
+    monkey.update("UNIT_AURA", "player")
+    equal(monkeyButton.attributes.macrotext1, "/use !Aspect of the Monkey", "no Hawk: Monkey")
+end)
+test("combat aspect: a click casts with \"!\" and hides it; your own cast dims it, never to invisible", function()
+    local state, button = hunterFixture()
+    state.buff("player", "Aspect of the Cheetah")
+    state.update("UNIT_AURA", "player")
+    enterCombat(state)
+    state.secureClick(button)
+    equal(state.clicked[1], "/use !Aspect of the Hawk", "\"!\": a stray click never takes an aspect down")
+    equal(button.shown, false, "the secure wrap hides it after the click")
+    equal(state.wraps[button].script, "OnClick")
+    leaveCombat(state)
+    enterCombat(state)
+    equal(button.shown, true, "the next fight with Cheetah up: shown again")
+    state.cast(CHEETAH)
+    equal(button.texture.alpha, 1, "a travel aspect cast does not dim it")
+    state.cast(HAWK)
+    equal(button.texture.alpha, 0.4, "your own Hawk cast dims it")
+    equal(button.glow.animation.playing, false, "and stops its pulse")
+    equal(button.shown, true, "still visible where it takes clicks")
+    equal(button.alpha ~= 0, true, "never faded to invisible")
+    equal(button.attributes.macrotext1, "/use !Aspect of the Hawk", "no secure change in combat")
+    leaveCombat(state)
+    equal(button.texture.alpha, 1, "reset after combat")
+end)
+test("combat aspect: a sound at combat start, with its own switch and choice", function()
+    local state, button = hunterFixture()
+    enterCombat(state)
+    equal(#state.played, 0, "not armed: no sound")
+    leaveCombat(state)
+    state.buff("player", "Aspect of the Cheetah")
+    state.update("UNIT_AURA", "player")
+    enterCombat(state)
+    equal(state.played[1].key, "talent", "the default sound")
+    equal(state.played[1].speech, "Aspect of the Cheetah is up")
+    leaveCombat(state)
+    state.settings.DBR_COMBAT_ASPECT_SOUND:SetValue("magical")
+    equal(state.dbr.db.combatAspect.sound, "magical")
+    equal(state.played[#state.played].key, "magical", "choosing a sound plays it")
+    local before = #state.played
+    enterCombat(state)
+    equal(state.played[#state.played].key, "magical")
+    leaveCombat(state)
+    state.settings.DBR_COMBAT_ASPECT_SOUND_ON:SetValue(false)
+    before = #state.played
+    enterCombat(state)
+    equal(#state.played, before, "sound switched off")
+    equal(button.shown, true, "the button still shows")
+end)
+test("combat aspect: settings, unlock, its widget, and who gets it", function()
+    local state, button = hunterFixture()
+    local row = state.row("DBR_COMBAT_ASPECT")
+    equal(row.setting.name, "Combat aspect reminder")
+    equal(row.parentInitializer, state.row("DBR_BUFF_ASPECT"), "under the Aspect switch")
+    local sound = state.row("DBR_COMBAT_ASPECT_SOUND_ON")
+    equal(sound.kind, "checkboxdropdown", "the switch and the sound on one row")
+    equal(sound.parentInitializer, row)
+    equal(state.row("DYRE_DYRESBUFFREMINDERS_COMBATASPECT_SCALE"), nil, "no size rows of its own")
+    state.buff("player", "Aspect of the Cheetah")
+    state.update("UNIT_AURA", "player")
+    state.settings.DBR_COMBAT_ASPECT:SetValue(false)
+    equal(state.drivers[button], "hide", "switched off: never shows")
+    state.settings.DBR_COMBAT_ASPECT:SetValue(true)
+    state.slash("unlock")
+    equal(state.drivers[button], "hide", "unlocked: no sample of its own; the Aspect slot is the one to drag")
+    equal(button.attributes.macrotext1, nil, "dragging never casts")
+    state.slash("lock")
+    equal(state.drivers[button], "[combat] show; hide")
+    state.clear()
+    state.slash("debug")
+    contains(state.find("debug combatAspect"), "armed=true travel=Aspect of the Cheetah macro=/use !Aspect of the Hawk")
+    equal(fixture({known = {[INTELLECT] = true}}).env.DyresBuffRemindersCombatAspect, nil, "a Mage: none")
+    local bare, bareButton = hunterFixture({noSecureWrap = true})
+    equal(bareButton, nil, "without the secure wrap: no button")
+    equal(bare.row("DBR_COMBAT_ASPECT"), nil)
+    local db = fixture({class = "HUNTER", db = {combatAspect = {enabled = "x", soundOn = 0, sound = 5,
+        position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 1, y = 2}, scale = 150, opacity = 50}}}).dbr.db
+    equal(db.combatAspect.enabled, true)
+    equal(db.combatAspect.soundOn, true)
+    equal(db.combatAspect.sound, "talent")
+    equal(db.combatAspect.position, nil, "its own place is dropped: it is My buffs'")
+    equal(db.combatAspect.scale, nil)
+    equal(db.combatAspect.opacity, nil)
+end)
+test("combat aspect: one widget to the player: it sits on My buffs' Aspect slot and follows the bar", function()
+    local state, button = hunterFixture()
+    local my = state.bar("my")
+    equal(button.parent, state.env.UIParent, "not the bar's child: the bar hides in combat")
+    for _, widget in ipairs(state.toolkit.Widgets(ADDON)) do
+        equal(widget ~= button, true, "not a widget of its own")
+    end
+    local function slotOf(icon)
+        local point = icon.points[#icon.points]
+        return point[1], point[2], point[4]
+    end
+    local anchor, relative, x = slotOf(button)
+    equal(anchor, "LEFT")
+    equal(relative, my, "anchored to My buffs")
+    equal(x, 0, "the Aspect slot, the bar's first")
+    state.slash("unlock")
+    local aspect = state.icon("aspect")
+    equal(select(3, slotOf(aspect)), x, "on the Aspect icon's own slot")
+    state.icon("aspect").scripts.OnDragStart(state.icon("aspect"))
+    my:ClearAllPoints()
+    my:SetPoint("CENTER", nil, "BOTTOMLEFT", 300, 200)
+    state.icon("aspect").scripts.OnDragStop(state.icon("aspect"))
+    state.slash("lock")
+    local bx, by = state.absCenter(button)
+    local ax, ay = state.absCenter(aspect)
+    equal(math.floor(bx + 0.5), math.floor(ax + 0.5), "dragging My buffs moves it too")
+    equal(math.floor(by + 0.5), math.floor(ay + 0.5))
+    state.settings.DYRE_DYRESBUFFREMINDERS_MYBUFFS_SCALE:SetValue(150)
+    equal(button.scale, my.scale, "the bar's size")
+    equal(button.scale, 1.5)
+    state.settings.DYRE_DYRESBUFFREMINDERS_MYBUFFS_OPACITY:SetValue(60)
+    equal(button.alpha, 0.6, "the bar's opacity")
+    state.buff("player", "Aspect of the Cheetah")
+    state.update("UNIT_AURA", "player")
+    state.combat = true
+    state.applyDrivers()
+    equal(my.shown, false, "the bar hides in combat")
+    equal(button.shown, true, "the combat aspect still shows")
+    state.combat = false
+    state.applyDrivers()
+    state.emit("PLAYER_REGEN_ENABLED")
+    state.settings.DBR_BUFF_ASPECT:SetValue(false)
+    equal(select(2, slotOf(button)), my, "Aspect off: still on My buffs")
+    equal(select(3, slotOf(button)), 0, "at its start edge")
+    equal(state.drivers[button], "[combat] show; hide", "Aspect off, Cheetah up: still armed")
+    equal(state.row("DBR_COMBAT_ASPECT").predicate(), true, "its switch stays usable with Aspect off")
+end)
+-- Ammo (Consumables) ------------------------------------------------------------------
+local BOW, GUN, CROSSBOW, THROWN, WAND, ARROW, BULLET = 2504, 2508, 15807, 2947, 5069, 2512, 2516
+local function ammoFixture(options)
+    options = options or {}
+    options.class = options.class or "HUNTER"
+    local state = fixture(options)
+    return state, state.env.DyresBuffRemindersConsumables, state.env.DyresBuffRemindersAmmo
+end
+local function equip(state, ranged, ammoItem, count)
+    state.equipped[18], state.equipped[0], state.ammoCount = ranged, ammoItem, count
+    state.emit("PLAYER_EQUIPMENT_CHANGED")
+end
+local function isRed(icon) return icon.count.textColor[1] == 1 and icon.count.textColor[2] < 0.5 end
+test("ammo: a bow with arrows shows the count, red and pulsing at or below Warn at, missing at 0", function()
+    local state, frame, icon = ammoFixture()
+    equal(frame.shown, false, "no ranged weapon: no slot")
+    equip(state, BOW, ARROW, 500)
+    equal(frame.shown, true)
+    equal(icon.texture.texture, 3001, "the equipped arrows' icon")
+    equal(icon.count.text, "500")
+    equal(isRed(icon), false)
+    equal(icon.glow.animation.playing, false)
+    state.ammoCount = 200
+    state.emit("BAG_UPDATE_DELAYED")
+    equal(icon.count.text, "200")
+    equal(isRed(icon), true, "at Warn at (200): red")
+    equal(icon.glow.animation.playing, true, "and pulsing")
+    state.settings.DBR_AMMO_WARN:SetValue(150)
+    equal(isRed(icon), false, "Warn at 150: fine again")
+    state.ammoCount = 0
+    state.emit("UNIT_INVENTORY_CHANGED", "player")
+    equal(icon.count.text, "0")
+    equal(icon.texture.desaturated, true, "out of ammo: missing")
+    equal(icon.glow.animation.playing, true)
+    equal(frame.mouse, false, "locked: click-through")
+    equal(icon.mouseClicks, false, "the icon never takes clicks")
+    equal(icon.mouseMotion, true, "only hover, for its tooltip")
+end)
+test("ammo: arrows in your bags but none equipped shows missing, with what to do", function()
+    local state, frame, icon = ammoFixture()
+    state.bags[0] = {6948, ARROW}
+    equip(state, BOW, nil, 0)
+    equal(frame.shown, true)
+    equal(icon.texture.desaturated, true)
+    equal(icon.texture.texture, "Interface\\Icons\\INV_Ammo_Arrow_02", "the default arrow icon")
+    contains(tooltip(state, icon), "Equip your arrows.")
+    state.bags[0] = {6948}
+    state.emit("BAG_UPDATE_DELAYED")
+    contains(tooltip(state, icon), "No arrows in your bags.")
+    local crossbow, _, crossbowIcon = ammoFixture()
+    crossbow.bags[1] = {ARROW}
+    equip(crossbow, CROSSBOW, nil, 0)
+    contains(tooltip(crossbow, crossbowIcon), "Equip your arrows.", "a crossbow takes arrows")
+end)
+test("ammo: a gun takes bullets; a Warrior with a gun counts too", function()
+    local state, _, icon = ammoFixture({class = "WARRIOR"})
+    state.bags[2] = {ARROW, BULLET}
+    equip(state, GUN, nil, 0)
+    equal(icon.texture.texture, "Interface\\Icons\\INV_Ammo_Bullet_02")
+    contains(tooltip(state, icon), "Equip your bullets.")
+    equip(state, GUN, BULLET, 900)
+    equal(icon.texture.texture, 3002)
+    equal(icon.count.text, "900")
+end)
+test("ammo: a thrown weapon, a wand, or none takes no slot; so do its switches", function()
+    local state, frame = ammoFixture()
+    for _, weapon in ipairs({THROWN, WAND}) do
+        equip(state, weapon, nil, 0)
+        equal(frame.shown, false, "no ammo for " .. weapon)
+    end
+    equip(state, BOW, ARROW, 300)
+    equal(frame.shown, true)
+    state.settings.DBR_CONSUMABLE_AMMO:SetValue(false)
+    equal(frame.shown, false, "Ammo off")
+    state.settings.DBR_CONSUMABLE_AMMO:SetValue(true)
+    state.settings.DBR_CONSUMABLES_ENABLED:SetValue(false)
+    equal(frame.shown, false, "Consumables off")
+    state.settings.DBR_CONSUMABLES_ENABLED:SetValue(true)
+    state.settings.DBR_ENABLED:SetValue(false)
+    equal(frame.shown, true, "the Reminders switch is not the Consumables one")
+end)
+test("ammo: it updates in combat; a secret or missing count keeps the last one, and debug says so", function()
+    local state, _, icon = ammoFixture()
+    equip(state, BOW, ARROW, 500)
+    state.combat = true
+    state.ammoCount = 180
+    state.emit("UNIT_INVENTORY_CHANGED", "player")
+    equal(icon.count.text, "180", "in combat too")
+    equal(isRed(icon), true)
+    state.ammoCount = "secret"
+    state.emit("BAG_UPDATE_DELAYED")
+    equal(icon.count.text, "180", "a secret count: the last readable one")
+    state.clear()
+    state.slash("debug")
+    contains(state.find("debug ammo"), "on=true weapon=2 kind=arrow ammoID=2512 name=Rough Arrow count=180 "
+        .. "countAPI=secret warnAt=200 state=low shown=true")
+    local bare, _, bareIcon = ammoFixture({noAmmoAPI = true})
+    equip(bare, BOW, ARROW, 500)
+    equal(bareIcon.count.text, "?", "no count API, nothing read yet")
+    bare.clear()
+    bare.slash("debug")
+    contains(bare.find("debug ammo"), "countAPI=missing")
+end)
+test("ammo: unlocked, a drag that starts on the icon moves and saves the bar; hover keeps its tooltip", function()
+    local state, frame, icon = ammoFixture()
+    state.slash("unlock")
+    equal(frame.shown, true, "no ranged weapon: still a sample to place")
+    equal(icon.texture.texture, "Interface\\Icons\\INV_Ammo_Arrow_02")
+    equal(frame.mouse, true, "the bar takes the drag")
+    equal(icon.mouseClicks, true, "unlocked, the icon takes the drag too")
+    equal(type(icon.scripts.OnDragStart), "function", "the icon is a drag handle")
+    icon.scripts.OnDragStart(icon)
+    equal(frame.moving, true, "the drag moves the bar")
+    frame:ClearAllPoints()
+    frame:SetPoint("CENTER", nil, "BOTTOMLEFT", 222, 333)
+    icon.scripts.OnDragStop(icon)
+    equal(frame.moving, false)
+    local position = state.dbr.db.consumables.position
+    equal(position ~= nil, true, "saved")
+    equal(position.relativePoint ~= nil, true)
+    contains(tooltip(state, icon), "Drag to move the Consumables bar.")
+    state.slash("lock")
+    equal(frame.shown, false, "locked without a ranged weapon: hidden")
+    equal(icon.mouseClicks, false, "locked: click-through again")
+    equip(state, BOW, ARROW, 500)
+    contains(tooltip(state, icon), "500 left")
+end)
+test("ammo: a four-digit count fits inside the icon: a small outlined font, bottom-right", function()
+    local state, frame, icon = ammoFixture()
+    equip(state, BOW, ARROW, 1600)
+    equal(icon.count.text, "1600")
+    equal(icon.count.font[2], 12, "small: four digits fit in 40")
+    equal(icon.count.font[3], "THICKOUTLINE", "a thick outline, to read on light icons")
+    equal(icon.count.shadowColor[4], 1, "and a solid shadow")
+    equal(icon.count.shadowOffset[1], 1)
+    equal(icon.count.shadowOffset[2], -1)
+    equal(icon.count.justifyH, "RIGHT")
+    equal(icon.count.wordWrap, false)
+    local anchors = {}
+    for _, point in ipairs(icon.count.points) do anchors[point[1]] = point end
+    equal(anchors.BOTTOMRIGHT ~= nil and anchors.BOTTOMLEFT ~= nil, true, "held inside the icon's width")
+    equal(icon.count.parent, icon, "it scales with the bar, so it fits at every Size")
+    equal(icon.glow.backdropBorder[1], 1)
+    equal(icon.glow.backdropBorder[2], 0.82, "plenty: the gold border")
+    state.ammoCount = 150
+    state.emit("BAG_UPDATE_DELAYED")
+    equal(isRed(icon), true, "the low warning stays red")
+    equal(icon.glow.backdropBorder[2], 0.2, "low: the border is red too, the count text's red")
+    equal(icon.glow.animation.playing, true, "and it pulses")
+    state.ammoCount = 0
+    state.emit("BAG_UPDATE_DELAYED")
+    equal(icon.glow.backdropBorder[2], 0.2, "missing: red")
+    state.ammoCount = 900
+    state.emit("BAG_UPDATE_DELAYED")
+    equal(icon.glow.backdropBorder[2], 0.82, "above Warn at again: gold")
+    equal(icon.glow.animation.playing, false)
+end)
+test("ammo: settings, its widget, and saved settings repaired", function()
+    local state, frame = ammoFixture()
+    equal(state.settings.DBR_CONSUMABLES_ENABLED.name, "Enable")
+    equal(state.row("DBR_CONSUMABLE_AMMO").parentInitializer, state.row("DBR_CONSUMABLES_ENABLED"))
+    local warn = state.row("DBR_AMMO_WARN")
+    equal(warn.parentInitializer, state.row("DBR_CONSUMABLE_AMMO"))
+    equal(warn.options.minValue, 0)
+    equal(warn.options.maxValue, 1000)
+    equal(warn.options.step, 50)
+    equal(state.row("DYRE_DYRESBUFFREMINDERS_CONSUMABLES_SCALE").setting.name, "Consumables: size (%)")
+    equal(frame.dyre.widgetKey, "consumables")
+    equal(select(1, state.absCenter(frame)), 500 + 150, "beside My buffs")
+    equal(select(2, state.absCenter(frame)), 400 + 130)
+    local db = fixture({db = {consumables = {enabled = "x", ammo = 0, ammoWarn = 237}}}).dbr.db.consumables
+    equal(db.enabled, true)
+    equal(db.ammo, true)
+    equal(db.ammoWarn, 250, "stepped by 50")
+    equal(state.dbr.SanitizeAmmoWarn(5000), 1000)
+end)
+test("on a flight path no buff reminders show; after landing they come back; unlocked, samples stay", function()
+    local state = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true}})
+    local intellect, armor = state.icon("arcaneIntellect"), state.icon("mageArmor")
+    equal(intellect.shown, true)
+    state.taxi = true
+    state.update("PLAYER_CONTROL_LOST")
+    equal(intellect.shown, false, "on a taxi: nothing you can act on")
+    equal(armor.shown, false)
+    equal(intellect.attributes.type1, nil, "no click either")
+    state.slash("unlock")
+    equal(intellect.shown, true, "unlocked: samples to place, also on a taxi")
+    equal(armor.shown, true)
+    state.slash("lock")
+    equal(intellect.shown, false)
+    state.taxi = false
+    state.update("PLAYER_CONTROL_GAINED")
+    equal(intellect.shown, true, "landed: the missing ones are back")
+    equal(intellect.attributes.type1, "spell")
+    local hunter = fixture({class = "HUNTER", known = {[HAWK] = true, [CHEETAH] = true}})
+    hunter.equipped[18], hunter.equipped[0], hunter.ammoCount = BOW, ARROW, 500
+    hunter.emit("PLAYER_EQUIPMENT_CHANGED")
+    hunter.taxi = true
+    hunter.update("PLAYER_CONTROL_LOST")
+    equal(hunter.icon("aspect").shown, false, "no Aspect reminder in flight")
+    equal(hunter.env.DyresBuffRemindersConsumables.shown, true, "the ammo count stays: it is information")
+end)
 test("Paladin: Righteous Fury, on you only", function()
     local state = fixture({class = "PALADIN", known = {[25780] = true}})
     local fury = state.icon("righteousFury")
@@ -1294,8 +1957,7 @@ test("the seal timer: only for Paladins who know a seal; a switch; unlocks with 
     equal(display.mouse, true)
     equal(display.sample.shown, true)
     equal(button.attributes.type1, nil, "dragging never casts")
-    display.scripts.OnMouseWheel(display, 1)
-    equal(state.dbr.db.seal.scale, 110)
+    equal(display.dyre.mover.shown, true, "the toolkit's outline")
     display.scripts.OnDragStart(display)
     display:ClearAllPoints()
     display:SetPoint("CENTER", nil, "BOTTOMLEFT", 100 / display:GetEffectiveScale(),
@@ -1307,7 +1969,6 @@ test("the seal timer: only for Paladins who know a seal; a switch; unlocks with 
     equal(state.drivers[button], "[combat] show; hide")
     state.slash("reset")
     equal(state.dbr.db.seal.position, nil)
-    equal(state.dbr.db.seal.scale, 100)
     state.clear()
     state.slash("debug")
     contains(state.find("debug seal "), "debug seal on=true click=Seal of Righteousness last=nil "
@@ -1458,95 +2119,232 @@ local function iconCenter(state, key)
     local x, y = state.absCenter(state.icon(key))
     return math.floor(x + 0.5), math.floor(y + 0.5)
 end
-local function drop(icon, x, y)
+-- A drag that starts on an icon moves its bar to x, y (the bar's center).
+local function dragBar(state, icon, bar, x, y)
     icon.scripts.OnDragStart(icon)
-    icon:ClearAllPoints()
-    icon:SetPoint("CENTER", nil, "BOTTOMLEFT", x / icon:GetEffectiveScale(), y / icon:GetEffectiveScale())
+    bar:ClearAllPoints()
+    bar:SetPoint("CENTER", nil, "BOTTOMLEFT", x / bar:GetEffectiveScale(), y / bar:GetEffectiveScale())
     icon.scripts.OnDragStop(icon)
 end
+local DIVINE_SPIRIT, SHADOW_PROTECTION = 14752, 976
+local GROUP_SCALE = "DYRE_DYRESBUFFREMINDERS_GROUPBUFFS_SCALE"
 
-test("unlocked, every reminder shows to drag, casts nothing, and the grid shows", function()
-    local state = fixture({known = {[INTELLECT] = true}})
+test("two bars, group buffs and my buffs, each as wide as the icons you can show", function()
+    local mage = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true}})
+    local group, my = mage.bar("group"), mage.bar("my")
+    equal(mage.icon("arcaneIntellect").parent, group)
+    equal(mage.icon("mageArmor").parent, my)
+    equal(group.width, 40, "Arcane Intellect")
+    equal(my.width, 40, "Armor")
+    equal(my.height, 40)
+    equal(select(2, mage.absCenter(group)), 400 + 180, "default places above the center")
+    equal(select(2, mage.absCenter(my)), 400 + 130)
+    local priest = fixture({class = "PRIEST", known = {[FORTITUDE] = true, [INNER_FIRE] = true}})
+    equal(priest.icon("innerFire").parent, priest.bar("my"))
+    equal(priest.bar("group").width, 40, "Divine Spirit and Shadow Protection are off")
+    equal(priest.bar("my").width, 40, "Inner Fire")
+    local druid = fixture({class = "DRUID", known = {[MARK] = true, [THORNS] = true}})
+    equal(druid.icon("thorns").parent, druid.bar("group"), "Thorns can go on another player")
+    equal(druid.bar("group").width, 88)
+    equal(druid.bar("my"), nil, "no self-only buffs: no bar")
+    local warlock = fixture({class = "WARLOCK", known = {[DEMON_SKIN] = true}})
+    equal(warlock.bar("group"), nil, "no group buffs: no bar")
+    equal(warlock.bar("my").width, 40)
+    equal(#warlock.toolkit.Widgets(ADDON), 2, "My buffs and Consumables")
+    local paladin = fixture({class = "PALADIN", known = {[25780] = true}})
+    equal(paladin.icon("righteousFury").parent, paladin.bar("my"))
+end)
+test("each reminder's bar: Group buffs for what can go on another player, My buffs for self only", function()
+    local state = fixture()
+    local function bar(reminder) return (reminder.group or reminder.others) and "group" or "my" end
+    local wanted = {arcaneIntellect = "group", mageArmor = "my", demonArmor = "my",
+        markOfTheWild = "group", thorns = "group", righteousFury = "my", fortitude = "group", innerFire = "my",
+        divineSpirit = "group", shadowProtection = "group", aspect = "my"}
+    local count = 0
+    for _, list in pairs(state.dbr.BUFFS) do
+        for _, reminder in ipairs(list) do
+            equal(bar(reminder), wanted[reminder.key], reminder.key)
+            count = count + 1
+        end
+    end
+    equal(count, 11, "every reminder is listed here")
+end)
+test("Priest: Divine Spirit, known, switched off: no slot; switched on: Group buffs has two", function()
+    local state = fixture({class = "PRIEST", known = {[FORTITUDE] = true, [INNER_FIRE] = true,
+        [DIVINE_SPIRIT] = true}})
+    local group, my = state.bar("group"), state.bar("my")
+    equal(group.width, 40)
+    equal(my.width, 40)
     state.slash("unlock")
-    contains(state.last(), "unlocked")
+    equal(state.icon("divineSpirit").shown, false, "switched off: no sample either")
+    state.slash("lock")
+    state.settings.DBR_BUFF_DIVINESPIRIT:SetValue(true)
+    equal(group.width, 88, "two slots")
+    equal(my.width, 40, "My buffs unchanged")
+    state.slash("unlock")
+    equal(state.icon("fortitude").shown, true)
+    equal(state.icon("divineSpirit").shown, true, "every slot holds its own icon")
+    state.slash("lock")
+    state.settings.DBR_BUFF_DIVINESPIRIT:SetValue(false)
+    equal(group.width, 40, "switched off: back to one")
+    local unknown = fixture({class = "PRIEST", known = {[FORTITUDE] = true}})
+    unknown.settings.DBR_BUFF_DIVINESPIRIT:SetValue(true)
+    equal(unknown.bar("group").width, 40, "switched on but not known: no slot")
+    unknown.known[DIVINE_SPIRIT] = true
+    unknown.update("SPELLS_CHANGED")
+    equal(unknown.bar("group").width, 88, "learned: the bar grows")
+end)
+test("a bar with nothing you can show is hidden, also while unlocked", function()
+    local state = fixture({known = {[INTELLECT] = true}})
+    local my = state.bar("my")
+    equal(state.drivers[my], "hide")
+    equal(my.shown, false)
+    state.slash("unlock")
+    equal(my.shown, false, "no outline around nothing")
+    state.slash("lock")
+    state.known[FROST_ARMOR] = true
+    state.update("SPELLS_CHANGED")
+    equal(state.drivers[my], "[combat] hide; show", "learned Frost Armor: it shows")
+    equal(my.shown, true)
+end)
+test("a spell learned in combat grows its bar only after combat", function()
+    local state = fixture({class = "PRIEST", known = {[FORTITUDE] = true}})
+    local bar = state.bar("group")
+    state.settings.DBR_BUFF_DIVINESPIRIT:SetValue(true)
+    state.combat = true
+    state.applyDrivers()
+    state.known[DIVINE_SPIRIT] = true
+    state.update("SPELLS_CHANGED")
+    equal(bar.width, 40, "no secure change in combat")
+    state.combat = false
+    state.applyDrivers()
+    state.emit("PLAYER_REGEN_ENABLED")
+    equal(bar.width, 88)
+end)
+test("the missing icons pack in from the left edge; the empty part takes no clicks while locked", function()
+    local state = fixture({class = "PRIEST", known = {[FORTITUDE] = true, [DIVINE_SPIRIT] = true,
+        [SHADOW_PROTECTION] = true}})
+    state.settings.DBR_BUFF_DIVINESPIRIT:SetValue(true)
+    state.settings.DBR_BUFF_SHADOWPROTECTION:SetValue(true)
+    local bar = state.bar("group")
+    local function slot(key)
+        local point = state.icon(key).points[#state.icon(key).points]
+        equal(point[1], "LEFT")
+        equal(point[2], bar)
+        return point[4]
+    end
+    equal(slot("fortitude"), 0)
+    equal(slot("divineSpirit"), 48)
+    equal(slot("shadowProtection"), 96)
+    state.buff("player", "Power Word: Fortitude")
+    state.update("UNIT_AURA", "player")
+    equal(state.icon("fortitude").shown, false)
+    equal(slot("divineSpirit"), 0, "moves up to the left edge")
+    equal(slot("shadowProtection"), 48)
+    equal(bar.width, 136, "the bar keeps its size")
+    equal(bar.mouse, false, "locked: click-through where no icon shows")
+    state.slash("unlock")
+    equal(bar.mouse, true, "unlocked: the bar takes the drag")
+    state.slash("lock")
+    equal(bar.mouse, false)
+end)
+test("unlocked, each bar is outlined and shows its icons to drag; a drag on an icon moves the bar", function()
+    local state = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true}})
+    state.buff("player", "Frost Armor")
+    state.update("UNIT_AURA", "player")
+    state.slash("unlock")
+    contains(state.last(), "Frames unlocked")
+    local group, my = state.bar("group"), state.bar("my")
     local intellect, armor = state.icon("arcaneIntellect"), state.icon("mageArmor")
+    equal(group.dyre.mover.shown, true, "the toolkit's outline, the bar's full size")
     equal(intellect.shown, true)
-    equal(armor.shown, true, "shown to drag even before you know it")
-    equal(intellect.mover.shown, true)
-    equal(intellect.attributes.type1, nil)
-    equal(state.dbr.grid.shown, true)
-    equal(state.settings.DBR_UNLOCKED:GetValue(), true, "the switch follows the command")
-    state.settings.DBR_GRID:SetValue(false)
-    equal(state.dbr.grid.shown, false)
-    state.settings.DBR_UNLOCKED:SetValue(false)
-    equal(state.dbr.db.locked, true)
-    contains(state.last(), "locked")
-    equal(intellect.mover.shown, false)
+    equal(armor.shown, true, "a buff that is on shows too, to drag")
+    equal(armor.texture.alpha, 0.4, "dimmed: it is not missing")
+    equal(armor.glow.animation.playing, false)
+    equal(intellect.texture.alpha, 1, "missing: solid and pulsing")
+    equal(intellect.glow.animation.playing, true)
+    equal(intellect.attributes.type1, nil, "dragging never casts")
+    dragBar(state, armor, my, 200, 150)
+    equal(my.moving, false)
+    equal(state.dbr.db.bars.mybuffs.position.relativePoint ~= nil, true, "the toolkit saves the bar's place")
+    equal(state.dbr.db.icons, nil, "never a place per icon")
+    local ax = iconCenter(state, "mageArmor")
+    state.slash("lock")
+    equal(group.dyre.mover.shown, false)
     equal(intellect.attributes.type1, "spell")
     equal(armor.shown, false)
-end)
-test("icons start in a row 20 apart, and a drop near another snaps beside it", function()
-    local state = fixture()
-    state.dbr.db.spells.dampenMagic = true
-    state.slash("unlock")
-    local intellect, armor, dampen = state.icon("arcaneIntellect"), state.icon("mageArmor"), state.icon("dampenMagic")
-    local ix, iy = iconCenter(state, "arcaneIntellect")
-    local ax = iconCenter(state, "mageArmor")
-    equal(ax - ix, 60, "40 wide, 20 apart")
-    equal(select(1, iconCenter(state, "dampenMagic")) - ax, 60)
-    equal(iy, 400 + 180)
-    drop(intellect, ax + 64, iy + 9)
-    local nx, ny = iconCenter(state, "arcaneIntellect")
-    equal(nx, ax + 60, "snapped 20 past Armor")
-    equal(ny, iy, "aligned")
-    drop(dampen, 100, 100)
-    equal(select(1, iconCenter(state, "dampenMagic")), 100, "far from everything: stays")
-    equal(state.dbr.db.icons.dampenMagic.position.relativePoint, "BOTTOMLEFT", "saved on its own")
-    for _ = 1, 5 do armor.scripts.OnMouseWheel(armor, 1) end
-    equal(state.dbr.db.icons.mageArmor.scale, 150)
-    equal(armor.scale, 1.5)
-    state.slash("lock")
-    armor.scripts.OnMouseWheel(armor, 1)
-    equal(state.dbr.db.icons.mageArmor.scale, 150, "locked icons do not resize")
     state.slash("reset")
     contains(state.last(), "default places")
-    equal(state.dbr.db.icons.mageArmor.scale, 100)
-    equal(state.dbr.db.icons.dampenMagic.position, nil)
-    equal(select(1, iconCenter(state, "dampenMagic")) - ax, 60, "back in the row")
+    equal(state.dbr.db.bars.mybuffs.position, nil)
+    equal(select(2, state.absCenter(my)), 400 + 130, "back in its default place")
+    equal(ax ~= iconCenter(state, "mageArmor"), true)
 end)
-test("reset in combat waits for the end of combat", function()
+test("in combat a bar never changes; its size and place wait for the end of combat, opacity does not", function()
     local state = fixture({known = {[INTELLECT] = true}})
-    local intellect = state.icon("arcaneIntellect")
-    state.slash("unlock")
-    drop(intellect, 100, 100)
-    state.slash("lock")
+    local bar = state.bar("group")
     state.combat = true
+    state.applyDrivers()
+    state.settings[GROUP_SCALE]:SetValue(150)
+    equal(state.dbr.db.bars.groupbuffs.scale, 150, "saved at once")
+    equal(bar.scale ~= 1.5, true, "applied after combat")
+    state.settings.DYRE_DYRESBUFFREMINDERS_GROUPBUFFS_OPACITY:SetValue(50)
+    equal(bar.alpha, 0.5, "opacity at once, also in combat")
+    state.clear()
     state.slash("reset")
     contains(state.last(), "after combat")
-    equal(select(1, iconCenter(state, "arcaneIntellect")), 100)
     state.combat = false
+    state.applyDrivers()
     state.emit("PLAYER_REGEN_ENABLED")
-    equal(select(1, iconCenter(state, "arcaneIntellect")), 500 - 60)
+    equal(bar.scale, 1.5)
 end)
-test("Shift-dragging an icon moves every icon snapped to it", function()
-    local state = fixture()
-    state.slash("unlock")
-    local intellect = state.icon("arcaneIntellect")
-    local ix, iy = iconCenter(state, "arcaneIntellect")
-    local ax, ay = iconCenter(state, "mageArmor")
-    state.shift = true
-    drop(intellect, ix - 300, iy - 100)
-    local mx, my = iconCenter(state, "mageArmor")
-    equal(mx, ax - 300, "the row moves together")
-    equal(my, ay - 100)
+test("the settings page: each widget's size and opacity, then Reset size", function()
+    local state = fixture({known = {[INTELLECT] = true}})
+    local scale = state.row(GROUP_SCALE)
+    equal(scale.setting.name, "Group buffs: size (%)")
+    equal(scale.options.minValue, 50)
+    equal(scale.options.maxValue, 200)
+    equal(scale.options.step, 10)
+    equal(state.row("DYRE_DYRESBUFFREMINDERS_GROUPBUFFS_OPACITY").setting.name, "Group buffs: opacity")
+    equal(state.row("DYRE_DYRESBUFFREMINDERS_MYBUFFS_SCALE").setting.name, "My buffs: size (%)")
+    local headings = {}
+    for _, heading in ipairs(state.headings) do headings[#headings + 1] = heading.heading end
+    equal(headings[2], "Consumables")
+    equal(headings[3], "Size and Opacity")
+    local reset
+    for _, row in ipairs(state.page().initializers) do
+        if row.kind == "button" and row.label == "Group buffs" then reset = row end
+    end
+    equal(reset.buttonText, "Reset size")
+    state.settings[GROUP_SCALE]:SetValue(170)
+    reset.click()
+    equal(state.dbr.db.bars.groupbuffs.scale, 100)
+    local paladin = fixture({class = "PALADIN", known = {[25780] = true, [21084] = true}})
+    equal(paladin.row("DYRE_DYRESBUFFREMINDERS_SEAL_SCALE").setting.name, "Seal timer: size (%)")
+    equal(paladin.row(GROUP_SCALE), nil, "a Paladin has no group buffs")
+    equal(fixture({class = "WARRIOR"}).row(GROUP_SCALE), nil)
+end)
+test("from 1.0.0: the seal timer keeps its place and size; the loose icons start in their bar", function()
+    local state = fixture({class = "PALADIN", known = {[25780] = true, [21084] = true}, db = {
+        seal = {enabled = true, scale = 130, position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 300,
+            y = 500}},
+        icons = {righteousFury = {scale = 150, position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 10,
+            y = 20}}}}})
+    local display = state.env.DyresBuffRemindersSeal
+    equal(display.scale, 1.3)
+    local point = display.points[#display.points]
+    equal(point[4], 300)
+    equal(point[5], 500)
+    equal(state.dbr.db.icons, nil)
+    equal(state.dbr.db.bars.mybuffs.scale, 100)
+    equal(state.icon("righteousFury").parent, state.bar("my"))
 end)
 
 -- Settings page, tooltips, and debug ---------------------------------------------------
 
 test("the settings page lists your class's buffs, each group switch under its buff", function()
     local state = fixture({class = "PRIEST", known = {[FORTITUDE] = true}})
-    local page = state.categories["Dyre's Buff Reminders"]
-    equal(state.registered, page)
+    local page = state.page()
+    equal(page.parent, state.categories["Dyre's AddOns"], "under Dyre's AddOns")
     local names = {}
     for _, row in ipairs(page.initializers) do
         if row.setting then
@@ -1554,10 +2352,11 @@ test("the settings page lists your class's buffs, each group switch under its bu
             names[#names + 1] = row.setting.name
         end
     end
-    equal(table.concat(names, "|"), "Buff reminders|Power Word: Fortitude|Power Word: Fortitude: also your group|"
+    equal(table.concat(names, "|"), "Enable|Power Word: Fortitude|Power Word: Fortitude: also your group|"
         .. "Inner Fire|Divine Spirit|Divine Spirit: also your group|Shadow Protection|"
-        .. "Shadow Protection: also your group|Remind before a buff runs out (seconds)|Unlock to move them|"
-        .. "Show a grid while unlocked")
+        .. "Shadow Protection: also your group|Remind before a buff runs out (seconds)|"
+        .. "Enable|Ammo|Warn at|Group buffs: size (%)|Group buffs: opacity|My buffs: size (%)|My buffs: opacity|"
+        .. "Consumables: size (%)|Consumables: opacity")
     local group = state.row("DBR_GROUP_FORTITUDE")
     equal(group.parentInitializer, state.row("DBR_BUFF_FORTITUDE"))
     contains(group.tooltip, "Prayer of Fortitude")
@@ -1585,9 +2384,10 @@ test("the unlocked tooltip says how to move; /dbr debug lists each reminder", fu
     state.clear()
     state.slash("debug")
     contains(state.messages[1], "debug class=MAGE available=true enabled=true locked=true combat=false")
-    contains(state.messages[2], "debug arcaneIntellect on=true group=true known=true shown=true missing=you "
+    contains(state.messages[2], "debug arcaneIntellect bar=groupbuffs on=true group=true known=true shown=true "
+        .. "missing=you "
         .. "click=Arcane Intellect@player unknownIDs=none")
-    contains(state.messages[3], "debug mageArmor on=true group=nil known=false")
+    contains(state.messages[3], "debug mageArmor bar=mybuffs on=true group=nil known=false")
     state.combat = true
     state.clear()
     state.slash("debug")
@@ -1759,15 +2559,19 @@ test("chimes: choosing a sound saves it and plays it once; Text to Speech says t
     voice.dbr.PreviewChime("blink")
     equal(voice.played[2].key, "talent", "the default when the voice cannot play")
 end)
-test("the settings page: a Cooldown Chimes section with its own switch, lead, and spells", function()
+test("the settings page: a Chimes section with its own switch, lead, and spells", function()
     local state = fixture()
-    local page = state.categories["Dyre's Buff Reminders"]
-    equal(state.headings[1].heading, "Buff Reminders")
-    equal(state.headings[2].heading, "Cooldown Chimes")
+    local page = state.page()
+    equal(state.headings[1].heading, "Reminders")
+    equal(state.settings.DBR_ENABLED.name, "Enable", "the page already says Buff Reminders")
+    equal(state.settings.DBR_CHIMES_ENABLED.name, "Enable")
+    equal(state.headings[2].heading, "Consumables")
+    equal(state.headings[3].heading, "Size and Opacity")
+    equal(state.headings[4].heading, "Chimes")
     local switch, switchAt = state.row("DBR_CHIMES_ENABLED")
-    equal(page.initializers[switchAt - 1], state.headings[2], "the section starts with its heading")
-    local _, gridAt = state.row("DBR_GRID")
-    equal(gridAt < switchAt, true, "after the buff reminders")
+    equal(page.initializers[switchAt - 1], state.headings[4], "the section starts with its heading")
+    local _, leadAt = state.row("DBR_LEAD")
+    equal(leadAt < switchAt, true, "after the buff reminders")
     local lead = state.row("DBR_CHIME_LEAD")
     equal(lead.parentInitializer, switch)
     local blink = state.row("DBR_CHIME_BLINK")
@@ -1809,7 +2613,7 @@ test("the settings page: a Cooldown Chimes section with its own switch, lead, an
         equal(oldDropdown.predicate(), false)
     end
     local knight = fixture({class = "DEATHKNIGHT"})
-    equal(knight.headings[3].heading, "Your class has no chime spells yet.")
+    equal(knight.headings[5].heading, "Your class has no chime spells yet.")
 end)
 test("without Dyre's Sounds chimes are timed, nothing plays, and DBR says so once", function()
     local state = fixture({sounds = "none", db = {chimes = {sounds = {blink = "effectmagical"}}}})
@@ -2082,11 +2886,12 @@ test("procs: during a boss encounter registration waits until it ends", function
     state.emit("ADDON_RESTRICTION_STATE_CHANGED")
     equal(state.soundIDs(), DRUID_CLEARCASTING .. "," .. NATURES_GRACE)
 end)
-test("procs: the settings page has a Proc Sounds section, one row per proc, aura sounds only", function()
+test("procs: the settings page has a Procs section, one row per proc, aura sounds only", function()
     local state = fixture({class = "DRUID"})
     local headings = {}
     for _, heading in ipairs(state.headings) do headings[#headings + 1] = heading.heading end
-    equal(table.concat(headings, "|"), "Buff Reminders|Cooldown Chimes|Proc Sounds")
+    equal(table.concat(headings, "|"), "Reminders|Consumables|Size and Opacity|Chimes|Procs")
+    equal(state.settings.DBR_PROCS_ENABLED.name, "Enable")
     local switch, switchAt = state.row("DBR_PROCS_ENABLED")
     local _, chimesAt = state.row("DBR_CHIMES_ENABLED")
     equal(switchAt > chimesAt, true, "after the cooldown chimes")
@@ -2294,83 +3099,81 @@ end)
 
 -- Dyre's Toolkit -----------------------------------------------------------------------------
 
-test("toolkit: the TOC nests under it and lists it as optional", function()
+test("toolkit: the TOC nests under it and lists it as a dependency", function()
     local text = assert(io.open(ADDON .. ".toc")):read("*a")
-    contains(text, "## OptionalDeps: DyresSounds, DyresToolkit")
+    contains(text, "## Dependencies: DyresToolkit")
+    contains(text, "## OptionalDeps: DyresSounds\n")
     contains(text, "## Group: DyresToolkit")
-    contains(text, "## Category: Buffs & Debuffs", "kept for when the toolkit is missing")
-    equal(text:find("## Dependencies", 1, true), nil)
+    contains(text, "## Category: Buffs & Debuffs", "kept for when the AddOn list does not group")
 end)
-test("toolkit: DBR registers, its page sits under Dyre's AddOns, and no grid row", function()
-    local state = fixture({toolkit = true, known = {[INTELLECT] = true}})
-    local toolkit = state.toolkit
-    equal(#toolkit.members, 1)
-    local info = toolkit.members[1]
-    equal(info.addon, "DyresBuffReminders")
-    equal(info.title, "Dyre's Buff Reminders")
-    equal(type(info.setLocked), "function")
-    local page = toolkit.pages["Dyre's Buff Reminders"]
-    equal(page ~= nil, true, "the toolkit's page")
-    equal(state.registered, nil, "no top-level page of DBR's own")
+test("toolkit: without Dyre's Toolkit 2.0 DBR stays off and says where to get it", function()
+    for _, options in ipairs({{noToolkit = true}, {oldToolkit = true}}) do
+        options.known = {[INTELLECT] = true}
+        local state = fixture(options)
+        equal(state.dbr.available, false)
+        equal(state.last(), "DBR: Dyre's Buff Reminders needs Dyre's Toolkit 2.0 or later: install or update it "
+            .. "from CurseForge. DBR stays off until then.")
+        equal(state.icon("arcaneIntellect"), nil, "no frames")
+        state.clear()
+        state.slash("unlock")
+        contains(state.last(), "unavailable")
+    end
+end)
+test("toolkit: DBR registers, and its page sits under Dyre's AddOns with no grid or unlock row", function()
+    local state = fixture({known = {[INTELLECT] = true}})
+    local list = state.toolkit.AddOns()
+    equal(#list, 1)
+    equal(list[1].addon, "DyresBuffReminders")
+    equal(list[1].title, "Dyre's Buff Reminders")
+    equal(state.page().parent, state.categories["Dyre's AddOns"])
     equal(state.row("DBR_GRID"), nil, "the toolkit draws the one grid")
-    equal(state.row("DBR_UNLOCKED"), nil, "no unlock switch: the toolkit's page has the one")
-    equal(state.settings.DBR_UNLOCKED, nil)
-    equal(state.row("DBR_ENABLED") ~= nil, true)
-    info.openSettings()
-    equal(state.opened, "toolkit:Dyre's Buff Reminders")
-    local noPage = fixture({toolkit = true, noToolkitPage = true})
-    equal(noPage.registered ~= nil, true, "without a toolkit page, DBR's own top-level page")
+    equal(state.row("DBR_UNLOCKED"), nil, "the toolkit's page has the one unlock switch")
+    list[1].openSettings()
+    equal(state.opened, "id:" .. PAGE)
 end)
 test("toolkit: one lock for every AddOn; DBR shows its frames quietly", function()
-    local state = fixture({toolkit = true, known = {[INTELLECT] = true}})
-    local intellect = state.icon("arcaneIntellect")
+    local state = fixture({known = {[INTELLECT] = true}})
+    local bar = state.bar("group")
     equal(state.dbr.db.locked, true, "frames start locked")
     state.clear()
     state.slash("unlock")
-    equal(state.toolkit.lockCalls, 1, "/dbr unlock asks the toolkit")
+    equal(state.toolkit.IsLocked(), false, "/dbr unlock asks the toolkit")
     equal(state.dbr.db.locked, false)
-    equal(intellect.mover.shown, true, "DBR's frames show to drag")
+    equal(bar.dyre.mover.shown, true)
     equal(#state.messages, 1, "one line, the toolkit's")
-    contains(state.messages[1], "Dyre: Frames unlocked.")
-    equal(state.dbr.grid, nil, "no grid of DBR's own")
+    contains(state.messages[1], "Dyre: Frames unlocked")
     state.slash("lock")
-    equal(state.toolkit.locked, true, "/dbr lock asks the toolkit too")
-    equal(intellect.mover.shown, false)
+    equal(state.toolkit.IsLocked(), true, "/dbr lock asks the toolkit too")
+    equal(bar.dyre.mover.shown, false)
     state.toolkit.Unlock()
-    equal(intellect.mover.shown, true, "the toolkit's switch, /dyre unlock, or another AddOn's unlock unlocks DBR")
+    equal(state.dbr.db.locked, false, "/dyre unlock or another AddOn's unlock unlocks DBR")
+    equal(state.icon("arcaneIntellect").attributes.type1, nil, "unlocked: no cast")
     state.toolkit.Lock()
-    equal(intellect.mover.shown, false)
+    equal(state.icon("arcaneIntellect").attributes.type1, "spell")
 end)
-test("toolkit: every movable frame is the toolkit's, so frames snap across AddOns", function()
-    local state = fixture({toolkit = true, class = "PALADIN", known = {[25780] = true, [21084] = true}})
+test("toolkit: every DBR frame is a widget; DBR never moves, scales, or saves one itself", function()
+    local state = fixture({class = "PALADIN", known = {[25780] = true, [21084] = true}})
+    local widgets = state.toolkit.Widgets(ADDON)
+    local keys = {}
+    for _, widget in ipairs(widgets) do keys[#keys + 1] = widget.dyre.widgetKey end
+    equal(table.concat(keys, ","), "mybuffs,seal,consumables")
     local fury, seal = state.icon("righteousFury"), state.env.DyresBuffRemindersSeal
-    equal(type(state.toolkit.movables[fury]), "function", "a reminder icon")
-    equal(type(state.toolkit.movables[seal]), "function", "the seal timer")
-    equal(fury.scripts.OnDragStart, state.toolkit.BeginDrag)
-    equal(fury.scripts.OnDragStop, state.toolkit.EndDrag)
+    equal(fury.scripts.OnMouseWheel, nil, "no wheel resize of DBR's own")
+    equal(seal.scripts.OnMouseWheel, nil)
     equal(seal.scripts.OnDragStart, state.toolkit.BeginDrag)
-    state.toolkit.movables[fury]({point = "CENTER", relativePoint = "BOTTOMLEFT", x = 10, y = 20})
-    equal(state.dbr.db.icons.righteousFury.position.x, 10, "DBR saves its own positions")
-    state.slash("unlock")
-    fury.scripts.OnMouseWheel(fury, 1)
-    equal(state.toolkit.scaled[1], fury, "resizing keeps its center through the toolkit")
-    equal(state.dbr.db.icons.righteousFury.scale, 110)
+    equal(seal.dyre.store, state.dbr.db.seal, "saved under the keys it had")
+    equal(state.bar("my").dyre.store, state.dbr.db.bars.mybuffs)
 end)
-test("toolkit: a newer toolkit contract or none at all: DBR keeps its own layout", function()
-    local state = fixture({toolkit = "newer", known = {[INTELLECT] = true}})
-    equal(state.find("Install Dyre's Toolkit") ~= nil, true)
-    equal(#state.toolkit.members, 0)
-    equal(state.registered ~= nil, true, "its own top-level page")
-    equal(state.row("DBR_GRID") ~= nil, true, "its own grid row")
-    equal(state.row("DBR_UNLOCKED") ~= nil, true, "its own unlock switch, the page's only way to unlock")
-    state.settings.DBR_UNLOCKED:SetValue(true)
-    equal(state.dbr.db.locked, false)
-    state.settings.DBR_UNLOCKED:SetValue(false)
-    equal(state.dbr.db.locked, true)
-    state.slash("unlock")
-    contains(state.last(), "Buff reminders unlocked")
-    equal(state.dbr.grid.shown, true, "its own grid")
-    equal(state.icon("arcaneIntellect").scripts.OnDragStart ~= state.toolkit.BeginDrag, true, "Layout.lua's drag")
+test("toolkit: the copy the tests load matches ../DyresToolkit when it is there", function()
+    for _, path in ipairs(TOOLKIT_FILES) do
+        local own = io.open("../DyresToolkit/" .. path, "rb")
+        if own then
+            local copy = assert(io.open("tests/toolkit/" .. path, "rb"))
+            equal(copy:read("*a") == own:read("*a"), true, "tests/toolkit/" .. path .. " is stale: copy it again")
+            copy:close()
+            own:close()
+        end
+    end
 end)
 
 local failed = 0

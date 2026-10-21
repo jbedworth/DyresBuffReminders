@@ -20,7 +20,7 @@ from pathlib import Path
 
 
 ADDON = "DyresBuffReminders"
-RUNTIME_FILES = ("Commands.lua", "Core.lua", "Layout.lua", "Buffs.lua", "Reminders.lua", "Seals.lua",
+RUNTIME_FILES = ("Commands.lua", "Core.lua", "Buffs.lua", "Reminders.lua", "Seals.lua", "Consumables.lua",
                  "ChimeSpells.lua", "Chimes.lua", "ProcSpells.lua", "Procs.lua", "Probe.lua",
                  "Options.lua")
 TEXT_FILES = (ADDON + ".toc",) + RUNTIME_FILES + ("LICENSE",)

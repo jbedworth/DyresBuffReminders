@@ -5,30 +5,29 @@ local addonName, DBR = ...
 -- and the cooldown chimes from Dyre's Cooldown Chimes, which merged into it
 -- (author).
 -- This file owns saved settings, the login banner, install and API checks,
--- slash conflict reporting, the frame lock and its grid, and startup.
+-- slash conflict reporting, joining Dyre's Toolkit, the lock, and startup.
+-- All layout (placing, dragging, snapping, sizing, saving places) is the
+-- toolkit's: DBR's frames are its widgets (author's rule, 2026-10-20).
 local DEFAULT_TITLE = "Dyre's Buff Reminders"
 local READY_MESSAGE = "  Ready. Type /dbr to open the settings."
 local SLASH_KEY = "DYRESBUFFREMINDERS"
 local PRIMARY_SLASH = "/dbr"
 local BACKUP_SLASH = "/buffreminders"
 local MAX_SLASH_ALIASES = 10
-local UNLOCK_HINT = "Drag to move Â· /dbr lock when done"
 DBR.available = false
 
 function DBR.Report(message)
     DEFAULT_CHAT_FRAME:AddMessage("DBR: " .. tostring(message))
 end
 
--- Dyre's Toolkit (author-approved, 2026-10-19), when installed with the
--- contract DBR needs: one layout mode, grid, and snapping for every Dyre's
--- AddOn, and the "Dyre's AddOns" settings home. The TOC lists it as
--- OptionalDeps; without it DBR keeps its own Layout.lua, grid, and page.
-local TOOLKIT_CONTRACT = 1
-local TOOLKIT_FUNCTIONS = {"RegisterAddOn", "IsLocked", "SetLocked", "RegisterMovable", "BeginDrag", "EndDrag",
-    "ScaleKeepingCenter", "RegisterSettingsCategory", "OpenSettings"}
+-- Dyre's Toolkit 2.0 or later (contract 2, widgets) is required: the TOC
+-- lists it as Dependencies. Without it DBR stays off and says what to install.
+local TOOLKIT_CONTRACT = 2
+local TOOLKIT_FUNCTIONS = {"RegisterAddOn", "IsLocked", "SetLocked", "RegisterSettingsCategory", "OpenSettings",
+    "CreateWidget", "AddWidgetSettings", "ResetWidgets"}
 -- Where to get it: CurseForge only, for now (author).
-local TOOLKIT_MESSAGE = "Install Dyre's Toolkit from CurseForge for one layout mode and settings home for all "
-    .. "Dyre's AddOns."
+local TOOLKIT_MISSING = "Dyre's Buff Reminders needs Dyre's Toolkit 2.0 or later: install or update it from "
+    .. "CurseForge. DBR stays off until then."
 
 function DBR.Toolkit()
     local toolkit = rawget(_G, "DyresToolkit")
@@ -90,10 +89,12 @@ end
 -- Functions other runtime files must define. A mixed install of old and new
 -- files otherwise fails silently, because the client hides Lua errors by default.
 local REQUIRED_NAMESPACE = {
-    "ParseCommand", "HandleCommand", "RegisterMovable", "BeginDrag", "EndDrag", "ScaleKeepingCenter",
-    "ClassReminders", "SanitizeReminders", "SanitizeReminderScale", "SanitizeLead", "InitializeReminders",
-    "RefreshReminders", "ResetRemindersPosition", "ReportRemindersDebug", "SanitizeSeal", "InitializeSeal",
-    "RefreshSeal", "ResetSealPosition", "ReportSealDebug", "HasSealTimer",
+    "ParseCommand", "HandleCommand",
+    "ClassReminders", "SanitizeReminders", "SanitizeLead", "InitializeReminders",
+    "RefreshReminders", "ReportRemindersDebug", "SanitizeSeal", "InitializeSeal",
+    "RefreshSeal", "ReportSealDebug", "HasSealTimer", "SealWidget", "ReminderBars", "CombatAspectWidget", "RefreshCombatAspect",
+    "SanitizeConsumables", "SanitizeAmmoWarn", "InitializeConsumables", "RefreshConsumables", "ConsumablesWidget",
+    "ReportConsumablesDebug",
     "ClassChimes", "SoundLibrary", "ReportMissingSounds", "SanitizeChimes", "ImportChimes", "ReportOtherChimes",
     "InitializeChimes", "PreviewChime", "ReportChimesDebug",
     "ClassProcs", "HasProcSounds", "SanitizeProcs", "SanitizeProcSound", "ApplyProcSounds", "PreviewProc",
@@ -148,16 +149,20 @@ end
 function DBR.SanitizeDB(db)
     db = type(db) == "table" and db or {}
     db.enabled = db.enabled ~= false
-    db.locked = db.locked ~= false
-    db.grid = db.grid ~= false
+    -- The toolkit's lock, mirrored at login and on each change; frames start locked.
+    db.locked = true
+    -- Before 1.1.0: DBR's own grid switch (the toolkit draws the one grid now).
+    db.grid = nil
     -- The reactive-ability probe (Probe.lua): debug only, off by default.
     db.probe = db.probe == true
     if DBR.SanitizeReminders and type(DBR.BUFFS) == "table" then
         DBR.SanitizeReminders(db, SanitizePosition)
     end
-    -- The seal size uses the reminders scale rules.
-    if DBR.SanitizeSeal and DBR.SanitizeReminderScale then
+    if DBR.SanitizeSeal then
         db.seal = DBR.SanitizeSeal(db.seal, SanitizePosition)
+    end
+    if DBR.SanitizeConsumables then
+        db.consumables = DBR.SanitizeConsumables(db.consumables, SanitizePosition)
     end
     if DBR.SanitizeChimes and type(DBR.CHIME_SPELLS) == "table" then
         db.chimes = DBR.SanitizeChimes(db.chimes)
@@ -183,126 +188,18 @@ local function FindSlashConflict()
     end
 end
 
--- While unlocked, a frame shows a gold outline and a hint (author-approved,
--- as MTF's). A plain child, so it can show and hide also in combat.
-function DBR.CreateMover(frame)
-    local mover = CreateFrame("Frame", nil, frame, "BackdropTemplate")
-    mover:SetPoint("TOPLEFT", -4, 4)
-    mover:SetPoint("BOTTOMRIGHT", 4, -4)
-    mover:SetBackdrop({edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = 14})
-    mover:SetBackdropBorderColor(1, 0.82, 0)
-    mover.hint = mover:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    mover.hint:SetPoint("BOTTOM", mover, "TOP", 0, 2)
-    mover.hint:SetText(UNLOCK_HINT)
-    mover:SetShown(not DBR.db.locked)
-    return mover
-end
-
--- While unlocked, an alignment grid over the screen (author-approved, as
--- MTF's): faint lines every GRID_SPACING from the center out, and the center
--- lines in red, so frames line up with the middle of the screen. Under every
--- frame, it takes no mouse. Rebuilt when the screen size or UI scale changes.
-local GRID_SPACING = 32
-local GRID_LINE = {1, 1, 1, 0.12}
-local GRID_CENTER = {1, 0.2, 0.2, 0.7}
-local grid
-
-local function GridLine(vertical, offset, color, thickness)
-    local line = grid:CreateTexture(nil, "BACKGROUND")
-    line:SetColorTexture(color[1], color[2], color[3], color[4])
-    if vertical then
-        line:SetPoint("TOP", grid, "TOP", offset, 0)
-        line:SetPoint("BOTTOM", grid, "BOTTOM", offset, 0)
-        line:SetWidth(thickness)
-    else
-        line:SetPoint("LEFT", grid, "LEFT", 0, offset)
-        line:SetPoint("RIGHT", grid, "RIGHT", 0, offset)
-        line:SetHeight(thickness)
-    end
-    grid.lines[#grid.lines + 1] = line
-end
-
-local function BuildGrid()
-    for _, line in ipairs(grid.lines) do
-        line:Hide()
-    end
-    grid.lines = {}
-    local halfWidth, halfHeight = UIParent:GetWidth() / 2, UIParent:GetHeight() / 2
-    for step = 1, math.floor(halfWidth / GRID_SPACING) do
-        GridLine(true, step * GRID_SPACING, GRID_LINE, 1)
-        GridLine(true, -step * GRID_SPACING, GRID_LINE, 1)
-    end
-    for step = 1, math.floor(halfHeight / GRID_SPACING) do
-        GridLine(false, step * GRID_SPACING, GRID_LINE, 1)
-        GridLine(false, -step * GRID_SPACING, GRID_LINE, 1)
-    end
-    GridLine(true, 0, GRID_CENTER, 2)
-    GridLine(false, 0, GRID_CENTER, 2)
-    grid.built = true
-end
-
-function DBR.RefreshGrid()
-    -- With the toolkit, its grid is the one grid.
-    local wanted = not DBR.toolkit and not DBR.db.locked and DBR.db.grid
-    if not grid then
-        if not wanted then
-            return
-        end
-        grid = CreateFrame("Frame", nil, UIParent)
-        grid:SetAllPoints(UIParent)
-        grid:SetFrameStrata("BACKGROUND")
-        grid:EnableMouse(false)
-        grid.lines = {}
-        grid:SetScript("OnEvent", function() grid.built = false; DBR.RefreshGrid() end)
-        grid:RegisterEvent("DISPLAY_SIZE_CHANGED")
-        grid:RegisterEvent("UI_SCALE_CHANGED")
-    end
-    if wanted and not grid.built then
-        BuildGrid()
-    end
-    grid:SetShown(wanted)
-    DBR.grid = grid
-end
-
--- Nothing to move or show for a class without buffs in Buffs.lua.
-local function HasReminders()
-    if #DBR.ClassReminders() > 0 or DBR.HasSealTimer() then
-        return true
-    end
-    DBR.Report("There are no buff reminders for your class yet.")
-    return false
-end
-
--- /dbr unlock and /dbr lock, and, without the toolkit, the settings page's
--- "Unlock to move them".
--- Shows or hides DBR's samples and outlines, quietly: the toolkit's setLocked
--- callback, and the first half of DBR's own lock.
+-- The toolkit's lock changed: DBR's samples show or hide, quietly (the
+-- toolkit draws the outlines and says one line for all).
 function DBR.ApplyLocked(locked)
     DBR.db.locked = locked == true
     DBR.RefreshReminders()
     DBR.RefreshSeal()
-    DBR.RefreshGrid()
+    DBR.RefreshConsumables()
 end
 
--- With the toolkit, one layout mode for every Dyre's AddOn: it calls back
--- ApplyLocked and says one line for all.
+-- /dbr unlock and /dbr lock: one layout mode for every Dyre's AddOn.
 function DBR.SetLocked(locked)
-    if DBR.toolkit then
-        DBR.toolkit.SetLocked(locked)
-        return
-    end
-    DBR.ApplyLocked(locked)
-    if not HasReminders() then
-        return
-    end
-    if locked then
-        DBR.Report("Buff reminders locked.")
-    elseif InCombatLockdown() then
-        DBR.Report("Buff reminders unlocked: they show to drag after combat.")
-    else
-        DBR.Report("Buff reminders unlocked: drag them where you want (Shift-drag moves a snapped group; "
-            .. "scroll over one to resize it), then type /dbr lock.")
-    end
+    DBR.toolkit.SetLocked(locked)
 end
 
 function DBR.Unlock()
@@ -313,17 +210,14 @@ function DBR.Lock()
     DBR.SetLocked(true)
 end
 
--- /dbr reset: every icon back to its default place and size.
+-- /dbr reset: every DBR widget back to its default place (the toolkit waits
+-- out combat for those holding secure buttons).
 function DBR.ResetPositions()
-    local now = DBR.ResetRemindersPosition()
-    now = DBR.ResetSealPosition() and now
-    if not HasReminders() then
-        return
-    end
-    if now then
-        DBR.Report("Buff reminders moved back to their default places.")
+    DBR.toolkit.ResetWidgets(addonName)
+    if InCombatLockdown() then
+        DBR.Report("DBR's frames move back to their default places after combat.")
     else
-        DBR.Report("Buff reminders move back to their default places after combat.")
+        DBR.Report("DBR's frames moved back to their default places.")
     end
 end
 
@@ -340,6 +234,7 @@ function DBR.ReportDebug()
     end
     DBR.ReportRemindersDebug()
     DBR.ReportSealDebug()
+    DBR.ReportConsumablesDebug()
     DBR.ReportChimesDebug(not DBR.IsSecret(class) and class or nil)
     DBR.ReportProcsDebug(not DBR.IsSecret(class) and class or nil)
     DBR.ReportProbeDebug()
@@ -374,6 +269,11 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     if available and not DBR.db then
         LoadDB()
     end
+    if available then
+        DBR.toolkit = DBR.Toolkit()
+        available = DBR.toolkit ~= nil
+        message = TOOLKIT_MISSING
+    end
     DBR.available = available
     ReportLoaded(available)
     local conflict = FindSlashConflict()
@@ -389,23 +289,14 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     -- loads, says so, and shows nothing. Called here rather than from each
     -- file's own PLAYER_LOGIN handler, so startup never depends on event
     -- handler order.
-    -- Before any frame exists: with the toolkit, its layout replaces
-    -- Layout.lua's, and its lock state is DBR's (frames start locked).
-    DBR.toolkit = DBR.Toolkit()
-    if DBR.toolkit then
-        DBR.RegisterMovable = DBR.toolkit.RegisterMovable
-        DBR.BeginDrag = DBR.toolkit.BeginDrag
-        DBR.EndDrag = DBR.toolkit.EndDrag
-        DBR.ScaleKeepingCenter = DBR.toolkit.ScaleKeepingCenter
-        DBR.db.locked = DBR.toolkit.IsLocked() ~= false
-    else
-        DBR.Report(TOOLKIT_MESSAGE)
-    end
+    -- Before any widget exists: the toolkit's lock state is DBR's.
+    DBR.db.locked = DBR.toolkit.IsLocked() ~= false
     local _, class = UnitClass("player")
     class = not DBR.IsSecret(class) and class or nil
     DBR.classFile = class
     DBR.InitializeReminders(class)
     DBR.InitializeSeal(class)
+    DBR.InitializeConsumables()
     if #DBR.ClassReminders() == 0 then
         DBR.Report("There are no buff reminders for your class yet.")
     end
@@ -421,10 +312,7 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     DBR.InitializeProcs(class)
     DBR.ReportOtherProcs(class)
     DBR.InitializeProbe()
-    DBR.RefreshGrid()
     DBR.InitializeOptions()
-    if DBR.toolkit then
-        DBR.toolkit.RegisterAddOn({addon = addonName, title = DEFAULT_TITLE, setLocked = DBR.ApplyLocked,
-            openSettings = DBR.OpenSettings})
-    end
+    DBR.toolkit.RegisterAddOn({addon = addonName, title = DEFAULT_TITLE, setLocked = DBR.ApplyLocked,
+        openSettings = DBR.OpenSettings})
 end)
