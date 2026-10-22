@@ -1,8 +1,8 @@
 # Dyre's Buff Reminders
 
-The class buffs you are missing, each in its own icon, cast with one click; an
-ammo count; a Paladin seal timer; cooldown chimes; and proc sounds. For World
-of Warcraft: Forever (beta). Settings are in **Options → AddOns → Dyre's
+Your class buffs, each in its own icon, cast with one click, with a red
+border when one drops, also in combat; ammo and reagent counts; a Paladin seal
+timer; cooldown chimes; and proc chimes. For World of Warcraft: Forever. Settings are in **Options → AddOns → Dyre's
 AddOns → Buff Reminders**, or type `/dbr`. They are saved per character.
 
 - **Druid: Thorns follows your tank.** With a member set to the Tank role,
@@ -20,14 +20,18 @@ AddOns → Buff Reminders**, or type `/dbr`. They are saved per character.
   count, red and pulsing when low, and "Equip your arrows" when none are
   equipped. It counts in combat too.
 - **Each buff its own icon**, always shown, in a place you choose that never
-  moves: the buff with its time left while it is up, a pulsing reminder you
-  click to cast when it is missing, moved and sized with Dyre's Toolkit.
+  moves: the buff with its time left while it is up, a red border you click
+  to cast when it is missing, yellow and flashing before it runs out, moved
+  and sized with Dyre's Toolkit.
 - **Also in combat:** if a buff on you expires, is dispelled, or is
-  cancelled, its pulsing reminder shows at once, and a click recasts it.
+  cancelled, its red reminder shows at once, and a click recasts it.
+- **Reagents:** Rebirth's seeds (Druid), Arcane Powder (Mage), Infernal
+  Stones and Demonic Figurines (Warlock), counted with the ammo.
 - Hidden on flight paths; each icon shows the spell a click casts.
 - In combat AddOns cannot read buffs, so group members' buffs (and Thorns on
   the tank) are checked again after the fight; the seal timer, the combat
-  aspect icon, the ammo count, the chimes, and the proc sounds keep working.
+  aspect icon, the ammo and reagent counts, the chimes, and the proc sounds
+  keep working.
 
 ## Buff reminders
 
@@ -225,14 +229,12 @@ A sound the moment a proc appears on you, so you can use it, also in combat:
 
 ## With Mage Tools Forever or Warlock Tools Forever
 
-Both have these reminders and cooldown chimes too. From their 0.3.0-beta on,
-they hide their own reminders while Dyre's Buff Reminders is installed, and
-their reminder settings are greyed out. From their 0.3.2-beta on, they also
-play no chimes while DBR is installed. An older MTF or WTF may still play
-its own chimes; DBR says so once at login, and you can turn off its
-"Cooldown chimes". With an older MTF or WTF you may see two sets of
-icons on a Mage or Warlock; turn one off with MTF's or WTF's "Buff
-reminders" switch, or DBR's **Enable** under **Reminders**.
+Mage Tools Forever (from 1.2.0) and Warlock Tools Forever (from 1.3.0) rely
+on Dyre's Buff Reminders for their buff reminders and cooldown chimes, and
+install it with them. The first time DBR runs on a character, it copies that
+AddOn's reminder settings once (see above). An older MTF or WTF may still
+show its own reminders or play its own chimes; DBR says so once at login, and
+you can turn them off in MTF or WTF.
 
 ## Commands
 
@@ -240,7 +242,7 @@ reminders" switch, or DBR's **Enable** under **Reminders**.
 |---|---|
 | `/dbr`, `/dbr options` | Opens the settings (out of combat): the buff reminders, then the cooldown chimes |
 | `/dbr unlock`, `/dbr lock` | Unlocks every Dyre's AddOn's frames to drag them, and locks them again |
-| `/dbr reset` | Moves DBR's bars and the seal timer back to their default places |
+| `/dbr reset` | Moves the buff icons, the Consumables bar, and the seal timer back to their default places |
 | `/dbr debug` | Diagnostics: each reminder, who lacks it, what a click casts, and any spell IDs the client does not know; the seal timer; each chime spell, Dyre's Sounds, and the latest chime events; and each proc, its spell IDs, and whether it is confirmed in game |
 | `/dbr probe on`, `/dbr probe off` | A test aid: chat lines when a Warrior's, Rogue's, or Hunter's reactive abilities (Overpower, Revenge, Execute, Riposte, Mongoose Bite, Counterattack) become usable or glow; off by default |
 
@@ -248,18 +250,19 @@ reminders" switch, or DBR's **Enable** under **Reminders**.
 
 ## Compatibility
 
-For the Forever beta client 1.60.1 (Interface 16001). DBR keeps working
-on later beta builds; if a client update removes an API it needs, it says so
-in chat and stays off.
+For World of Warcraft: Forever 1.60.1 (tested on build 70450, Interface
+16001). If a client update removes an API it needs, it says so in chat and
+stays off.
 
-**Verified in client:** the Paladin seal timer, with Seal of Fury; the proc
-sounds on a Warlock (Nightfall).
+**Verified in client:** the Paladin seal timer, with Seal of Fury, and
+Righteous Fury; Druid Mark of the Wild, Thorns, and the Rebirth seed count;
+the Hunter aspects; the always-shown buffs and recasting in combat; the proc
+sounds on a Warlock (Nightfall) and a Warrior's Revenge.
 
-**Not yet verified in client:** the rest. The reminders come from Mage Tools
-Forever and Warlock Tools Forever and the chimes from Dyre's Cooldown Chimes,
-but the Druid and Priest buffs, the group versions' spell IDs and reagents,
-the chime lists of classes other than Mage and Warlock, and this AddOn
-itself have not been checked in game. [TESTING.md](TESTING.md) has the checklist.
+**Not yet verified in client:** the Priest buffs, the group versions' spell
+IDs and reagents, the Mage and Warlock reagents, and the chime lists of
+classes other than Mage and Warlock. [TESTING.md](TESTING.md) has the
+checklist.
 
 WowUp users (2.24.0 or later): install from the repository URL; GitHub releases
 carry the Forever metadata WowUp needs.
