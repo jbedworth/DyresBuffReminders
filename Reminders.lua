@@ -144,6 +144,48 @@ function DBR.SanitizeLead(value)
     return math.max(DBR.LEAD_MIN, math.min(DBR.LEAD_MAX, value))
 end
 
+-- Mage Tools Forever's and Warlock Tools Forever's reminder settings, read
+-- once on DBR's first run on this character (author, 1.3.0), never written.
+-- Their keys, mapped to DBR's; their places are not taken (author: "start
+-- fresh").
+local IMPORTS = {
+    MAGE = {db = "MageToolsForeverDB", title = "Mage Tools Forever", group = "arcaneIntellect",
+        spells = {intellect = "arcaneIntellect", armor = "mageArmor", dampen = "dampen"},
+        last = {armor = "mageArmor", dampen = "dampen"}},
+    WARLOCK = {db = "WarlockToolsForeverDB", title = "Warlock Tools Forever",
+        spells = {armor = "demonArmor"}, last = {armor = "demonArmor"}},
+}
+
+function DBR.ImportReminders(classFile)
+    local import = classFile and IMPORTS[classFile]
+    local saved = import and rawget(_G, import.db)
+    local theirs = type(saved) == "table" and saved.reminders
+    if type(theirs) ~= "table" then
+        return false
+    end
+    local db = DBR.db
+    if type(theirs.enabled) == "boolean" then
+        db.enabled = theirs.enabled
+    end
+    if import.group and type(theirs.group) == "boolean" then
+        db.groups[import.group] = theirs.group
+    end
+    local spells = type(theirs.spells) == "table" and theirs.spells or {}
+    for from, to in pairs(import.spells) do
+        if type(spells[from]) == "boolean" then
+            db.spells[to] = spells[from]
+        end
+    end
+    local last = type(theirs.last) == "table" and theirs.last or {}
+    for from, to in pairs(import.last) do
+        if type(last[from]) == "string" then
+            db.last[to] = last[from]
+        end
+    end
+    DBR.Report("Copied your buff reminder settings from " .. import.title .. ".")
+    return true
+end
+
 -- The saved reminder settings for every class's buffs, repaired; Core calls
 -- this from SanitizeDB. Keys no class has are dropped. Each buff widget has
 -- its own table, db.buffs[key] (the coordinator: each widget its own store),

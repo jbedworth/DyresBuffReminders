@@ -53,9 +53,20 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   PallyPower exists).
 - Mage: Arcane Intellect (group, mana users; Arcane Brilliance 23028, Arcane
   Powder 17020), Armor (Frost, Ice, Mage; recasts the last used, else Mage,
-  Ice, Frost). Dampen and Amplify Magic are left out (author: cast on chosen
-  members, situational, like Paladin Blessings; a later per-class
-  group-assign button may cover them); the saved key is dropped on load.
+  Ice, Frost). Dampen or Amplify Magic (author, 1.3.0: "add to DBR, off by
+  default"; left out in 1.2.0): one reminder, as MTF's, key `dampen` (the two
+  cannot be on you together), every rank of both, `prefer` Dampen then
+  Amplify, recasting the last one cast; on you only.
+- Imports (author, 1.3.0): on DBR's first run on a character (no
+  `db.spells` saved yet; an existing DBR setting wins), `ImportReminders`
+  reads `MageToolsForeverDB.reminders` for a Mage (enabled, group →
+  arcaneIntellect's group, spells intellect/armor/dampen → arcaneIntellect,
+  mageArmor, dampen, last armor/dampen) or `WarlockToolsForeverDB.reminders`
+  for a Warlock (enabled, spells.armor → demonArmor, last.armor), booleans
+  and strings only, read only, never their icon places (author: "start
+  fresh"), with one chat line naming the source. MTF's and WTF's armor
+  clicks used the same rule (last cast, else `prefer`), so the click is
+  unchanged; DBR's also works in combat.
   Hunter (author, 1.1.0): Aspect (My buffs, on by default): Hawk, Monkey,
   Wild, Beast, Cheetah, or Pack counts as up; a click recasts the last
   combat aspect cast (`db.last.aspect`), else Hawk, else Monkey. Cheetah and
@@ -320,7 +331,12 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
 
 - `DBR.CONSUMABLES[class].reagents`: {key, label, warn = {min, max, step,
   default}, ranks = {{spell, item, name}...}}, general for any class, only
-  DRUID now. Rebirth (20484, 20739, 20742, 20747, 20748: Maple 17034,
+  DRUID, MAGE, and WARLOCK now (1.3.0, author: "mage Arcane Powder, add.
+  Keep portal runes in MTF. Infernal Stones and Demonic Figurine add"):
+  Arcane Brilliance 23028 Arcane Powder 17020 (0-40, default 5); Inferno
+  1122 Infernal Stone 5565 and Ritual of Doom 18540 Demonic Figurine 16583
+  (0-10, default 1). The Consumables section shows only with ammo or a
+  reagent spell known at login. Rebirth (20484, 20739, 20742, 20747, 20748: Maple 17034,
   Stranglethorn 17035, Ashwood 17036, Hornbeam 17037, Ironwood 17038 Seed;
   Warn at 0-10, default 2, author) and Gift of the Wild (21849 Wild Berries
   17021, 21850 Wild Thornroot 17026; 0-40, default 5; not on Forever before

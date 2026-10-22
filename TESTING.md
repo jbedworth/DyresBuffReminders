@@ -219,7 +219,23 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       of your highest rank with its count; at 2 or fewer it turns red and
       pulses, at 0 it greys. "Rebirth reagent" and its Warn at (0-10, 2,
       gold mark) are under Consumables. No ammo icon, sample, or Ammo rows.
-- [ ] A Mage, Priest, or other class with no consumables: no Consumables
+- [ ] Mage, 1.3.0: switch on "Dampen or Amplify Magic": red while neither
+      is on; cast Amplify: covered; let it go: a click casts Amplify. With
+      Arcane Brilliance known, the Consumables bar shows Arcane Powder (red
+      at 5). `/dbr debug` shows `debug reagent arcanePowder r1 spell=23028
+      spellName=Arcane Brilliance known=true item=17020 itemName=Arcane
+      Powder`.
+- [ ] Warlock, 1.3.0: with Inferno or Ritual of Doom known, Infernal Stone
+      or Demonic Figurine counts (red at 1); `/dbr debug` shows
+      `debug reagent infernalStone r1 spell=1122 spellName=Inferno` and
+      `debug reagent demonicFigurine r1 spell=18540 spellName=Ritual of Doom`
+      with their item names (or "(not cached, loading)", then a "(loaded)"
+      line).
+- [ ] Import, 1.3.0: on a Mage or Warlock that has never run DBR but has
+      MTF or WTF settings, the first login says "Copied your buff reminder
+      settings from Mage Tools Forever." (or Warlock Tools Forever); the
+      switches and the last armor match; a second login says nothing.
+- [ ] A Priest, Paladin, or other class with no consumables: no Consumables
       section or size rows, and nothing shows when unlocked.
 - [ ] Ammo, on a Hunter (and a Warrior with a gun if you have one): with a
       bow and arrows equipped, the Consumables bar shows the arrows' icon and

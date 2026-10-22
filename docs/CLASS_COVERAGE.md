@@ -124,7 +124,7 @@ changes and limits). Priority: **P1** next release, **P2** soon, **P3** later.
 |---|---|---|---|
 | Group buff | Arcane Intellect (Brilliance) | — | — |
 | Self buff | Armor (Frost/Ice/Mage) | — | — |
-| Situational | — (author: Dampen/Amplify left out) | — | — |
+| Situational | Dampen or Amplify Magic (off; 1.3.0) | — | — |
 | Proc | Clearcasting (off) | **P2** "Heating Up" (renamed Hot Streak, 20 s on Forever [B]) sound | Arcane Blast stacking buff [fan]: probe. |
 | Cooldown chimes | 15 | **P3** Frost Blast (new, level 24 [fan/B-sum]), Frostfire Bolt (new [fan]) only if they have cooldowns | Combustion has 3 charges [B]. |
 | Consumable | — (MTF handles conjured items, author) | — | Mana gem in MTF. |

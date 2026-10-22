@@ -27,6 +27,18 @@ DBR.DEFAULT_AMMO_WARN = 200
 -- item's name for its tooltip before the client knows it, and Warn at's
 -- range (author: Rebirth "default to 2, 0-10 range").
 DBR.CONSUMABLES = {
+    -- Author, 1.3.0: "mage Arcane Powder, add"; "Infernal Stones and Demonic
+    -- Figurine add" (portal runes stay in Mage Tools Forever).
+    MAGE = {reagents = {
+        {key = "arcanePowder", label = "Arcane Brilliance", warn = {min = 0, max = 40, step = 1, default = 5},
+            ranks = {{spell = 23028, item = 17020, name = "Arcane Powder"}}},
+    }},
+    WARLOCK = {reagents = {
+        {key = "infernalStone", label = "Inferno", warn = {min = 0, max = 10, step = 1, default = 1},
+            ranks = {{spell = 1122, item = 5565, name = "Infernal Stone"}}},
+        {key = "demonicFigurine", label = "Ritual of Doom", warn = {min = 0, max = 10, step = 1, default = 1},
+            ranks = {{spell = 18540, item = 16583, name = "Demonic Figurine"}}},
+    }},
     HUNTER = {ammo = true},
     WARRIOR = {ammo = true},
     ROGUE = {ammo = true},

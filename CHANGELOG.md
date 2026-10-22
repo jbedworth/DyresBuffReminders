@@ -5,6 +5,18 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.3.0
+
+### Features
+
+- Mage: a Dampen or Amplify Magic reminder, off at first (turn it on under Reminders in `/dbr`). Either one counts, and a click recasts the one you cast last, else Dampen Magic. It works as every buff does: always shown, red when it is missing, yellow before it runs out.
+- Mage: an Arcane Powder counter for Arcane Brilliance on the Consumables bar, red at 5 or fewer at first (0-40). Warlock: Infernal Stone for Inferno and Demonic Figurine for Ritual of Doom, red at 1 or fewer at first (0-10). Each shows once you know its spell, also in combat.
+- Coming from Mage Tools Forever or Warlock Tools Forever: the first time DBR runs on a character, it copies that AddOn's buff reminder settings (which reminders are on, Arcane Intellect for your group, and the armor you cast last), and says so in chat. Icon places start fresh. If DBR already has settings on the character, nothing is copied.
+
+### Other changes
+
+- A Mage's or Warlock's armor icon recasts the armor you cast last, else your best, as Mage Tools Forever's and Warlock Tools Forever's did; DBR's also does this in combat.
+
 ## 1.2.0
 
 ### Features

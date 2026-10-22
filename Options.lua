@@ -371,7 +371,14 @@ end
 
 local function AddConsumablesSection()
     local list = DBR.ClassConsumables()
-    if not list then
+    local known = {}
+    for _, reagent in ipairs(list and list.reagents or {}) do
+        if DBR.ReagentRank(reagent) then
+            known[#known + 1] = reagent
+        end
+    end
+    -- Nothing to count yet (a Mage before Arcane Brilliance): no section.
+    if not list or (not list.ammo and #known == 0) then
         return
     end
     Heading("Consumables")
@@ -395,10 +402,8 @@ local function AddConsumablesSection()
             "The ammo count that turns red and pulses.")
         Nest(slider, ammoSwitch, function() return saved.enabled and saved.ammo end)
     end
-    for _, reagent in ipairs(list.reagents or {}) do
-        if DBR.ReagentRank(reagent) then
-            AddReagent(reagent, master)
-        end
+    for _, reagent in ipairs(known) do
+        AddReagent(reagent, master)
     end
     -- Its own Size and Opacity here, where you look for them (author).
     DBR.toolkit.AddWidgetSettings(category, layout, DBR.ConsumablesWidget(), {

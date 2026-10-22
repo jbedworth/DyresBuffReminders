@@ -54,6 +54,10 @@ name("Demon Armor", 706, 1086, 11733, 11734, 11735)
 name("Mark of the Wild", 1126, 5232, 6756, 5234, 8907, 9884, 9885)
 name("Gift of the Wild", 21849, 21850)
 name("Rebirth", 20484, 20739, 20742, 20747, 20748)
+name("Dampen Magic", 604, 8450, 8451, 10173, 10174)
+name("Amplify Magic", 1008, 8455, 10169, 10170)
+name("Inferno", 1122)
+name("Ritual of Doom", 18540)
 name("Thorns", 467, 782, 1075, 8914, 9756, 9910)
 name("Power Word: Fortitude", 1243, 1244, 1245, 2791, 10937, 10938)
 name("Prayer of Fortitude", 21562, 21564)
@@ -377,7 +381,8 @@ local function fixture(options)
         [17034] = {5, 0, 5034, "Maple Seed"}, [17035] = {5, 0, 5035, "Stranglethorn Seed"},
         [17036] = {5, 0, 5036, "Ashwood Seed"}, [17037] = {5, 0, 5037, "Hornbeam Seed"},
         [17038] = {5, 0, 5038, "Ironwood Seed"}, [17021] = {5, 0, 5021, "Wild Berries"},
-        [17026] = {5, 0, 5026, "Wild Thornroot"}}
+        [17026] = {5, 0, 5026, "Wild Thornroot"}, [17020] = {5, 0, 5020, "Arcane Powder"},
+        [5565] = {5, 0, 5565, "Infernal Stone"}, [16583] = {5, 0, 6583, "Demonic Figurine"}}
     env.C_Item.GetItemInfoInstant = function(id)
         local item = ITEMS[id]
         if item then return id, "", "", "", item[3], item[1], item[2] end
@@ -1988,13 +1993,17 @@ test("ammo: settings, its widget, and saved settings repaired", function()
     equal(state.dbr.SanitizeAmmoWarn(5000), 1000)
 end)
 local REBIRTH_1, REBIRTH_3, MAPLE, ASHWOOD = 20484, 20742, 17034, 17036
-test("consumables by class: ammo only for Hunters, Warriors, and Rogues; none at all for a Mage", function()
+test("consumables by class: ammo only for Hunters, Warriors, and Rogues; none at all for a Priest", function()
+    local priest = fixture({class = "PRIEST"})
+    equal(priest.env.DyresBuffRemindersConsumables, nil, "a Priest: no Consumables bar")
+    equal(priest.row("DBR_CONSUMABLES_ENABLED"), nil, "and no section")
+    equal(priest.row("DYRE_DYRESBUFFREMINDERS_CONSUMABLES_SCALE"), nil, "nor its size")
     local mage = fixture()
-    equal(mage.env.DyresBuffRemindersConsumables, nil, "a Mage: no Consumables bar")
-    equal(mage.row("DBR_CONSUMABLES_ENABLED"), nil, "and no section")
-    equal(mage.row("DYRE_DYRESBUFFREMINDERS_CONSUMABLES_SCALE"), nil, "nor its size")
+    equal(mage.env.DyresBuffRemindersConsumables.shown, false, "a Mage without Arcane Brilliance: nothing")
+    equal(mage.row("DBR_CONSUMABLES_ENABLED"), nil, "and no section until a reagent spell is known")
     mage.slash("unlock")
-    equal(mage.env.DyresBuffRemindersAmmo, nil, "no sample to place")
+    equal(mage.env.DyresBuffRemindersAmmo, nil, "no ammo sample to place")
+    equal(mage.env.DyresBuffRemindersConsumables.shown, false)
     local druid = fixture({class = "DRUID"})
     equal(druid.env.DyresBuffRemindersAmmo, nil, "a Druid: no ammo icon")
     equal(druid.row("DBR_CONSUMABLE_AMMO"), nil, "and no Ammo or Warn at")
@@ -2152,9 +2161,129 @@ test("Druid: /dbr debug prints each Rebirth rank's spell and seed by name, to co
     equal(state.find("debug reagent giftOfTheWild r1 spell=21849") ~= nil, true)
     equal(state.find("debug reagent giftOfTheWild on=true rank=not known warnAt=5") ~= nil, true,
         "an unknown spell: not known")
-    local mage = fixture()
-    mage.slash("debug")
-    equal(mage.find("debug consumables none for this class") ~= nil, true)
+    local priest = fixture({class = "PRIEST"})
+    priest.slash("debug")
+    equal(priest.find("debug consumables none for this class") ~= nil, true)
+end)
+
+local DAMPEN, AMPLIFY = 604, 1008
+test("Mage: Dampen or Amplify Magic, off at first; either counts; a click recasts the last one", function()
+    local state = fixture({known = {[DAMPEN] = true, [AMPLIFY] = true}})
+    local holder = state.widget("dampen")
+    equal(state.dbr.db.spells.dampen, false, "off at first (author)")
+    equal(holder.shown, false)
+    local switch = state.row("DBR_BUFF_DAMPEN")
+    equal(switch.setting.name, "Dampen or Amplify Magic")
+    state.settings.DBR_BUFF_DAMPEN:SetValue(true)
+    local icon = state.icon("dampen")
+    equal(visible(icon), true, "missing: the reminder")
+    equal(icon.glow.backdropBorder[2], 0.2, "red, as every buff")
+    equal(icon.attributes.spell1, "Dampen Magic", "else Dampen")
+    state.cast(AMPLIFY)
+    state.buff("player", "Amplify Magic", state.now + 600)
+    state.update("UNIT_AURA", "player")
+    equal(visible(icon), false, "Amplify counts: up, under its slot")
+    state.units.player.buffs["Amplify Magic"] = nil
+    state.update("UNIT_AURA", "player")
+    equal(icon.attributes.spell1, "Amplify Magic", "the one you cast last")
+end)
+
+test("Mage and Warlock reagents: Arcane Powder, Infernal Stone, and Demonic Figurine, once their spell is known", function()
+    local mage = fixture({known = {[BRILLIANCE] = true}})
+    mage.carried[17020] = 6
+    mage.emit("BAG_UPDATE_DELAYED")
+    local powder = mage.env.DyresBuffRemindersReagent_arcanePowder
+    equal(mage.env.DyresBuffRemindersConsumables.shown, true)
+    equal(powder.count.text, "6")
+    equal(isRed(powder), false)
+    mage.carried[17020] = 5
+    mage.emit("BAG_UPDATE_DELAYED")
+    equal(isRed(powder), true, "Arcane Powder: red at 5")
+    equal(mage.row("DBR_REAGENT_WARN_ARCANEPOWDER").setting.default, 5)
+    equal(mage.row("DBR_REAGENT_WARN_ARCANEPOWDER").options.maxValue, 40)
+    equal(mage.row("DBR_REAGENT_ARCANEPOWDER").setting.name, "Arcane Brilliance reagent")
+    local lock = fixture({class = "WARLOCK", known = {[1122] = true}})
+    lock.carried[5565] = 1
+    lock.emit("BAG_UPDATE_DELAYED")
+    local stone = lock.env.DyresBuffRemindersReagent_infernalStone
+    equal(stone.shown, true)
+    equal(isRed(stone), true, "Infernal Stone: red at 1")
+    equal(lock.env.DyresBuffRemindersReagent_demonicFigurine.shown, false, "no Ritual of Doom: no figurine")
+    equal(lock.row("DBR_REAGENT_WARN_INFERNALSTONE").setting.default, 1)
+    equal(lock.row("DBR_REAGENT_WARN_INFERNALSTONE").options.maxValue, 10)
+    equal(lock.row("DBR_REAGENT_DEMONICFIGURINE"), nil, "its setting waits until the spell is known")
+    lock.known[18540] = true
+    lock.carried[16583] = 3
+    lock.emit("SPELLS_CHANGED")
+    equal(lock.env.DyresBuffRemindersReagent_demonicFigurine.count.text, "3")
+    equal(lock.env.DyresBuffRemindersConsumables.dyre.contentWidth, 90, "both, side by side")
+    lock.slash("debug")
+    equal(lock.find("debug reagent infernalStone r1 spell=1122 spellName=Inferno known=true item=5565 "
+        .. "itemName=Infernal Stone count=1") ~= nil, true)
+    equal(lock.find("debug reagent demonicFigurine r1 spell=18540 spellName=Ritual of Doom known=true "
+        .. "item=16583 itemName=Demonic Figurine count=3") ~= nil, true)
+    local none = fixture({class = "WARLOCK"})
+    equal(none.env.DyresBuffRemindersConsumables.shown, false, "neither spell: nothing")
+    equal(none.row("DBR_CONSUMABLES_ENABLED"), nil, "and no section")
+end)
+
+local function copy(value)
+    if type(value) ~= "table" then return value end
+    local out = {}
+    for key, item in pairs(value) do out[key] = copy(item) end
+    return out
+end
+local function same(a, b)
+    if type(a) ~= "table" or type(b) ~= "table" then return a == b end
+    for key, item in pairs(a) do if not same(item, b[key]) then return false end end
+    for key in pairs(b) do if a[key] == nil then return false end end
+    return true
+end
+test("first run: a Mage's reminder settings come from Mage Tools Forever, once, read only", function()
+    local mtf = {reminders = {enabled = true, group = false,
+        spells = {intellect = false, armor = true, dampen = true}, last = {armor = "Ice Armor", dampen = "Amplify Magic"},
+        icons = {armor = {position = {point = "CENTER", relativePoint = "CENTER", x = 1, y = 2}}}}}
+    local before = copy(mtf)
+    local state = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true, [ICE_ARMOR] = true},
+        globals = {MageToolsForeverDB = mtf}})
+    local db = state.dbr.db
+    equal(db.spells.arcaneIntellect, false, "intellect")
+    equal(db.groups.arcaneIntellect, false, "group")
+    equal(db.spells.mageArmor, true)
+    equal(db.spells.dampen, true, "dampen, off in DBR at first")
+    equal(db.last.mageArmor, "Ice Armor", "the last armor")
+    equal(db.last.dampen, "Amplify Magic")
+    equal(state.icon("mageArmor").attributes.spell1, "Ice Armor", "a click recasts the armor cast last in MTF")
+    equal(db.buffs.mageArmor.position, nil, "places start fresh (author)")
+    equal(state.count("Copied your buff reminder settings from Mage Tools Forever."), 1)
+    equal(same(mtf, before), true, "MTF's table is never written")
+    local again = fixture({globals = {MageToolsForeverDB = mtf}, db = {spells = {arcaneIntellect = true}}})
+    equal(again.dbr.db.spells.arcaneIntellect, true, "an existing DBR setting wins: no import")
+    equal(again.dbr.db.spells.dampen, false)
+    equal(again.count("Copied your buff reminder settings"), 0)
+    local bad = fixture({globals = {MageToolsForeverDB = {reminders = {enabled = "x", spells = {armor = 1},
+        last = {armor = 7}}}}})
+    equal(bad.dbr.db.enabled, true, "only true or false is taken")
+    equal(bad.dbr.db.spells.mageArmor, true)
+    equal(bad.dbr.db.last.mageArmor, nil)
+    local none = fixture()
+    equal(none.count("Copied your buff reminder settings"), 0, "nothing to import: no line")
+end)
+
+test("first run: a Warlock's from Warlock Tools Forever; a Mage never reads WTF's", function()
+    local wtf = {reminders = {enabled = false, spells = {armor = false}, last = {armor = "Demon Skin"}}}
+    local state = fixture({class = "WARLOCK", known = {[DEMON_SKIN] = true, [DEMON_ARMOR] = true},
+        globals = {WarlockToolsForeverDB = wtf}})
+    local db = state.dbr.db
+    equal(db.enabled, false, "WTF's reminders were off: DBR's too")
+    equal(db.spells.demonArmor, false, "its armor switch")
+    equal(db.last.demonArmor, "Demon Skin")
+    equal(state.count("Copied your buff reminder settings from Warlock Tools Forever."), 1)
+    db.enabled, db.spells.demonArmor = true, true
+    state.update("PLAYER_ENTERING_WORLD")
+    equal(state.icon("demonArmor").attributes.spell1, "Demon Skin", "a click recasts the armor cast last, as WTF")
+    local mage = fixture({globals = {WarlockToolsForeverDB = wtf}})
+    equal(mage.dbr.db.enabled, true, "another class's AddOn is not read")
 end)
 
 test("on a flight path no buff reminders show; after landing they come back; unlocked, samples stay", function()
@@ -2875,7 +3004,7 @@ test("each reminder's bar: Group buffs for what can go on another player, My buf
     local function bar(reminder) return (reminder.group or reminder.others) and "group" or "my" end
     local wanted = {arcaneIntellect = "group", mageArmor = "my", demonArmor = "my",
         markOfTheWild = "group", thorns = "group", righteousFury = "my", fortitude = "group", innerFire = "my",
-        divineSpirit = "group", shadowProtection = "group", aspect = "my", battleShout = "group"}
+        divineSpirit = "group", shadowProtection = "group", aspect = "my", battleShout = "group", dampen = "my"}
     local count = 0
     for _, list in pairs(state.dbr.BUFFS) do
         for _, reminder in ipairs(list) do
@@ -2883,7 +3012,7 @@ test("each reminder's bar: Group buffs for what can go on another player, My buf
             count = count + 1
         end
     end
-    equal(count, 12, "every reminder is listed here")
+    equal(count, 13, "every reminder is listed here")
 end)
 test("always shown: the slot draws a buff that is up, in and out of combat; ours under it, armed", function()
     local state = fixture({known = {[INTELLECT] = true}})
@@ -2992,7 +3121,7 @@ test("from 1.1.0: each buff starts where its bar was, once; then the bar places 
     equal(state.env.DyresBuffRemindersSeal.scale, 1.3, "the seal timer keeps its place and size")
     local mage = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true}, db = {
         bars = {mybuffs = {position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 300, y = 200}}}}})
-    equal(mage.dbr.db.buffs.mageArmor.position.x, 300, "Armor, the bar's only self buff")
+    equal(mage.dbr.db.buffs.mageArmor.position.x, 276, "Armor, the first of the bar's two self buffs (Dampen)")
     equal(mage.dbr.db.buffs.arcaneIntellect.position, nil, "no group bar was saved: its default row")
 end)
 test("the settings page lists your class's buffs, each group switch under its buff", function()
@@ -3541,7 +3670,7 @@ test("procs: the settings page has a Procs section, one row per proc, aura sound
     local state = fixture({class = "DRUID"})
     local headings = {}
     for _, heading in ipairs(state.headings) do headings[#headings + 1] = heading.heading end
-    equal(table.concat(headings, "|"), "Reminders|Consumables|Chimes|Proc Chimes")
+    equal(table.concat(headings, "|"), "Reminders|Chimes|Proc Chimes", "no Consumables before Rebirth")
     equal(state.settings.DBR_PROCS_ENABLED.name, "Enable")
     local switch, switchAt = state.row("DBR_PROCS_ENABLED")
     local _, chimesAt = state.row("DBR_CHIMES_ENABLED")

@@ -90,7 +90,7 @@ end
 -- files otherwise fails silently, because the client hides Lua errors by default.
 local REQUIRED_NAMESPACE = {
     "ParseCommand", "HandleCommand",
-    "ClassReminders", "SanitizeReminders", "SanitizeLead", "InitializeReminders",
+    "ClassReminders", "SanitizeReminders", "SanitizeLead", "InitializeReminders", "ImportReminders",
     "RefreshReminders", "ReportRemindersDebug", "SanitizeSeal", "InitializeSeal",
     "RefreshSeal", "ReportSealDebug", "HasSealTimer", "SealWidget", "BuffWidgets", "HasBuffSlots", "CombatAspectWidget", "RefreshCombatAspect",
     "SanitizeConsumables", "SanitizeAmmoWarn", "InitializeConsumables", "RefreshConsumables", "ConsumablesWidget",
@@ -249,6 +249,7 @@ local function LoadDB()
     local saved = DyresBuffRemindersDB
     DBR.chimesFirstRun = type(saved) ~= "table" or type(saved.chimes) ~= "table"
     DBR.procsFirstRun = type(saved) ~= "table" or type(saved.procs) ~= "table"
+    DBR.remindersFirstRun = type(saved) ~= "table" or type(saved.spells) ~= "table"
     DyresBuffRemindersDB = DBR.SanitizeDB(DyresBuffRemindersDB)
     DBR.db = DyresBuffRemindersDB
 end
@@ -294,6 +295,9 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     local _, class = UnitClass("player")
     class = not DBR.IsSecret(class) and class or nil
     DBR.classFile = class
+    if DBR.remindersFirstRun then
+        DBR.ImportReminders(class)
+    end
     DBR.InitializeReminders(class)
     DBR.InitializeSeal(class)
     DBR.InitializeConsumables(class)

@@ -53,7 +53,7 @@ your own below.
 
 | Class | Buffs |
 |---|---|
-| Mage | **Arcane Intellect** (also for group members who use mana), **Armor** (Frost, Ice, or Mage Armor) |
+| Mage | **Arcane Intellect** (also for group members who use mana), **Armor** (Frost, Ice, or Mage Armor), **Dampen or Amplify Magic** (off at first; either counts, a click recasts the last one) |
 | Warlock | **Demon Armor** (Demon Skin counts before you learn it) |
 | Warrior | **Battle Shout** (it reaches your party; watched on you). Unlike long buffs it shows only when needed: missing, or in its last 60 seconds (its own **Remind before it runs out**, 5-120 s), out of combat and in it (in combat timed from your own casts); it needs rage, which runs out soon after a fight |
 | Hunter | **Aspect**: any aspect counts; a click recasts the last combat aspect you cast (Hawk, Monkey, Wild, or Beast), never Cheetah or Pack, else Hawk, else Monkey |
@@ -61,8 +61,9 @@ your own below.
 | Priest | **Power Word: Fortitude** (also for your group), **Inner Fire**, and as options **Divine Spirit** (group members who use mana) and **Shadow Protection** (your group) |
 | Paladin | **Righteous Fury** (on you; only for a tank: with the Tank role in your group, with Improved Righteous Fury, or with **Always show Righteous Fury** switched on; blessings are left to AddOns such as PallyPower), and the seal timer below |
 
-Dampen and Amplify Magic are not reminded: you cast them on chosen members
-when a fight needs them, as with Paladin Blessings.
+Coming from Mage Tools Forever or Warlock Tools Forever? On DBR's first run
+on a character it copies that AddOn's reminder settings (which are on, the
+group switch, and your last armor) once; icon places start fresh.
 
 - Every rank counts, and only buffs you know show. Rogues and Shamans
   have no reminders yet; DBR says so once at login and
@@ -137,6 +138,11 @@ as missing too, and its tooltip says to equip the ones in your bags. Thrown
 weapons and wands take no ammo, so they show nothing. **Enable** and
 **Ammo** under **Consumables** in `/dbr` turn it off.
 
+Mages: once you know Arcane Brilliance, the bar counts your Arcane Powder
+(**Warn at** 5 at first, 0-40). Warlocks: Infernal Stones once you know
+Inferno and Demonic Figurines once you know Ritual of Doom (**Warn at** 1
+each at first, 0-10).
+
 Druids: once you know Rebirth, the same bar counts the seeds your highest
 rank uses (Maple, Stranglethorn, Ashwood, Hornbeam, or Ironwood Seed), also in
 combat. At or below its own **Warn at** (2 at first, 0-10) the count turns
@@ -145,8 +151,9 @@ Berries or Wild Thornroot count the same way once you know it (**Warn at** 5
 at first). **Rebirth reagent** under **Consumables** turns it off; a new
 rank or spell shows its setting after a `/reload`.
 
-Classes with nothing to count (for now Mages, Priests, Warlocks, Paladins,
-and Shamans) have no Consumables bar or settings.
+Classes with nothing to count (for now Priests, Paladins, and Shamans), and
+characters who do not know a reagent spell yet, have no Consumables
+settings.
 
 ## Moving the icons
 

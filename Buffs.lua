@@ -42,6 +42,11 @@ DBR.BUFFS = {
             group = {mana = true, spells = {{spell = 23028, reagent = 17020}}}},
         {key = "mageArmor", label = "Armor (Frost, Ice, or Mage Armor)", on = true,
             spells = {168, 7300, 7301, 7302, 7320, 10219, 10220, 6117, 22782, 22783}, prefer = {6117, 7302, 168}},
+        -- Off at first (author, 1.3.0: "add to DBR, off by default"). One
+        -- reminder, as MTF's: the two cannot be on you together, so either
+        -- counts; a click recasts the one you cast last, else Dampen.
+        {key = "dampen", label = "Dampen or Amplify Magic", on = false,
+            spells = {604, 8450, 8451, 10173, 10174, 1008, 8455, 10169, 10170}, prefer = {604, 1008}},
     },
     -- Any aspect counts as up (author); a click recasts the last combat aspect
     -- you cast (Hawk, Monkey, Wild, Beast), else Hawk, else Monkey.

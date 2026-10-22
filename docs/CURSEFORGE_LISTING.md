@@ -37,6 +37,11 @@ Per-file changelogs need no manual text: each CI upload uses the version's
 ```markdown
 **Dyre's Buff Reminders** shows the class buffs you are missing, each in its own icon, and casts them with one click. It also tracks your ammo, times your seal, chimes before your cooldowns are ready, and sounds your procs. Made for World of Warcraft: Forever.
 
+### What's new in 1.3.0
+- **Mage: Dampen or Amplify Magic** (off at first) and an **Arcane Powder** count for Arcane Brilliance.
+- **Warlock: Infernal Stone and Demonic Figurine** counts for Inferno and Ritual of Doom.
+- **From Mage Tools Forever or Warlock Tools Forever:** DBR copies your reminder settings on its first run.
+
 ### What's new in 1.2.0
 - **Buff warnings in combat.** Each buff is now its own icon, always shown, in a place you choose that never moves. If a buff on you expires or is dispelled, even mid-fight, the reminder shows at once with a red border and a click recasts it.
 - **Thorns on your tank, in the fight too.** While the tank has Thorns, its icon shows the tank's time left, then turns yellow before it runs out and red when it does, also in combat. Whom a click casts on is set before the fight: the tank, or you when solo or tanking.
