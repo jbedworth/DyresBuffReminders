@@ -53,6 +53,7 @@ name("Demon Skin", 687, 696)
 name("Demon Armor", 706, 1086, 11733, 11734, 11735)
 name("Mark of the Wild", 1126, 5232, 6756, 5234, 8907, 9884, 9885)
 name("Gift of the Wild", 21849, 21850)
+name("Rebirth", 20484, 20739, 20742, 20747, 20748)
 name("Thorns", 467, 782, 1075, 8914, 9756, 9910)
 name("Power Word: Fortitude", 1243, 1244, 1245, 2791, 10937, 10938)
 name("Prayer of Fortitude", 21562, 21564)
@@ -62,6 +63,9 @@ name("Prayer of Spirit", 27681)
 name("Shadow Protection", 976, 10957, 10958)
 name("Prayer of Shadow Protection", 27683)
 name("Righteous Fury", 25780)
+-- Forever's own ID for the talent is unknown: any ID not in Buffs.lua's list.
+name("Improved Righteous Fury", 99001)
+name("Blessing of Kings", 99002)
 name("Aspect of the Hawk", 13165, 14318, 14319, 14320, 14321, 14322, 25296)
 name("Aspect of the Monkey", 13163)
 name("Aspect of the Wild", 20043, 20190)
@@ -102,6 +106,7 @@ name("Nature's Grace", 16886)
 name("Flurry", 12966, 12967, 12968, 12969, 12970)
 -- Reactive abilities (Classic rank 1).
 name("Overpower", 7384)
+name("Battle Shout", 6673, 5242, 6192, 11549, 11550, 11551, 25289)
 name("Revenge", 6572)
 name("Execute", 5308)
 name("Riposte", 14251)
@@ -206,6 +211,15 @@ local function secret()
     })
 end
 
+-- Whether a buff's reminder can be seen: shown, and not under its aura slot
+-- (where the engine draws the buff while it is up).
+local function visible(icon)
+    if not icon.shown then return false end
+    local slot = icon.parent and icon.parent.slot
+    if not slot then return true end
+    return icon:GetFrameLevel() > slot:GetFrameLevel()
+end
+
 local function fixture(options)
     options = options or {}
     local state = {frames = {}, messages = {}, now = 100, combat = false, secrets = {}, settings = {},
@@ -269,7 +283,12 @@ local function fixture(options)
         return data and data.name
     end
     env.UnitExists = function(unit) return state.units[unit] ~= nil end
-    env.UnitIsUnit = function(a, b) return a == b end
+    env.UnitIsUnit = function(a, b)
+        local target = state.units.target
+        if a == "target" and target and target.is then a = target.is end
+        return a == b
+    end
+    env.UnitCanAssist = function(_, unit) return state.units[unit] ~= nil and state.units[unit].friend == true end
     env.UnitIsDeadOrGhost = function(unit) return state.units[unit] ~= nil and state.units[unit].dead == true end
     env.UnitIsConnected = function(unit) return state.units[unit] ~= nil and state.units[unit].offline ~= true end
     env.UnitIsVisible = function(unit) return state.units[unit] ~= nil and state.units[unit].far ~= true end
@@ -317,6 +336,26 @@ local function fixture(options)
         end
     end
     env.C_SpellBook = {IsSpellKnown = function(id) return state.known[id] == true end}
+    -- The talent tree: state.talents holds {spellID, rank} nodes, one entry each.
+    state.talents = options.talents or {}
+    state.talentReads = 0
+    env.C_ClassTalents = {GetActiveConfigID = function() return 7 end}
+    env.C_Traits = {
+        GetConfigInfo = function(configID)
+            if configID == 7 then return {treeIDs = {1}} end
+        end,
+        GetTreeNodes = function()
+            state.talentReads = state.talentReads + 1
+            local nodes = {}
+            for index in ipairs(state.talents) do nodes[index] = index end
+            return nodes
+        end,
+        GetNodeInfo = function(_, nodeID)
+            return {activeRank = state.talents[nodeID].rank, entryIDs = {nodeID}}
+        end,
+        GetEntryInfo = function(_, entryID) return {definitionID = entryID} end,
+        GetDefinitionInfo = function(definitionID) return {spellID = state.talents[definitionID].spellID} end,
+    }
     -- The spellbook: one skill line holding state.spellbook entries {spellID, name, itemType}.
     state.spellbook = options.spellbook or {}
     env.C_SpellBook.GetNumSpellBookSkillLines = function() return 1 end
@@ -333,12 +372,23 @@ local function fixture(options)
     -- state.ammoCount (a number or "secret"), state.bags[bag] = {itemIDs}.
     state.equipped, state.bags = {}, {}
     local ITEMS = {[2504] = {2, 2, 4001}, [2508] = {2, 3, 4002}, [15807] = {2, 18, 4003}, [2947] = {2, 16, 4004},
-        [5069] = {2, 19, 4005}, [2512] = {6, 2, 3001, "Rough Arrow"}, [2516] = {6, 3, 3002, "Light Shot"}}
+        [5069] = {2, 19, 4005}, [2512] = {6, 2, 3001, "Rough Arrow"}, [2516] = {6, 3, 3002, "Light Shot"},
+        -- Reagents (class 5): Rebirth's seeds and Gift of the Wild's.
+        [17034] = {5, 0, 5034, "Maple Seed"}, [17035] = {5, 0, 5035, "Stranglethorn Seed"},
+        [17036] = {5, 0, 5036, "Ashwood Seed"}, [17037] = {5, 0, 5037, "Hornbeam Seed"},
+        [17038] = {5, 0, 5038, "Ironwood Seed"}, [17021] = {5, 0, 5021, "Wild Berries"},
+        [17026] = {5, 0, 5026, "Wild Thornroot"}}
     env.C_Item.GetItemInfoInstant = function(id)
         local item = ITEMS[id]
         if item then return id, "", "", "", item[3], item[1], item[2] end
     end
-    env.C_Item.GetItemNameByID = function(id) return ITEMS[id] and ITEMS[id][4] end
+    -- state.uncached[id]: the client has not loaded that item (its name is nil).
+    state.uncached, state.loadRequests = {}, {}
+    env.C_Item.GetItemNameByID = function(id)
+        if state.uncached[id] then return nil end
+        return ITEMS[id] and ITEMS[id][4]
+    end
+    env.C_Item.RequestLoadItemDataByID = function(id) state.loadRequests[#state.loadRequests + 1] = id end
     env.GetInventoryItemID = function(unit, slot)
         equal(unit, "player")
         return state.equipped[slot]
@@ -366,10 +416,25 @@ local function fixture(options)
             local buff = data and data.buffs and data.buffs[spell]
             if buff == "secret" then return {name = spell, expirationTime = state.secret()} end
             if type(buff) == "number" then return {name = spell, duration = 1800, expirationTime = buff} end
-            if type(buff) == "table" then return {name = spell, spellId = buff.spellId, expirationTime = 0} end
+            -- A table: {spellId}, no end; or {expires, duration}, a buff of its own length.
+            if type(buff) == "table" then
+                return {name = spell, spellId = buff.spellId, duration = buff.duration or 0,
+                    expirationTime = buff.expires or 0}
+            end
             if buff then return {name = spell, duration = 0, expirationTime = 0} end
         end,
     }
+    -- By spell ID, as the client allows also in combat for never-secret auras;
+    -- state.secretAuraIDs[id] makes one secret (it then returns no values in combat).
+    env.C_UnitAuras.GetPlayerAuraBySpellID = function(id)
+        local name = SPELLS[id]
+        local data = state.units.player
+        local buff = name and data.buffs and data.buffs[name]
+        if not buff then return nil end
+        if state.combat and state.secretAuraIDs and state.secretAuraIDs[id] then return end
+        if type(buff) == "number" then return {name = name, spellId = id, expirationTime = buff} end
+        return {name = name, spellId = id, expirationTime = 0}
+    end
     -- The game's aura sounds: registrations by handle; refused during an encounter.
     state.auraSounds, state.auraSoundCount = {}, 0
     if not options.noAuraSounds then
@@ -473,7 +538,8 @@ local function fixture(options)
         end
     end
     state.soundsWithoutCheckboxMenu = options.soundsWithoutCheckboxMenu
-    env.C_Secrets = {GetSpellCooldownSecrecy = function() return state.combat and state.secret() or 2 end}
+    env.C_Secrets = {GetSpellCooldownSecrecy = function() return state.combat and state.secret() or 2 end,
+        ShouldSpellAuraBeSecret = function(id) return state.secretAuraIDs ~= nil and state.secretAuraIDs[id] == true end}
     local sounds = options.sounds or "fake"
     if sounds == "fake" then
         env.DyresSounds = fakeSounds(state, 1)
@@ -502,6 +568,8 @@ local function fixture(options)
             category.initializers[#category.initializers + 1] = object
             return object
         end
+        -- The pinned MinimalSlider label enum (MakeEnum: 1-based).
+        env.MinimalSliderWithSteppersMixin = {Label = {Left = 1, Right = 2, Top = 3, Min = 4, Max = 5}}
         env.Settings = {
             VarType = {Boolean = "boolean", Number = "number", String = "string"},
             RegisterVerticalLayoutCategory = function(title)
@@ -544,7 +612,13 @@ local function fixture(options)
                 return object
             end,
             CreateSliderOptions = function(minValue, maxValue, step)
-                return {minValue = minValue, maxValue = maxValue, step = step}
+                local options = {minValue = minValue, maxValue = maxValue, step = step, formatters = {}}
+                -- As the pinned CreateMinimalSliderFormatter: a function, a fixed text, or nil (the value).
+                function options:SetLabelFormatter(label, value)
+                    self.formatters[label] = type(value) == "function" and value
+                        or (value ~= nil and function() return value end) or function(v) return v end
+                end
+                return options
             end,
             OpenToCategory = function(id) state.opened = id end,
         }
@@ -648,6 +722,7 @@ local function fixture(options)
         end
         function object:GetScript(script) return self.scripts[script] end
         function object:SetHideCountdownNumbers(value) self.hideNumbers = value end
+        function object:SetCooldown(start, duration) self.cooldown = {start, duration} end
         -- An AuraContainer slot: the engine (here, the test) shows its frame.
         function object:AddAuraSlot(key, filter, slotOptions)
             local button = widget("Button", nil, self)
@@ -745,7 +820,8 @@ local function fixture(options)
                 if n == 1 then return env.DyresToolkit end
             end
         end
-        env.DyresToolkitDB = options.toolkitDB
+        -- Toolkit 2.2.1 snaps to the grid by default; these tests drop frames without it.
+        env.DyresToolkitDB = options.toolkitDB or {snapToGrid = false}
     end
     state.dbr = {}
     for _, path in ipairs(options.files or RUNTIME_FILES) do
@@ -770,8 +846,12 @@ local function fixture(options)
         return false
     end
     function state.icon(key) return env["DyresBuffRemindersIcon_" .. key] end
-    function state.bar(key)
-        return env[key == "group" and "DyresBuffRemindersGroupBuffs" or "DyresBuffRemindersMyBuffs"]
+    -- A buff's widget (the holder the toolkit places).
+    function state.widget(key) return env["DyresBuffRemindersBuff_" .. key] end
+    -- The aura slot a buff's widget has (the engine shows it while the buff is up).
+    function state.slotOf(key)
+        local holder = state.widget(key)
+        return holder and holder.slot
     end
     function state.page() return state.categories[PAGE] end
     function state.cast(id, cooldown)
@@ -880,7 +960,7 @@ test("commands are one word, and anything else shows the usage", function()
     for _, text in ipairs({"nope", "unlock now", "debug_reminders"}) do
         state.clear()
         state.slash(text)
-        equal(state.last(), "DBR: Use /dbr (settings: Reminders, Consumables, Size and Opacity, Chimes, Procs), "
+        equal(state.last(), "DBR: Use /dbr (settings: Reminders, Consumables, Chimes, Proc Chimes), "
             .. "/dbr unlock, /dbr lock, /dbr reset, /dbr debug, or /dbr probe on|off.")
     end
     state.slash("")
@@ -925,20 +1005,24 @@ test("damaged or old saved settings are repaired", function()
     equal(db.groups.arcaneIntellect, true)
     equal(db.groups.mageArmor, nil, "no group setting for a self buff")
     equal(db.icons, nil, "the loose icons' places are dropped: no bar can take them")
-    equal(db.bars.groupbuffs.scale, 100, "the toolkit's default")
-    equal(db.bars.mybuffs.position, nil)
+    equal(db.buffs.arcaneIntellect.scale, 100, "the toolkit's default")
+    equal(db.buffs.mageArmor.position, nil)
+    equal(db.bars, nil, "no 1.1.0 bar places to carry over")
     equal(db.last.mageArmor, "Frost Armor")
     equal(db.last.arcaneIntellect, nil, "only buffs with several spells remember")
-    equal(db.lead, 5, "5 seconds by default")
-    equal(state.dbr.SanitizeLead(99), 30)
+    equal(db.leadPercent, 10, "10% by default")
+    equal(db.lead, nil)
+    equal(state.dbr.SanitizeLead(99), 20)
     equal(state.dbr.SanitizeLead(-2), 0)
-    equal(state.dbr.SanitizeLead(2.5), 5)
-    local bad = fixture({db = {bars = {groupbuffs = {scale = 137, opacity = "x",
-        position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 10, y = 20}}, mybuffs = "bad"}}})
-    equal(bad.dbr.db.bars.groupbuffs.scale, 140, "stepped by 10")
-    equal(bad.dbr.db.bars.groupbuffs.opacity, 100)
-    equal(bad.dbr.db.bars.groupbuffs.position.x, 10)
-    equal(bad.dbr.db.bars.mybuffs.scale, 100)
+    equal(state.dbr.SanitizeLead(2.5), 10)
+    local bad = fixture({db = {buffs = {arcaneIntellect = {scale = 137, opacity = "x",
+        position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 10, y = 20}}, mageArmor = "bad",
+        gone = {scale = 100}}}})
+    equal(bad.dbr.db.buffs.arcaneIntellect.scale, 140, "stepped by 10")
+    equal(bad.dbr.db.buffs.arcaneIntellect.opacity, 100)
+    equal(bad.dbr.db.buffs.arcaneIntellect.position.x, 10)
+    equal(bad.dbr.db.buffs.mageArmor.scale, 100)
+    equal(bad.dbr.db.buffs.gone, nil, "unknown keys are dropped")
 end)
 
 -- The buff lists ---------------------------------------------------------------------
@@ -963,16 +1047,15 @@ test("Buffs.lua: unique keys, and every group version has a reagent", function()
             end
         end
     end
-    for _, class in ipairs({"MAGE", "WARLOCK", "DRUID", "PRIEST"}) do
+    for _, class in ipairs({"MAGE", "WARLOCK", "DRUID", "PRIEST", "HUNTER", "PALADIN", "WARRIOR"}) do
         equal(#state.dbr.BUFFS[class] > 0, true, class .. " has buffs")
     end
 end)
 test("a class without buffs loads, says so once, and shows nothing", function()
-    local state = fixture({class = "WARRIOR", known = {[INTELLECT] = true}})
+    local state = fixture({class = "ROGUE", known = {[INTELLECT] = true}})
     equal(state.dbr.available, true)
     contains(state.last(), "no buff reminders for your class yet")
-    equal(state.bar("group"), nil)
-    equal(state.bar("my"), nil)
+    equal(state.widget("arcaneIntellect"), nil)
     equal(state.icon("arcaneIntellect"), nil)
     equal(#state.toolkit.Widgets(ADDON), 1, "only the Consumables bar (any class may carry a gun)")
     equal(state.env.DyresBuffRemindersConsumables.shown, false, "hidden without an ammo weapon")
@@ -987,65 +1070,63 @@ end)
 
 -- Mage --------------------------------------------------------------------------------
 
-test("Mage: an icon shows while you lack a buff you know, with a pulsing border", function()
+test("Mage: an icon shows while you lack a buff you know, with a red border", function()
     local state = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true}})
     local intellect, armor = state.icon("arcaneIntellect"), state.icon("mageArmor")
-    equal(intellect.shown, true)
-    equal(intellect.glow.animation.playing, true, "the border pulses")
-    equal(intellect.glow.animation.looping, "BOUNCE")
+    equal(visible(intellect), true)
+    equal(intellect.glow.shown, true)
+    equal(intellect.glow.backdropBorder[1], 1)
+    equal(intellect.glow.backdropBorder[2], 0.2, "red: missing")
     equal(intellect.texture.texture, 2000 + INTELLECT)
-    equal(armor.shown, true)
+    equal(visible(armor), true)
     equal(state.icon("dampenMagic"), nil, "no Dampen or Amplify Magic reminder (author: situational)")
     state.buff("player", "Arcane Intellect")
     state.buff("player", "Ice Armor")
     state.update("UNIT_AURA", "player")
-    equal(intellect.shown, false)
-    equal(intellect.glow.animation.playing, false)
-    equal(armor.shown, false, "any armor counts")
+    equal(visible(intellect), false, "up: hidden out of combat")
+    equal(state.drivers[intellect], "show", "always shown, under its aura slot, armed to recast it")
+    equal(visible(armor), false, "any armor counts")
     state.units.player.buffs = {["Arcane Brilliance"] = true}
     state.update("UNIT_AURA", "player")
-    equal(intellect.shown, false, "Arcane Brilliance counts")
-    equal(armor.shown, true)
+    equal(visible(intellect), false, "Arcane Brilliance counts")
+    equal(visible(armor), true)
 end)
 test("Mage: unknown buffs never show, and learning one shows it", function()
     local state = fixture()
-    equal(state.icon("arcaneIntellect").shown, false)
+    equal(visible(state.icon("arcaneIntellect")), false)
     state.known[INTELLECT] = true
     state.update("SPELLS_CHANGED")
-    equal(state.icon("arcaneIntellect").shown, true)
+    equal(visible(state.icon("arcaneIntellect")), true)
 end)
-test("reminders hide in combat, never read auras then, and come back after", function()
+test("in combat a missing buff stays shown; DBR never reads auras then and changes nothing secure", function()
     local state = fixture({known = {[INTELLECT] = true}})
-    local intellect, holder = state.icon("arcaneIntellect"), state.bar("group")
-    equal(intellect.shown, true)
-    equal(holder.shown, true)
-    equal(state.drivers[holder], "[combat] hide; show", "the game hides the bar for combat")
-    equal(state.drivers[state.bar("my")], "hide", "nothing it can show: hidden")
+    local intellect = state.icon("arcaneIntellect")
+    equal(visible(intellect), true)
+    equal(state.drivers[intellect], "show", "missing: shown, in and out of combat")
     state.combat = true
     state.applyDrivers()
-    equal(holder.shown, false)
+    equal(visible(intellect), true, "still shown in combat")
+    equal(intellect.attributes.spell1, "Arcane Intellect", "its click still casts")
     state.buff("player", "Arcane Intellect")
     local reads = state.auraReads
     state.update("UNIT_AURA", "player")
     state.slash("unlock")
     contains(state.last(), "after combat")
     equal(state.auraReads, reads, "no aura read in combat")
-    equal(intellect.shown, true, "no secure change in combat")
+    equal(visible(intellect), true, "no secure change in combat")
     state.combat = false
     state.applyDrivers()
     state.emit("PLAYER_REGEN_ENABLED")
-    equal(holder.shown, true)
-    equal(intellect.shown, true, "unlocked after combat: a sample to drag")
+    equal(visible(intellect), true, "unlocked after combat: a sample to drag")
     equal(intellect.attributes.type1, nil, "dragging never casts")
 end)
 test("a reload in combat waits for the end of combat to set up the icons", function()
     local state = fixture({known = {[INTELLECT] = true}, combat = true})
-    equal(state.bar("group"), nil, "no secure frames set up in combat")
+    equal(state.widget("arcaneIntellect"), nil, "no secure frames set up in combat")
     state.combat = false
     state.emit("PLAYER_REGEN_ENABLED")
-    equal(state.drivers[state.bar("group")], "[combat] hide; show")
-    equal(state.bar("group").dyre ~= nil, true, "a widget")
-    equal(state.icon("arcaneIntellect").shown, true)
+    equal(state.widget("arcaneIntellect").dyre ~= nil, true, "a widget")
+    equal(visible(state.icon("arcaneIntellect")), true)
 end)
 test("Arcane Intellect counts group members who use mana", function()
     local state = fixture({known = {[INTELLECT] = true}})
@@ -1053,16 +1134,16 @@ test("Arcane Intellect counts group members who use mana", function()
     state.party({{name = "Healy", class = "PRIEST"}, {name = "Stabby", class = "ROGUE"},
         {name = "Faraway", class = "DRUID", far = true}, {name = "Shocky", class = "SHAMAN"}})
     local intellect = state.icon("arcaneIntellect")
-    equal(intellect.shown, true)
+    equal(visible(intellect), true)
     equal(intellect.count.text, 2, "Healy and Shocky; not the rogue or someone out of sight")
     equal(table.concat(intellect.missing, ","), "Healy,Shocky")
     state.units.party1.buffs = {["Arcane Brilliance"] = true}
     state.units.party4.buffs = {["Arcane Intellect"] = true}
     state.update("UNIT_AURA", "party1")
-    equal(intellect.shown, false)
+    equal(visible(intellect), false)
     state.units.party1.buffs = nil
     state.settings.DBR_GROUP_ARCANEINTELLECT:SetValue(false)
-    equal(intellect.shown, false, "only you when the group option is off")
+    equal(visible(intellect), false, "only you when the group option is off")
 end)
 test("dead, offline, and secret members are handled without reading secrets", function()
     local state = fixture({known = {[INTELLECT] = true}})
@@ -1075,7 +1156,7 @@ test("dead, offline, and secret members are handled without reading secrets", fu
     state.units.party3.secretAuras = true
     state.units.party4.secretAuras = true
     state.update("UNIT_AURA", "party3")
-    equal(intellect.shown, false, "a secret aura answer counts as buffed")
+    equal(visible(intellect), false, "a secret aura answer counts as buffed")
 end)
 test("clicking Arcane Intellect buffs you first, then each group member who lacks it", function()
     local state = fixture({known = {[INTELLECT] = true}})
@@ -1094,8 +1175,8 @@ test("clicking Arcane Intellect buffs you first, then each group member who lack
     equal(intellect.attributes.unit1, "party2", "out of range but the only one left")
     state.buff("party2", "Arcane Intellect")
     state.update("UNIT_AURA", "party2")
-    equal(intellect.shown, false)
-    equal(intellect.attributes.type1, nil, "nothing to cast")
+    equal(visible(intellect), false)
+    equal(intellect.attributes.unit1, "player", "all have it: armed for combat, on you")
 end)
 test("a secret range answer counts as in range; no range API means in range", function()
     local state = fixture({known = {[INTELLECT] = true}})
@@ -1152,7 +1233,7 @@ test("aura changes in a burst refresh once, and other units' auras are ignored",
     equal(state.auraReads, reads, "nothing read until the refresh")
     equal(#state.timers, 1, "one refresh for the burst")
     state.wait(1)
-    equal(state.icon("arcaneIntellect").shown, false)
+    equal(visible(state.icon("arcaneIntellect")), false)
     state.emit("UNIT_AURA", "nameplate3")
     state.emit("UNIT_AURA", "target")
     state.emit("UNIT_AURA", state.secret())
@@ -1162,10 +1243,10 @@ test("dead, you see no reminders until you are alive", function()
     local state = fixture({known = {[INTELLECT] = true}})
     state.units.player.dead = true
     state.update("PLAYER_DEAD")
-    equal(state.icon("arcaneIntellect").shown, false)
+    equal(visible(state.icon("arcaneIntellect")), false)
     state.units.player.dead = nil
     state.update("PLAYER_UNGHOST")
-    equal(state.icon("arcaneIntellect").shown, true)
+    equal(visible(state.icon("arcaneIntellect")), true)
 end)
 
 -- Warlock -----------------------------------------------------------------------------
@@ -1173,7 +1254,7 @@ end)
 test("Warlock: Demon Skin counts as Demon Armor, and a click casts your best", function()
     local state = fixture({class = "WARLOCK", known = {[DEMON_SKIN] = true}})
     local armor = state.icon("demonArmor")
-    equal(armor.shown, true)
+    equal(visible(armor), true)
     equal(armor.attributes.spell1, "Demon Skin")
     equal(state.icon("arcaneIntellect"), nil, "only your class's buffs")
     state.known[DEMON_ARMOR] = true
@@ -1182,7 +1263,7 @@ test("Warlock: Demon Skin counts as Demon Armor, and a click casts your best", f
     equal(armor.texture.texture, 2000 + DEMON_ARMOR)
     state.buff("player", "Demon Skin")
     state.update("UNIT_AURA", "player")
-    equal(armor.shown, false, "Demon Skin counts")
+    equal(visible(armor), false, "Demon Skin counts")
 end)
 
 -- Druid -------------------------------------------------------------------------------
@@ -1190,8 +1271,8 @@ end)
 test("Druid: Mark of the Wild for you and the whole group, warriors too", function()
     local state = fixture({class = "DRUID", known = {[MARK] = true, [THORNS] = true}})
     local mark, thorns = state.icon("markOfTheWild"), state.icon("thorns")
-    equal(mark.shown, true)
-    equal(thorns.shown, true)
+    equal(visible(mark), true)
+    equal(visible(thorns), true)
     equal(mark.attributes.spell1, "Mark of the Wild")
     equal(thorns.attributes.spell1, "Thorns")
     state.buff("player", "Mark of the Wild")
@@ -1200,7 +1281,7 @@ test("Druid: Mark of the Wild for you and the whole group, warriors too", functi
     equal(mark.attributes.unit1, "party1")
     state.buff("player", "Thorns")
     state.update("UNIT_AURA", "player")
-    equal(thorns.shown, false)
+    equal(visible(thorns), false)
     equal(thorns.count.text, "", "no group count on a self buff")
 end)
 local function tooltip(state, icon)
@@ -1210,7 +1291,7 @@ end
 test("Druid: Thorns watches you solo and in a group with no tank; a click casts it on you", function()
     local state = fixture({class = "DRUID", known = {[THORNS] = true}})
     local thorns = state.icon("thorns")
-    equal(thorns.shown, true)
+    equal(visible(thorns), true)
     equal(thorns.attributes.unit1, "player")
     contains(tooltip(state, thorns), "Thorns: on you")
     state.party({{name = "Stabby", class = "ROGUE"}, {name = "Healy", class = "PRIEST", role = "HEALER"}})
@@ -1218,7 +1299,7 @@ test("Druid: Thorns watches you solo and in a group with no tank; a click casts 
     equal(table.concat(thorns.missing, ","), "you", "group members without Thorns do not count")
     state.buff("player", "Thorns")
     state.update("UNIT_AURA", "player")
-    equal(thorns.shown, false)
+    equal(visible(thorns), false)
     local bare = fixture({class = "DRUID", known = {[THORNS] = true}, noRoles = true})
     bare.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
     equal(bare.icon("thorns").attributes.unit1, "player", "without the role API: you")
@@ -1229,7 +1310,7 @@ test("Druid: in a group with a tank, Thorns watches the tank and a click casts i
     state.buff("player", "Thorns")
     state.party({{name = "Stabby", class = "ROGUE"}, {name = "Tanky", class = "WARRIOR", role = "TANK"},
         {name = "Backup", class = "PALADIN", role = "TANK"}})
-    equal(thorns.shown, true, "the tank lacks it, though you have it")
+    equal(visible(thorns), true, "the tank lacks it, though you have it")
     equal(thorns.attributes.unit1, "party2", "the first tank in group order")
     equal(table.concat(thorns.missing, ","), "Tanky")
     contains(tooltip(state, thorns), "Thorns: on Tanky")
@@ -1239,16 +1320,96 @@ test("Druid: in a group with a tank, Thorns watches the tank and a click casts i
     state.units.party3.far = true
     state.update("UNIT_AURA", "party3")
     equal(thorns.attributes.unit1, nil, "no tank in reach: you, who have it")
-    equal(thorns.shown, false)
+    equal(visible(thorns), false)
     contains(tooltip(state, thorns), "Thorns: on you")
     state.units.party2.dead, state.units.party3.far = false, false
     state.buff("party2", "Thorns")
     state.update("UNIT_AURA", "party2")
-    equal(thorns.shown, false, "the tank has it")
+    equal(visible(thorns), true, "the tank has it: ours shows it, the slot draws only yours")
+    equal(thorns.glow.alpha, 0, "and no red")
     local secret = fixture({class = "DRUID", known = {[THORNS] = true}})
     secret.party({{name = "Tanky", class = "WARRIOR", role = "TANK", secretRole = true}})
     equal(secret.icon("thorns").attributes.unit1, "player", "a secret role is not read as a tank")
 end)
+test("Druid: Thorns up on the tank shows the tank's time left, yellow, then red at its end, also in combat", function()
+    local state = fixture({class = "DRUID", known = {[THORNS] = true}})
+    local thorns = state.icon("thorns")
+    local warn = state.widget("thorns").warn
+    state.party({{name = "Tanky", class = "WARRIOR", role = "TANK", buffs = {Thorns = state.now + 601}}})
+    equal(visible(thorns), true, "you lack it, the tank has it: ours, above your empty slot")
+    equal(thorns.glow.alpha, 0, "no red while the tank has it")
+    equal(thorns.timeLeft.shown, true, "the tank's time left")
+    equal(thorns.timeLeft.cooldown[1] + thorns.timeLeft.cooldown[2], state.now + 600)
+    equal(thorns.attributes.macrotext1, "/cancelform\n/use [@party1] Thorns", "a click recasts it on the tank")
+    contains(tooltip(state, thorns), "Thorns: on Tanky")
+    state.combat = true
+    state.emit("PLAYER_REGEN_DISABLED")
+    state.advance(419)
+    equal(warn.alpha, 0)
+    state.advance(1)
+    equal(warn.alpha, 1, "3 minutes before the tank's runs out: yellow, timed in combat")
+    state.units.target = {is = "party1"}
+    state.cast(THORNS)
+    equal(warn.alpha, 0, "recast on the tank, targeted: its time restarts")
+    equal(thorns.timeLeft.cooldown[1], state.now, "and its countdown")
+    state.units.target = nil
+    state.advance(1620)
+    equal(warn.alpha, 1)
+    equal(thorns.glow.alpha, 0)
+    state.advance(180)
+    equal(warn.alpha, 0)
+    equal(thorns.glow.alpha, 1, "run out on the tank: red, in combat")
+    state.units.party1.buffs.Thorns = nil
+    state.combat = false
+    state.emit("PLAYER_REGEN_ENABLED")
+    equal(visible(thorns), true, "after the fight: checked again, the tank lacks it")
+    equal(thorns.glow.alpha, 1)
+    equal(thorns.glow.shown, true)
+end)
+
+test("Druid: whom a Thorns click casts on is set out of combat and kept through a fight", function()
+    local state = fixture({class = "DRUID", known = {[THORNS] = true}})
+    local thorns = state.icon("thorns")
+    local function onWhom()
+        local macro = thorns.attributes.macrotext1
+        return macro and macro:match("%[@(%w+)%]") or thorns.attributes.unit1
+    end
+    equal(onWhom(), "player", "solo: you")
+    state.party({{name = "Stabby", class = "ROGUE"}, {name = "Tanky", class = "WARRIOR", role = "TANK"}})
+    equal(onWhom(), "party2", "a Tank-role member: them")
+    state.units.player.role = "TANK"
+    state.update("PLAYER_ROLES_ASSIGNED")
+    equal(onWhom(), "player", "you are the tank: you")
+    state.units.player.role = nil
+    state.update("PLAYER_ROLES_ASSIGNED")
+    equal(onWhom(), "party2")
+    state.combat = true
+    state.units.party2 = nil
+    state.units.party1 = {name = "Tanky", class = "WARRIOR", role = "TANK"}
+    state.update("GROUP_ROSTER_UPDATE")
+    equal(onWhom(), "party2", "the roster changes in combat: the click keeps its unit")
+    state.units.party1.dead = true
+    state.update("UNIT_AURA", "party1")
+    equal(onWhom(), "party2", "nor does a death in combat change it")
+    state.combat = false
+    state.emit("PLAYER_REGEN_ENABLED")
+    equal(onWhom(), "player", "after combat: the tank is dead, so you")
+    state.units.party1.dead = false
+    state.update("UNIT_AURA", "party1")
+    equal(onWhom(), "party1", "and the tank in their new slot")
+end)
+
+test("settings: each buff's tooltip says what it shows; Thorns says whom it watches and casts on", function()
+    local state = fixture({class = "DRUID", known = {[THORNS] = true, [MARK] = true}})
+    local thorns = state.row("DBR_BUFF_THORNS").tooltip
+    equal(thorns, "Maintains Thorns on you, or on the group's Tank if there is one. Red when it's missing, "
+        .. "yellow before it runs out.")
+    local mark = state.row("DBR_BUFF_MARKOFTHEWILD").tooltip
+    contains(mark, "red border while it is missing, yellow and flashing before it runs out, also in combat")
+    equal(mark:find("Tank", 1, true), nil, "only a tank buff names the tank")
+    contains(state.row("DBR_GROUP_MARKOFTHEWILD").tooltip, "Your group is checked out of combat only")
+end)
+
 test("Druid: with the tank dead, offline, out of sight, or out of range, Thorns watches you", function()
     for _, case in ipairs({"dead", "offline", "far", "range"}) do
         local state = fixture({class = "DRUID", known = {[THORNS] = true}})
@@ -1266,7 +1427,7 @@ test("Druid: with the tank dead, offline, out of sight, or out of range, Thorns 
         contains(tooltip(state, thorns), "Thorns: on you")
         state.buff("player", "Thorns")
         state.update("UNIT_AURA", "player")
-        equal(thorns.shown, false, case .. ": you have it, so nothing shows")
+        equal(visible(thorns), false, case .. ": you have it, so nothing shows")
     end
     local secret = fixture({class = "DRUID", known = {[THORNS] = true}})
     secret.secretRange = true
@@ -1285,7 +1446,7 @@ test("Druid: walking out of or into the tank's range re-checks Thorns, from the 
     state.outOfRange = {party1 = true}
     state.update("UNIT_IN_RANGE_UPDATE", "party1", false)
     equal(thorns.attributes.unit1, nil, "out of range: watches you, who have it")
-    equal(thorns.shown, false)
+    equal(visible(thorns), false)
     state.outOfRange = {}
     state.update("UNIT_IN_RANGE_UPDATE", "party1", true)
     equal(thorns.attributes.unit1, "party1", "back in range: the tank again")
@@ -1344,7 +1505,7 @@ test("Druid: Gift of the Wild casts the best rank you carry the reagent for", fu
     state.buff("player", "Gift of the Wild")
     state.buff("party1", "Gift of the Wild")
     state.update("UNIT_AURA", "party1")
-    equal(mark.shown, false, "Gift of the Wild counts")
+    equal(visible(mark), false, "Gift of the Wild counts")
 end)
 
 test("Druid: in a form, a click leaves it first, then casts", function()
@@ -1375,12 +1536,12 @@ end)
 test("Priest: Fortitude and Inner Fire on by default; the others are options", function()
     local state = fixture({class = "PRIEST", known = {[FORTITUDE] = true, [INNER_FIRE] = true, [14752] = true,
         [976] = true}})
-    equal(state.icon("fortitude").shown, true)
-    equal(state.icon("innerFire").shown, true)
-    equal(state.icon("divineSpirit").shown, false, "off by default")
-    equal(state.icon("shadowProtection").shown, false, "off by default")
+    equal(visible(state.icon("fortitude")), true)
+    equal(visible(state.icon("innerFire")), true)
+    equal(visible(state.icon("divineSpirit")), false, "off by default")
+    equal(visible(state.icon("shadowProtection")), false, "off by default")
     state.settings.DBR_BUFF_DIVINESPIRIT:SetValue(true)
-    equal(state.icon("divineSpirit").shown, true)
+    equal(visible(state.icon("divineSpirit")), true)
     state.buff("player", "Divine Spirit")
     state.party({{name = "Tanky", class = "WARRIOR"}, {name = "Zappy", class = "MAGE"}})
     equal(table.concat(state.icon("divineSpirit").missing, ","), "Zappy", "Divine Spirit: only mana users")
@@ -1400,20 +1561,19 @@ test("Hunter: no aspect shows the Aspect reminder in My buffs; any aspect counts
     local state = fixture({class = "HUNTER", known = {[HAWK] = true, [MONKEY] = true, [CHEETAH] = true,
         [PACK] = true, [WILD] = true, [BEAST] = true}})
     local aspect = state.icon("aspect")
-    equal(aspect.parent, state.bar("my"))
-    equal(state.bar("group"), nil)
-    equal(aspect.shown, true)
+    equal(aspect.parent, state.widget("aspect"), "its own widget")
+    equal(visible(aspect), true)
     equal(aspect.attributes.type1, "macro")
     equal(aspect.attributes.macrotext1, "/use !Aspect of the Hawk", "nothing cast yet: Hawk, with \"!\" so it never toggles")
     for _, name in ipairs({"Aspect of the Hawk", "Aspect of the Monkey", "Aspect of the Wild", "Aspect of the Beast",
             "Aspect of the Cheetah", "Aspect of the Pack"}) do
         state.units.player.buffs = {[name] = true}
         state.update("UNIT_AURA", "player")
-        equal(aspect.shown, false, name .. " counts as up")
+        equal(visible(aspect), false, name .. " counts as up")
     end
     state.units.player.buffs = {}
     state.update("UNIT_AURA", "player")
-    equal(aspect.shown, true)
+    equal(visible(aspect), true)
     equal(state.find("no buff reminders") == nil, true, "Hunters have a reminder now")
 end)
 test("Hunter: a click recasts the last combat aspect, never Cheetah or Pack", function()
@@ -1476,11 +1636,11 @@ test("Hunter: without a combat aspect cast, Hawk, then Monkey; off or unknown ta
     local cheetah = fixture({class = "HUNTER", known = {[CHEETAH] = true}})
     equal(cheetah.icon("aspect").attributes.macrotext1, nil, "only Cheetah known: nothing to cast")
     local none = fixture({class = "HUNTER"})
-    equal(none.drivers[none.bar("my")], "hide", "no aspect known: no slot")
+    equal(none.widget("aspect").shown, false, "no aspect known: no widget")
     local off = fixture({class = "HUNTER", known = {[HAWK] = true}})
     off.settings.DBR_BUFF_ASPECT:SetValue(false)
-    equal(off.drivers[off.bar("my")], "hide", "switched off: no slot")
-    equal(off.icon("aspect").shown, false)
+    equal(off.widget("aspect").shown, false, "switched off: no widget")
+    equal(visible(off.icon("aspect")), false)
     off.clear()
     off.slash("debug")
     contains(off.find("debug aspect"), "unknownIDs=none last=nil")
@@ -1612,50 +1772,42 @@ test("combat aspect: settings, unlock, its widget, and who gets it", function()
     equal(db.combatAspect.scale, nil)
     equal(db.combatAspect.opacity, nil)
 end)
-test("combat aspect: one widget to the player: it sits on My buffs' Aspect slot and follows the bar", function()
+test("combat aspect: one widget to the player: it sits on the Aspect widget and follows it", function()
     local state, button = hunterFixture()
-    local my = state.bar("my")
-    equal(button.parent, state.env.UIParent, "not the bar's child: the bar hides in combat")
+    local holder = state.widget("aspect")
+    equal(button.parent, state.env.UIParent, "its own driver decides when it shows")
     for _, widget in ipairs(state.toolkit.Widgets(ADDON)) do
         equal(widget ~= button, true, "not a widget of its own")
     end
-    local function slotOf(icon)
-        local point = icon.points[#icon.points]
-        return point[1], point[2], point[4]
-    end
-    local anchor, relative, x = slotOf(button)
-    equal(anchor, "LEFT")
-    equal(relative, my, "anchored to My buffs")
-    equal(x, 0, "the Aspect slot, the bar's first")
+    local point = button.points[#button.points]
+    equal(point[1], "CENTER")
+    equal(point[2], holder, "anchored to the Aspect widget")
+    equal(button:GetFrameLevel() > holder.slot:GetFrameLevel(), true, "above the aura slot")
     state.slash("unlock")
     local aspect = state.icon("aspect")
-    equal(select(3, slotOf(aspect)), x, "on the Aspect icon's own slot")
-    state.icon("aspect").scripts.OnDragStart(state.icon("aspect"))
-    my:ClearAllPoints()
-    my:SetPoint("CENTER", nil, "BOTTOMLEFT", 300, 200)
-    state.icon("aspect").scripts.OnDragStop(state.icon("aspect"))
+    aspect.scripts.OnDragStart(aspect)
+    holder:ClearAllPoints()
+    holder:SetPoint("CENTER", nil, "BOTTOMLEFT", 300, 200)
+    aspect.scripts.OnDragStop(aspect)
     state.slash("lock")
     local bx, by = state.absCenter(button)
-    local ax, ay = state.absCenter(aspect)
-    equal(math.floor(bx + 0.5), math.floor(ax + 0.5), "dragging My buffs moves it too")
+    local ax, ay = state.absCenter(holder)
+    equal(math.floor(bx + 0.5), math.floor(ax + 0.5), "moving the Aspect widget moves it too")
     equal(math.floor(by + 0.5), math.floor(ay + 0.5))
-    state.settings.DYRE_DYRESBUFFREMINDERS_MYBUFFS_SCALE:SetValue(150)
-    equal(button.scale, my.scale, "the bar's size")
+    state.settings.DBR_BUFF_ICONS_SCALE:SetValue(150)
+    equal(button.scale, holder.scale, "the widget's size")
     equal(button.scale, 1.5)
-    state.settings.DYRE_DYRESBUFFREMINDERS_MYBUFFS_OPACITY:SetValue(60)
-    equal(button.alpha, 0.6, "the bar's opacity")
+    state.settings.DBR_BUFF_ICONS_OPACITY:SetValue(60)
+    equal(button.alpha, 0.6, "the widget's opacity")
     state.buff("player", "Aspect of the Cheetah")
     state.update("UNIT_AURA", "player")
     state.combat = true
     state.applyDrivers()
-    equal(my.shown, false, "the bar hides in combat")
-    equal(button.shown, true, "the combat aspect still shows")
+    equal(button.shown, true, "the combat aspect shows in combat")
     state.combat = false
     state.applyDrivers()
     state.emit("PLAYER_REGEN_ENABLED")
     state.settings.DBR_BUFF_ASPECT:SetValue(false)
-    equal(select(2, slotOf(button)), my, "Aspect off: still on My buffs")
-    equal(select(3, slotOf(button)), 0, "at its start edge")
     equal(state.drivers[button], "[combat] show; hide", "Aspect off, Cheetah up: still armed")
     equal(state.row("DBR_COMBAT_ASPECT").predicate(), true, "its switch stays usable with Aspect off")
 end)
@@ -1825,7 +1977,7 @@ test("ammo: settings, its widget, and saved settings repaired", function()
     equal(warn.options.minValue, 0)
     equal(warn.options.maxValue, 1000)
     equal(warn.options.step, 50)
-    equal(state.row("DYRE_DYRESBUFFREMINDERS_CONSUMABLES_SCALE").setting.name, "Consumables: size (%)")
+    equal(state.row("DYRE_DYRESBUFFREMINDERS_CONSUMABLES_SCALE").setting.name, "Consumables: size")
     equal(frame.dyre.widgetKey, "consumables")
     equal(select(1, state.absCenter(frame)), 500 + 150, "beside My buffs")
     equal(select(2, state.absCenter(frame)), 400 + 130)
@@ -1835,36 +1987,466 @@ test("ammo: settings, its widget, and saved settings repaired", function()
     equal(db.ammoWarn, 250, "stepped by 50")
     equal(state.dbr.SanitizeAmmoWarn(5000), 1000)
 end)
+local REBIRTH_1, REBIRTH_3, MAPLE, ASHWOOD = 20484, 20742, 17034, 17036
+test("consumables by class: ammo only for Hunters, Warriors, and Rogues; none at all for a Mage", function()
+    local mage = fixture()
+    equal(mage.env.DyresBuffRemindersConsumables, nil, "a Mage: no Consumables bar")
+    equal(mage.row("DBR_CONSUMABLES_ENABLED"), nil, "and no section")
+    equal(mage.row("DYRE_DYRESBUFFREMINDERS_CONSUMABLES_SCALE"), nil, "nor its size")
+    mage.slash("unlock")
+    equal(mage.env.DyresBuffRemindersAmmo, nil, "no sample to place")
+    local druid = fixture({class = "DRUID"})
+    equal(druid.env.DyresBuffRemindersAmmo, nil, "a Druid: no ammo icon")
+    equal(druid.row("DBR_CONSUMABLE_AMMO"), nil, "and no Ammo or Warn at")
+    druid.slash("unlock")
+    equal(druid.env.DyresBuffRemindersConsumables.shown, false, "unlocked, no Rebirth: nothing to show")
+    for _, class in ipairs({"HUNTER", "WARRIOR", "ROGUE"}) do
+        local state = fixture({class = class})
+        equal(state.row("DBR_CONSUMABLE_AMMO") ~= nil, true, class .. ": Ammo")
+        equal(state.env.DyresBuffRemindersConsumables.shown, false, class .. ": hidden without a weapon")
+        state.slash("unlock")
+        equal(state.env.DyresBuffRemindersConsumables.shown, true, class .. ": the sample, to place it")
+    end
+end)
+
+test("Druid: the Rebirth counter counts the seed of your highest rank, red at Warn at, greyed at 0", function()
+    local state = fixture({class = "DRUID", known = {[REBIRTH_1] = true, [REBIRTH_3] = true}})
+    local frame, icon = state.env.DyresBuffRemindersConsumables, state.env.DyresBuffRemindersReagent_rebirth
+    state.carried[MAPLE], state.carried[ASHWOOD] = 9, 5
+    state.emit("BAG_UPDATE_DELAYED")
+    equal(frame.shown, true)
+    equal(icon.texture.texture, 5036, "Rank 3: Ashwood Seed")
+    equal(icon.count.text, "5")
+    equal(isRed(icon), false)
+    equal(icon.glow.animation.playing, false)
+    contains(tooltip(state, icon), "Ashwood Seed")
+    contains(tooltip(state, icon), "5 left; warns at 2.")
+    contains(tooltip(state, icon), "For Rebirth (Rank 3).")
+    equal(icon.mouseClicks, false, "click-through, hover only")
+    state.carried[ASHWOOD] = 2
+    state.emit("BAG_UPDATE_DELAYED")
+    equal(isRed(icon), true, "at Warn at (2): red")
+    equal(icon.glow.animation.playing, true, "and pulsing")
+    state.carried[ASHWOOD] = 0
+    state.emit("BAG_UPDATE_DELAYED")
+    equal(icon.texture.desaturated, true, "none left: missing")
+    local row = state.row("DBR_REAGENT_WARN_REBIRTH")
+    equal(row.options.minValue, 0)
+    equal(row.options.maxValue, 10)
+    equal(row.options.step, 1)
+    equal(row.setting.default, 2)
+    equal(row.parentInitializer, state.row("DBR_REAGENT_REBIRTH"))
+    equal(state.row("DBR_REAGENT_REBIRTH").setting.name, "Rebirth reagent")
+    state.settings.DBR_REAGENT_WARN_REBIRTH:SetValue(0)
+    state.carried[ASHWOOD] = 1
+    state.emit("BAG_UPDATE_DELAYED")
+    equal(isRed(icon), false, "Warn at 0: only none left is red")
+    state.settings.DBR_REAGENT_REBIRTH:SetValue(false)
+    equal(frame.shown, false, "switched off")
+    state.settings.DBR_REAGENT_REBIRTH:SetValue(true)
+    state.combat = true
+    state.carried[ASHWOOD] = 0
+    state.emit("BAG_UPDATE_DELAYED")
+    equal(icon.texture.desaturated, true, "also in combat")
+    local db = fixture({class = "DRUID", db = {consumables = {reagents = {rebirth = {on = "x", warn = 99}}}}})
+    equal(db.dbr.db.consumables.reagents.rebirth.warn, 10, "repaired: clamped")
+    equal(db.dbr.db.consumables.reagents.rebirth.on, true)
+    equal(db.dbr.db.consumables.reagents.giftOfTheWild.warn, 5)
+end)
+
+test("sizes sit in their sections: the reminder icons', then the seal timer's, at the end of Reminders", function()
+    local state = fixture({class = "PALADIN", known = {[25780] = true, [21084] = true}})
+    local _, leadAt = state.row("DBR_LEAD")
+    local icons, iconsAt = state.row("DBR_BUFF_ICONS_SCALE")
+    equal(icons.setting.name, "Reminder icons: size")
+    equal(state.row("DBR_BUFF_ICONS_OPACITY").setting.name, "Reminder icons: opacity")
+    equal(iconsAt > leadAt, true, "after the Reminders settings")
+    local seal, sealAt = state.row("DYRE_DYRESBUFFREMINDERS_SEAL_SCALE")
+    equal(seal.setting.name, "Seal timer: size")
+    equal(sealAt > iconsAt, true, "then the seal timer's")
+    local headings = {}
+    for _, row in ipairs(state.headings) do headings[#headings + 1] = row.heading end
+    equal(table.concat(headings, "|"), "Reminders|Chimes", "no Size and Opacity section")
+    local _, chimesAt = state.row("DBR_CHIMES_ENABLED")
+    equal(sealAt < chimesAt, true)
+end)
+
+test("the Consumables bar's Size, Opacity, and Reset size sit in the Consumables section", function()
+    local state = fixture({class = "DRUID", known = {[REBIRTH_1] = true}})
+    local _, warnAt = state.row("DBR_REAGENT_WARN_REBIRTH")
+    local size, sizeAt = state.row("DYRE_DYRESBUFFREMINDERS_CONSUMABLES_SCALE")
+    local _, opacityAt = state.row("DYRE_DYRESBUFFREMINDERS_CONSUMABLES_OPACITY")
+    equal(size.setting.name, "Consumables: size")
+    equal(sizeAt > warnAt, true, "under the reagent rows")
+    equal(opacityAt, sizeAt + 1)
+    local initializers = state.page().initializers
+    equal(initializers[opacityAt + 1].heading, nil)
+    equal(initializers[opacityAt + 1].label ~= nil, true, "then its Reset size")
+    local headingAt
+    for index, row in ipairs(initializers) do
+        if row.heading == "Chimes" then headingAt = index end
+    end
+    equal(headingAt, opacityAt + 2, "the section's last rows, then Chimes")
+    equal(size.setting.default, 100, "the buff icons' default too: both 40 pixels at 100%")
+end)
+
+test("Druid: nothing without Rebirth; learning it shows it; Gift of the Wild waits until it is known", function()
+    local state = fixture({class = "DRUID"})
+    local frame = state.env.DyresBuffRemindersConsumables
+    equal(frame.shown, false, "no Rebirth: nothing")
+    equal(state.row("DBR_REAGENT_REBIRTH"), nil, "no setting before you know it")
+    state.known[REBIRTH_1] = true
+    state.carried[MAPLE] = 3
+    state.emit("SPELLS_CHANGED")
+    equal(frame.shown, true, "learned: the Maple Seed count")
+    equal(state.env.DyresBuffRemindersReagent_rebirth.count.text, "3")
+    equal(state.env.DyresBuffRemindersReagent_giftOfTheWild.shown, false, "Gift of the Wild: not known yet")
+    equal(frame.dyre.contentWidth, 40, "one icon wide")
+    state.known[21849] = true
+    state.carried[17021] = 20
+    state.emit("SPELLS_CHANGED")
+    local gift = state.env.DyresBuffRemindersReagent_giftOfTheWild
+    equal(gift.shown, true, "known: its Wild Berries")
+    equal(gift.count.text, "20")
+    equal(frame.dyre.contentWidth, 90, "two icons side by side")
+    local point = gift.points[#gift.points]
+    equal(point[4], 50, "the second, right of the first")
+    local both = fixture({class = "DRUID", known = {[REBIRTH_1] = true, [21849] = true}})
+    equal(both.row("DBR_REAGENT_WARN_GIFTOFTHEWILD").options.maxValue, 40)
+    equal(both.row("DBR_REAGENT_WARN_GIFTOFTHEWILD").setting.default, 5)
+end)
+
+test("Druid: /dbr debug loads a seed the client has not cached, and says when an ID is wrong", function()
+    local state = fixture({class = "DRUID", known = {[REBIRTH_1] = true, [REBIRTH_3] = true}})
+    state.uncached[ASHWOOD], state.uncached[17037] = true, true
+    state.carried[ASHWOOD] = 3
+    state.emit("BAG_UPDATE_DELAYED")
+    local icon = state.env.DyresBuffRemindersReagent_rebirth
+    equal(icon.count.text, "3", "the counter needs no item name")
+    contains(tooltip(state, icon), "Ashwood Seed", "the tooltip falls back to the seed's name in the data")
+    state.slash("debug")
+    equal(state.find("debug reagent rebirth r3 spell=20742 spellName=Rebirth known=true item=17036 "
+        .. "itemName=(not cached, loading) count=3") ~= nil, true)
+    equal(table.concat(state.loadRequests, ","), "17036,17037", "the client is asked for both")
+    state.uncached[ASHWOOD] = nil
+    state.emit("ITEM_DATA_LOAD_RESULT", ASHWOOD, true)
+    equal(state.find("debug reagent item=17036 itemName=Ashwood Seed (loaded)") ~= nil, true)
+    state.emit("ITEM_DATA_LOAD_RESULT", 17037, false)
+    equal(state.find("debug reagent item=17037 not found: the ID is wrong on this client") ~= nil, true)
+    local lines = #state.messages
+    state.emit("ITEM_DATA_LOAD_RESULT", 17037, true)
+    state.emit("ITEM_DATA_LOAD_RESULT", 9999, true)
+    equal(#state.messages, lines, "only the items it asked for, once each")
+end)
+
+test("Druid: /dbr debug prints each Rebirth rank's spell and seed by name, to confirm the IDs", function()
+    local state = fixture({class = "DRUID", known = {[REBIRTH_1] = true}})
+    state.carried[MAPLE] = 4
+    state.emit("BAG_UPDATE_DELAYED")
+    state.slash("debug")
+    equal(state.find("debug reagent rebirth r1 spell=20484 spellName=Rebirth known=true item=17034 "
+        .. "itemName=Maple Seed count=4") ~= nil, true)
+    equal(state.find("debug reagent rebirth r5 spell=20748 spellName=Rebirth known=false item=17038 "
+        .. "itemName=Ironwood Seed count=0") ~= nil, true)
+    equal(state.find("debug reagent rebirth on=true rank=1 count=4 countAPI=ok warnAt=2 state=ok") ~= nil, true)
+    equal(state.find("debug reagent giftOfTheWild r1 spell=21849") ~= nil, true)
+    equal(state.find("debug reagent giftOfTheWild on=true rank=not known warnAt=5") ~= nil, true,
+        "an unknown spell: not known")
+    local mage = fixture()
+    mage.slash("debug")
+    equal(mage.find("debug consumables none for this class") ~= nil, true)
+end)
+
 test("on a flight path no buff reminders show; after landing they come back; unlocked, samples stay", function()
     local state = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true}})
     local intellect, armor = state.icon("arcaneIntellect"), state.icon("mageArmor")
-    equal(intellect.shown, true)
+    equal(visible(intellect), true)
     state.taxi = true
     state.update("PLAYER_CONTROL_LOST")
-    equal(intellect.shown, false, "on a taxi: nothing you can act on")
-    equal(armor.shown, false)
+    equal(visible(intellect), false, "on a taxi: nothing you can act on")
+    equal(visible(armor), false)
     equal(intellect.attributes.type1, nil, "no click either")
     state.slash("unlock")
-    equal(intellect.shown, true, "unlocked: samples to place, also on a taxi")
-    equal(armor.shown, true)
+    equal(visible(intellect), true, "unlocked: samples to place, also on a taxi")
+    equal(visible(armor), true)
     state.slash("lock")
-    equal(intellect.shown, false)
+    equal(visible(intellect), false)
     state.taxi = false
     state.update("PLAYER_CONTROL_GAINED")
-    equal(intellect.shown, true, "landed: the missing ones are back")
+    equal(visible(intellect), true, "landed: the missing ones are back")
     equal(intellect.attributes.type1, "spell")
     local hunter = fixture({class = "HUNTER", known = {[HAWK] = true, [CHEETAH] = true}})
     hunter.equipped[18], hunter.equipped[0], hunter.ammoCount = BOW, ARROW, 500
     hunter.emit("PLAYER_EQUIPMENT_CHANGED")
     hunter.taxi = true
     hunter.update("PLAYER_CONTROL_LOST")
-    equal(hunter.icon("aspect").shown, false, "no Aspect reminder in flight")
+    equal(visible(hunter.icon("aspect")), false, "no Aspect reminder in flight")
     equal(hunter.env.DyresBuffRemindersConsumables.shown, true, "the ammo count stays: it is information")
 end)
-test("Paladin: Righteous Fury, on you only", function()
+-- Warrior -----------------------------------------------------------------------------
+local BATTLE_SHOUT = 6673
+test("Warrior: Battle Shout reminds you in Group buffs, and a click casts it", function()
+    local state = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true}})
+    local shout = state.icon("battleShout")
+    equal(shout.parent, state.widget("battleShout"), "its own widget")
+    equal(visible(shout), true)
+    equal(shout.attributes.spell1, "Battle Shout")
+    equal(shout.attributes.unit1, "player")
+    equal(state.find("no buff reminders") == nil, true, "Warriors have a reminder now")
+    state.buff("player", "Battle Shout")
+    state.update("UNIT_AURA", "player")
+    equal(visible(shout), false)
+    local unknown = fixture({class = "WARRIOR"})
+    equal(unknown.widget("battleShout").shown, false, "not known: no widget")
+end)
+test("Warrior: Battle Shout has its own lead time, 60 seconds at first; other buffs keep the shared one", function()
+    local state = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true}})
+    local shout = state.icon("battleShout")
+    -- update() lets one second pass, so 61 seconds are left after it.
+    state.buff("player", "Battle Shout", state.now + 62)
+    state.update("UNIT_AURA", "player")
+    equal(visible(shout), false, "61 seconds left: not yet")
+    local reads = state.auraReads
+    state.wait(1)
+    equal(visible(shout), true, "60 seconds left: shown, from the expiry timer")
+    equal(state.auraReads > reads, true, "the timer refreshed it")
+    shout.scripts.OnEnter(shout)
+    equal(state.tooltip[2], "Running out: you")
+    local row = state.row("DBR_LEAD_BATTLESHOUT")
+    equal(row.setting.name, "Remind before it runs out (sec)")
+    equal(row.parentInitializer, state.row("DBR_BUFF_BATTLESHOUT"), "under the Battle Shout switch")
+    equal(row.options.minValue, 5)
+    equal(row.options.maxValue, 120)
+    equal(row.options.step, 5)
+    equal(row.setting.default, 60)
+    state.settings.DBR_LEAD_BATTLESHOUT:SetValue(30)
+    equal(visible(shout), false, "30 seconds: not yet at 60 left")
+    state.settings.DBR_LEAD_BATTLESHOUT:SetValue(33)
+    equal(state.dbr.db.leads.battleShout, 35, "stepped by 5")
+    equal(state.dbr.db.leadPercent, 10, "the shared setting is unchanged")
+    local mage = fixture({known = {[INTELLECT] = true}})
+    mage.buff("player", "Arcane Intellect", mage.now + 300)
+    mage.update("UNIT_AURA", "player")
+    equal(visible(mage.icon("arcaneIntellect")), false, "other buffs: the shared 10% (3 minutes of 30)")
+    equal(mage.row("DBR_LEAD_ARCANEINTELLECT"), nil, "no own setting")
+    equal(state.row("DBR_LEAD"), nil, "a Warrior: only Battle Shout's own slider, no shared one")
+    equal(mage.row("DBR_LEAD") ~= nil, true, "a Mage: the shared one")
+    local db = fixture({class = "WARRIOR", db = {leads = {battleShout = 999, gone = 3}}}).dbr.db
+    equal(db.leads.battleShout, 120, "repaired: clamped")
+    equal(db.leads.gone, nil, "only buffs with their own lead")
+    equal(fixture({class = "WARRIOR", db = {leads = "bad"}}).dbr.db.leads.battleShout, 60, "repaired: default")
+end)
+test("a buff running out shows its time left, unlike a missing one; after combat it is back with it", function()
+    local state = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true}})
+    local shout = state.icon("battleShout")
+    equal(visible(shout), true, "missing")
+    equal(shout.timeLeft.shown, false, "missing: no countdown")
+    state.buff("player", "Battle Shout", state.now + 31)
+    state.update("UNIT_AURA", "player")
+    equal(visible(shout), true, "30 seconds left, within the 60 s warning")
+    equal(shout.timeLeft.shown, true, "running out: a countdown, so it does not look gone")
+    equal(shout.timeLeft.hideNumbers, false, "with numbers")
+    equal(shout.timeLeft.cooldown[1] + shout.timeLeft.cooldown[2], state.now + 30, "to when it runs out")
+    equal(shout.timeLeft.cooldown[2], 1800, "over its full duration")
+    state.combat = true
+    state.applyDrivers()
+    equal(visible(shout), true, "combat: still shown, still recastable")
+    state.combat = false
+    state.applyDrivers()
+    state.emit("PLAYER_REGEN_ENABLED")
+    equal(visible(shout), true, "still running out after combat")
+    equal(shout.timeLeft.shown, true, "with its countdown")
+    state.buff("player", "Battle Shout", state.now + 120)
+    state.update("UNIT_AURA", "player")
+    equal(visible(shout), false, "recast: gone")
+    equal(shout.timeLeft.shown, false)
+    local mage = fixture({known = {[INTELLECT] = true}})
+    mage.buff("player", "Arcane Intellect", mage.now + 4)
+    mage.party({{name = "Healy", class = "PRIEST"}})
+    equal(mage.icon("arcaneIntellect").timeLeft.shown, false, "someone lacks it: no countdown, it is missing")
+end)
+test("Warrior: Battle Shout shows only when needed: missing or within its 60 s, in and out of combat", function()
+    local state = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true}})
+    local shout, slot = state.icon("battleShout"), state.slotOf("battleShout")
+    equal(slot.alpha, 0, "its slot is transparent out of combat: no countdown while up")
+    -- update() lets one second pass: 90 seconds are left after it.
+    state.buff("player", "Battle Shout", state.now + 91)
+    state.update("UNIT_AURA", "player")
+    equal(shout.shown, false, "out of combat, up and outside the window: hidden")
+    state.combat = true
+    state.applyDrivers()
+    state.emit("PLAYER_REGEN_DISABLED")
+    equal(shout.shown, true, "in combat under its slot...")
+    equal(shout.alpha, 0, "...but transparent: 90 s left, outside the 60 s window")
+    equal(slot.alpha, 0)
+    state.advance(29)
+    equal(shout.alpha, 0, "61 s left: still outside")
+    state.advance(1)
+    equal(shout.alpha, 1, "60 s left: the window opens, from DBR's own timer")
+    equal(slot.alpha, 1, "the game's icon with its time left, and ours under it")
+    state.advance(50)
+    state.cast(BATTLE_SHOUT)
+    equal(shout.alpha, 0, "recast in combat: its full length again (the last read's: 1800 here)")
+    state.advance(1739)
+    equal(shout.alpha, 0)
+    state.advance(1)
+    equal(shout.alpha, 1, "60 s before the recast's end")
+    state.combat = false
+    state.applyDrivers()
+    state.emit("PLAYER_REGEN_ENABLED")
+    equal(shout.alpha, 1, "after combat: solid; the out-of-combat rules decide")
+    equal(slot.alpha, 0, "and the slot transparent again")
+    local missing = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true}})
+    equal(visible(missing.icon("battleShout")), true, "missing: the reminder")
+    missing.combat = true
+    missing.applyDrivers()
+    missing.emit("PLAYER_REGEN_DISABLED")
+    equal(missing.icon("battleShout").alpha, 1, "missing at combat start: shown")
+    missing.cast(BATTLE_SHOUT)
+    equal(missing.icon("battleShout").alpha, 0, "cast in combat with no earlier read: Classic's 2 minutes")
+    missing.advance(60)
+    equal(missing.icon("battleShout").alpha, 1, "60 s left of 120")
+    local mage = fixture({known = {[INTELLECT] = true}})
+    mage.buff("player", "Arcane Intellect", mage.now + 3000)
+    mage.update("UNIT_AURA", "player")
+    equal(mage.slotOf("arcaneIntellect").alpha, nil, "long buffs: always shown, the slot never transparent")
+    equal(mage.icon("arcaneIntellect").shown, true)
+end)
+test("Warrior: Overpower and Revenge sound when they turn usable, also in combat, once per window", function()
+    local state = fixture({class = "WARRIOR", known = {[7384] = true, [6572] = true}})
+    state.usable = {Overpower = {false, false}, Revenge = {false, false}}
+    state.combat = true
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, 0, "not usable: silent")
+    state.usable.Overpower = {true, false}
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, 1, "Overpower turned usable, in combat")
+    equal(state.played[1].key, "talent")
+    equal(state.played[1].speech, "Overpower", "Text to Speech says its name")
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, 1, "still usable: no second sound")
+    state.usable.Overpower = {false, true}
+    state.emit("SPELL_UPDATE_USABLE")
+    state.usable.Overpower = {true, false}
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, 1, "rage flickering within the window: no repeat")
+    state.now = state.now + 4
+    state.usable.Overpower = {false, false}
+    state.emit("SPELL_UPDATE_USABLE")
+    state.usable.Overpower = {true, false}
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, 2, "a new window: a new sound")
+    state.usable.Revenge = {true, false}
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(state.played[3].key, "magical", "Revenge has its own sound")
+    state.usable.Revenge = "secret"
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, 3, "a secret answer is skipped")
+    state.combat = false
+    state.clear()
+    state.slash("debug")
+    contains(state.find("debug procs overpower"), "on=true sound=talent reactive=7384=Overpower usable=true")
+end)
+test("Warrior: the reactive sounds are in Procs, each with its switch and any sound", function()
+    local state = fixture({class = "WARRIOR", known = {[7384] = true, [6572] = true}})
+    local row = state.row("DBR_PROC_OVERPOWER")
+    equal(row.kind, "checkboxdropdown")
+    contains(row.data.cbTooltip, "Overpower becomes usable")
+    equal(row.menuFilter, nil, "any sound: DBR plays it, not the game")
+    equal(state.row("DBR_PROC_FLURRY").menuFilter, "aura", "Flurry still aura sounds only")
+    state.settings.DBR_PROC_OVERPOWER_SOUND:SetValue("magical")
+    equal(state.dbr.db.procs.sounds.overpower, "magical")
+    state.settings.DBR_PROC_OVERPOWER:SetValue(false)
+    state.usable = {Overpower = {true, false}}
+    local before = #state.played
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, before, "switched off: silent")
+    state.settings.DBR_PROC_OVERPOWER:SetValue(true)
+    state.settings.DBR_PROCS_ENABLED:SetValue(false)
+    state.usable = {Overpower = {false, false}}
+    state.emit("SPELL_UPDATE_USABLE")
+    state.usable = {Overpower = {true, false}}
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, before, "Procs off: silent")
+    equal(state.soundIDs(), "", "no aura sound registered for a reactive ability")
+end)
+local IMPROVED_FURY = 20468
+test("Paladin: Righteous Fury shows only for a tank: the Tank role, the talent, or Always show", function()
     local state = fixture({class = "PALADIN", known = {[25780] = true}})
+    local holder = state.widget("righteousFury")
+    equal(holder.shown, false, "no role, no talent, not switched on: not shown at all")
+    state.party({{name = "Healy", class = "PRIEST"}})
+    state.units.player.role = "TANK"
+    state.update("PLAYER_ROLES_ASSIGNED")
+    equal(holder.shown, true, "the Tank role: shown, as any long buff")
+    equal(visible(state.icon("righteousFury")), true, "missing: the reminder")
+    state.units.player.role = "DAMAGER"
+    state.update("ROLE_CHANGED_INFORM")
+    equal(holder.shown, false, "not the tank any more")
+    state.units.player.secretRole = true
+    state.units.player.role = "TANK"
+    state.update("PLAYER_ROLES_ASSIGNED")
+    equal(holder.shown, false, "a secret role counts as not a tank")
+    state.units.player.secretRole = nil
+    state.units.player.role = "DAMAGER"
+    state.known[IMPROVED_FURY] = true
+    state.update("PLAYER_TALENT_UPDATE")
+    equal(holder.shown, true, "Improved Righteous Fury: shown")
+    state.known[IMPROVED_FURY] = nil
+    state.update("TRAIT_CONFIG_UPDATED")
+    equal(holder.shown, false, "talent gone")
+    local row = state.row("DBR_ALWAYS_RIGHTEOUSFURY")
+    equal(row.setting.name, "Always show Righteous Fury")
+    equal(row.parentInitializer, state.row("DBR_BUFF_RIGHTEOUSFURY"), "under its switch")
+    state.settings.DBR_ALWAYS_RIGHTEOUSFURY:SetValue(true)
+    equal(holder.shown, true, "Always show: shown")
+    equal(state.dbr.db.alwaysShow.righteousFury, true, "saved per character")
+    state.settings.DBR_ALWAYS_RIGHTEOUSFURY:SetValue(false)
+    state.combat = true
+    state.units.player.role = "TANK"
+    state.update("PLAYER_ROLES_ASSIGNED")
+    equal(holder.shown, false, "a role change in combat waits")
+    state.combat = false
+    state.emit("PLAYER_REGEN_ENABLED")
+    equal(holder.shown, true, "after combat")
+    local db = fixture({class = "PALADIN", db = {alwaysShow = {righteousFury = "yes", gone = true}}}).dbr.db
+    equal(db.alwaysShow.righteousFury, false, "repaired")
+    equal(db.alwaysShow.gone, nil)
+    local bare = fixture({class = "PALADIN", known = {[25780] = true}, remove = {"UnitGroupRolesAssigned"}})
+    equal(bare.widget("righteousFury").shown, false, "no role API: not a tank")
+end)
+
+test("Paladin: Improved Righteous Fury is found on the talent tree by its name, whatever its ID", function()
+    local state = fixture({class = "PALADIN", known = {[25780] = true},
+        talents = {{spellID = 99002, rank = 1}, {spellID = 99001, rank = 0}}})
+    local holder = state.widget("righteousFury")
+    equal(holder.shown, false, "no point in it: not a tank")
+    equal(state.known[99001], nil, "and the spellbook never knows it (John's prot Paladin)")
+    state.talents[2].rank = 2
+    state.update("UNIT_AURA", "player")
+    equal(holder.shown, false, "the names are kept until a talent event")
+    local reads = state.talentReads
+    state.update("TRAIT_CONFIG_UPDATED")
+    equal(holder.shown, true, "a point in Improved Righteous Fury: shown, in and out of a group")
+    equal(state.talentReads, reads + 1, "read again once")
+    state.update("UNIT_AURA", "player")
+    equal(state.talentReads, reads + 1, "no rescan on other events")
+    state.talents[2].rank = 0
+    state.combat = true
+    state.emit("PLAYER_TALENT_UPDATE")
+    state.combat = false
+    state.emit("PLAYER_REGEN_ENABLED")
+    equal(holder.shown, false, "a talent change in combat counts after it")
+    local only = fixture({class = "PALADIN", known = {[25780] = true}, talents = {{spellID = 25780, rank = 1}}})
+    equal(only.widget("righteousFury").shown, false, "the buff itself on the tree is not its talent")
+    local noTraits = fixture({class = "PALADIN", known = {[25780] = true}, remove = {"C_Traits"},
+        talents = {{spellID = 99001, rank = 1}}})
+    equal(noTraits.widget("righteousFury").shown, false, "no talent API: the IDs and the role only")
+end)
+test("Paladin: Righteous Fury, on you only", function()
+    local state = fixture({class = "PALADIN", known = {[25780] = true, [IMPROVED_FURY] = true}})
     local fury = state.icon("righteousFury")
-    equal(fury.shown, true)
+    equal(visible(fury), true)
     equal(fury.attributes.spell1, "Righteous Fury")
     equal(fury.attributes.unit1, "player")
     state.party({{name = "Tanky", class = "WARRIOR"}})
@@ -1872,7 +2454,7 @@ test("Paladin: Righteous Fury, on you only", function()
     equal(state.settings.DBR_GROUP_RIGHTEOUSFURY, nil, "no group switch")
     state.buff("player", "Righteous Fury")
     state.update("UNIT_AURA", "player")
-    equal(fury.shown, false)
+    equal(visible(fury), false)
 end)
 
 -- Paladin seal timer ----------------------------------------------------------------------
@@ -1994,10 +2576,15 @@ end)
 test("Paladin: a seal found only in the spellbook joins the timer, also when learned later", function()
     local ZEAL = 990001
     local state = sealFixture()
-    local containers = {}
-    for _, frame in ipairs(state.frames) do
-        if frame.kind == "AuraContainer" then containers[#containers + 1] = frame end
+    local display = state.env.DyresBuffRemindersSeal
+    local function sealContainers()
+        local found = {}
+        for _, frame in ipairs(state.frames) do
+            if frame.kind == "AuraContainer" and frame.parent == display then found[#found + 1] = frame end
+        end
+        return found
     end
+    local containers = sealContainers()
     equal(#containers, 1)
     equal(containers[1].slots[1].ids[ZEAL], nil)
     state.known[ZEAL] = true
@@ -2005,21 +2592,14 @@ test("Paladin: a seal found only in the spellbook joins the timer, also when lea
     state.spellbook[#state.spellbook + 1] = {spellID = 585, name = "Smite"}
     state.spellbook[#state.spellbook + 1] = {spellID = 990002, name = "Seal of Later", itemType = 2}
     state.emit("SPELLS_CHANGED")
-    containers = {}
-    for _, frame in ipairs(state.frames) do
-        if frame.kind == "AuraContainer" then containers[#containers + 1] = frame end
-    end
+    containers = sealContainers()
     equal(#containers, 2, "a new container for the new seal")
     equal(containers[1].shown, false, "the old one hidden")
     equal(containers[2].slots[1].ids[ZEAL], true)
     equal(containers[2].slots[1].ids[990002], nil, "not learned yet")
     equal(containers[2].slots[1].ids[RIGHTEOUSNESS], true, "the listed seals stay")
     state.emit("SPELLS_CHANGED")
-    local count = 0
-    for _, frame in ipairs(state.frames) do
-        if frame.kind == "AuraContainer" then count = count + 1 end
-    end
-    equal(count, 2, "no new container without a new seal")
+    equal(#sealContainers(), 2, "no new container without a new seal")
     state.cast(ZEAL)
     equal(state.dbr.db.last.seal, "Seal of Zeal")
     equal(state.env.DyresBuffRemindersSealButton.attributes.spell1, "Seal of Zeal")
@@ -2032,10 +2612,11 @@ test("the seal timer waits for the end of combat after a reload, and needs the a
     state.combat = false
     state.emit("PLAYER_REGEN_ENABLED")
     equal(state.drivers[state.env.DyresBuffRemindersSealButton], "[combat] show; hide")
-    local bare = sealFixture({noAuraContainer = true, known = {[RIGHTEOUSNESS] = true, [25780] = true}})
+    local bare = sealFixture({noAuraContainer = true, known = {[RIGHTEOUSNESS] = true, [25780] = true,
+        [20468] = true}})
     equal(bare.said("The seal timer stays off"), true)
     equal(bare.env.DyresBuffRemindersSeal, nil)
-    equal(bare.icon("righteousFury").shown, true, "Righteous Fury still reminds")
+    equal(visible(bare.icon("righteousFury")), true, "Righteous Fury still reminds")
     equal(bare.settings.DBR_SEAL, nil, "no switch without the timer")
 end)
 test("damaged seal settings are repaired", function()
@@ -2050,28 +2631,28 @@ end)
 test("an icon shows the lead time before your buff runs out, from one timer", function()
     local state = fixture({known = {[INTELLECT] = true}})
     local intellect = state.icon("arcaneIntellect")
-    state.buff("player", "Arcane Intellect", state.now + 60)
+    state.buff("player", "Arcane Intellect", state.now + 240)
     state.update("UNIT_AURA", "player")
-    equal(intellect.shown, false, "55 seconds before the lead time")
+    equal(visible(intellect), false, "59 seconds before the lead time")
     local reads = state.auraReads
     state.wait(50)
-    equal(intellect.shown, false)
+    equal(visible(intellect), false)
     equal(state.auraReads, reads, "no polling: nothing read before the timer")
-    state.wait(5)
-    equal(intellect.shown, true, "5 seconds left")
+    state.wait(9)
+    equal(visible(intellect), true, "3 minutes left: 10% of its 30")
     equal(intellect.attributes.spell1, "Arcane Intellect", "a click recasts it")
     equal(intellect.attributes.unit1, "player")
     intellect.scripts.OnEnter(intellect)
     equal(state.tooltip[2], "Running out: you")
     state.buff("player", "Arcane Intellect", state.now + 1800)
     state.update("UNIT_AURA", "player")
-    equal(intellect.shown, false, "recast")
+    equal(visible(intellect), false, "recast")
 end)
 test("group members' buffs running out show too, and the earliest sets the timer", function()
     local state = fixture({known = {[INTELLECT] = true}})
     local intellect = state.icon("arcaneIntellect")
     state.buff("player", "Arcane Intellect", state.now + 600)
-    state.party({{name = "Healy", class = "PRIEST", buffs = {["Arcane Intellect"] = state.now + 30}},
+    state.party({{name = "Healy", class = "PRIEST", buffs = {["Arcane Intellect"] = state.now + 200}},
         {name = "Zappy", class = "MAGE"}})
     equal(table.concat(intellect.missing, ","), "Zappy")
     equal(#intellect.soon, 0)
@@ -2088,29 +2669,165 @@ test("a buff with no readable end counts as on; the lead time is a setting", fun
     local intellect = state.icon("arcaneIntellect")
     state.buff("player", "Arcane Intellect", "secret")
     state.update("UNIT_AURA", "player")
-    equal(intellect.shown, false, "a secret end time counts as on")
+    equal(visible(intellect), false, "a secret end time counts as on")
     equal(#state.timers, 0, "and sets no timer")
     state.settings.DBR_LEAD:SetValue(0)
-    equal(state.dbr.db.lead, 0)
+    equal(state.dbr.db.leadPercent, 0)
     state.buff("player", "Arcane Intellect", state.now + 3)
     state.update("UNIT_AURA", "player")
-    equal(intellect.shown, false, "0: only once it is gone")
+    equal(visible(intellect), false, "0: only once it is gone")
     state.settings.DBR_LEAD:SetValue(10)
-    equal(intellect.shown, true)
+    equal(visible(intellect), true)
     state.settings.DBR_LEAD:SetValue(99)
-    equal(state.dbr.db.lead, 30)
+    equal(state.dbr.db.leadPercent, 20)
 end)
 test("a buff running out in combat shows after combat", function()
     local state = fixture({known = {[INTELLECT] = true}})
     local intellect = state.icon("arcaneIntellect")
-    state.buff("player", "Arcane Intellect", state.now + 20)
+    state.buff("player", "Arcane Intellect", state.now + 200)
     state.update("UNIT_AURA", "player")
     state.combat = true
-    state.wait(16)
-    equal(intellect.shown, false, "nothing changes in combat")
+    state.wait(30)
+    equal(visible(intellect), false, "our icon stays under the slot in combat")
     state.combat = false
     state.emit("PLAYER_REGEN_ENABLED")
-    equal(intellect.shown, true)
+    equal(visible(intellect), true)
+end)
+
+test("the lead is a share of the buff's own length: 60 minutes at 10% is 6 minutes; 0% and 20%", function()
+    local state = fixture({known = {[INTELLECT] = true}})
+    local intellect = state.icon("arcaneIntellect")
+    local row = state.row("DBR_LEAD")
+    equal(row.setting.name, "Remind before a buff runs out")
+    equal(row.options.minValue, 0)
+    equal(row.options.maxValue, 20)
+    equal(row.setting.default, 10)
+    local labels = state.env.MinimalSliderWithSteppersMixin.Label
+    equal(row.options.formatters[labels.Right](10), "10%", "the value with its percent sign")
+    equal(row.options.formatters[labels.Min], nil, "no end labels: they crowded the next row")
+    equal(row.options.formatters[labels.Max], nil)
+    local icons = state.row("DBR_BUFF_ICONS_SCALE").options.formatters
+    equal(icons[labels.Right](100), "100%", "the reminder icons' size with its percent sign")
+    equal(state.row("DBR_BUFF_ICONS_OPACITY").options.formatters[labels.Right](60), "60%", "and opacity")
+    local lead = state.row("DBR_LEAD_BATTLESHOUT")
+    equal(lead, nil, "a Mage has no Battle Shout")
+    local warrior = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true}})
+    local seconds = warrior.row("DBR_LEAD_BATTLESHOUT").options.formatters
+    equal(seconds[labels.Right](60), 60, "seconds: the plain value, no ends")
+    equal(seconds[labels.Min], nil)
+    -- update() lets one second pass.
+    state.buff("player", "Arcane Intellect", {expires = state.now + 362, duration = 3600})
+    state.update("UNIT_AURA", "player")
+    equal(visible(intellect), false, "6 minutes 1 second left of 60: not yet")
+    state.wait(1)
+    equal(visible(intellect), true, "6 minutes left: 10%")
+    state.settings.DBR_LEAD:SetValue(20)
+    state.buff("player", "Arcane Intellect", {expires = state.now + 721, duration = 3600})
+    state.update("UNIT_AURA", "player")
+    equal(visible(intellect), true, "20%: 12 minutes")
+    state.buff("player", "Arcane Intellect", {expires = state.now + 723, duration = 3600})
+    state.update("UNIT_AURA", "player")
+    equal(visible(intellect), false, "12 minutes 2 seconds: not yet")
+    state.settings.DBR_LEAD:SetValue(0)
+    state.buff("player", "Arcane Intellect", {expires = state.now + 3, duration = 3600})
+    state.update("UNIT_AURA", "player")
+    equal(visible(intellect), false, "0%: not while it is up")
+    state.wait(2)
+    state.units.player.buffs["Arcane Intellect"] = nil
+    state.update("UNIT_AURA", "player")
+    equal(visible(intellect), true, "only once it is gone")
+    state.settings.DBR_LEAD:SetValue(10)
+    state.buff("player", "Arcane Intellect", {expires = state.now + 100, duration = 600})
+    state.update("UNIT_AURA", "player")
+    equal(visible(intellect), false, "per buff and rank: 10% of a 10-minute one is 60 seconds")
+end)
+
+test("1.1.0's lead in seconds is repaired to the 10% default", function()
+    local old = fixture({db = {lead = 30}}).dbr.db
+    equal(old.leadPercent, 10)
+    equal(old.lead, nil, "the seconds are dropped")
+    equal(fixture({db = {leadPercent = 15}}).dbr.db.leadPercent, 15, "a percent stays")
+    equal(fixture({db = {leadPercent = 7.5}}).dbr.db.leadPercent, 10)
+    equal(fixture({db = {leadPercent = "x"}}).dbr.db.leadPercent, 10)
+end)
+
+test("the border: red while missing, yellow and flashing while running out, none while up", function()
+    local state = fixture({known = {[INTELLECT] = true}})
+    local intellect = state.icon("arcaneIntellect")
+    local warn = state.widget("arcaneIntellect").warn
+    equal(warn.mouse, false, "it never takes the mouse")
+    equal(warn.level > state.slotOf("arcaneIntellect").level, true, "above the slot")
+    equal(warn.backdropBorder[1] == 1 and warn.backdropBorder[2] == 1, true, "yellow")
+    equal(intellect.glow.backdropBorder[2], 0.2, "missing: red")
+    equal(warn.alpha, 0)
+    state.buff("player", "Arcane Intellect", state.now + 600)
+    state.update("UNIT_AURA", "player")
+    equal(intellect.glow.shown, true, "up: red still, under the slot, for the moment it drops")
+    equal(intellect.glow.backdropBorder[2], 0.2)
+    equal(visible(intellect), false, "covered by the slot: no border shows")
+    equal(warn.alpha, 0, "up and outside the window: no yellow")
+    state.wait(419)
+    equal(warn.alpha, 1, "3 minutes left: yellow")
+    equal(warn.flash.playing, true, "and flashing")
+    equal(warn.flash.looping, "BOUNCE")
+    equal(intellect.glow.shown, false, "ours raised out of combat, with no red")
+    state.buff("player", "Arcane Intellect", state.now + 1800)
+    state.update("UNIT_AURA", "player")
+    equal(warn.alpha, 0, "recast: off")
+    equal(warn.flash.playing, false)
+    state.units.player.buffs["Arcane Intellect"] = nil
+    state.update("UNIT_AURA", "player")
+    equal(intellect.glow.shown, true, "gone: red")
+    equal(warn.alpha, 0)
+    state.party({{name = "Healy", class = "PRIEST", buffs = {["Arcane Intellect"] = state.now + 100}}})
+    state.buff("player", "Arcane Intellect", state.now + 1800)
+    state.update("UNIT_AURA", "player")
+    equal(warn.alpha, 1, "a group member's runs out: yellow")
+    equal(intellect.glow.shown, false)
+    state.party({{name = "Healy", class = "PRIEST", buffs = {["Arcane Intellect"] = state.now + 100}},
+        {name = "Zappy", class = "MAGE"}})
+    equal(intellect.glow.shown, true, "anyone lacks it: red wins")
+    equal(warn.alpha, 0)
+    state.slash("unlock")
+    equal(warn.alpha, 0, "unlocked: no yellow")
+    equal(intellect.glow.shown, true, "red while one is missing")
+end)
+
+test("in combat: yellow from the known end, gone when it runs out; your recast resets it", function()
+    local state = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true}})
+    local warn = state.widget("arcaneIntellect").warn
+    state.buff("player", "Arcane Intellect", state.now + 201)
+    state.buff("player", "Frost Armor", state.now + 201)
+    state.update("UNIT_AURA", "player")
+    state.combat = true
+    state.emit("PLAYER_REGEN_DISABLED")
+    equal(warn.alpha, 0, "200 seconds left: not yet")
+    state.advance(20)
+    equal(warn.alpha, 1, "3 minutes left, timed in combat")
+    state.advance(180)
+    equal(warn.alpha, 0, "run out: the slot goes and the red border under it shows")
+    state.cast(INTELLECT)
+    equal(warn.alpha, 0, "recast with no target: on you, its full length again")
+    state.advance(1619)
+    equal(warn.alpha, 0)
+    state.advance(1)
+    equal(warn.alpha, 1, "3 minutes before the recast's end")
+    state.units.target = {friend = true}
+    state.cast(INTELLECT)
+    equal(warn.alpha, 1, "cast on a friendly target: not on you, nothing reset")
+    state.units.target = {}
+    state.cast(INTELLECT)
+    equal(warn.alpha, 0, "a hostile target: the client casts it on you")
+    local armor = state.widget("mageArmor").warn
+    state.advance(20)
+    equal(armor.alpha, 0, "the armor ran out earlier")
+    state.units.target = {friend = true}
+    state.cast(FROST_ARMOR)
+    equal(armor.alpha, 0, "a self-only buff: any cast is on you")
+    state.advance(1620)
+    equal(armor.alpha, 1)
+    state.combat = false
+    state.emit("PLAYER_REGEN_ENABLED")
 end)
 
 -- Moving and resizing -----------------------------------------------------------------
@@ -2129,37 +2846,36 @@ end
 local DIVINE_SPIRIT, SHADOW_PROTECTION = 14752, 976
 local GROUP_SCALE = "DYRE_DYRESBUFFREMINDERS_GROUPBUFFS_SCALE"
 
-test("two bars, group buffs and my buffs, each as wide as the icons you can show", function()
+test("each buff is its own widget, in a row where the bars were; only buffs you can show have one", function()
     local mage = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true}})
-    local group, my = mage.bar("group"), mage.bar("my")
-    equal(mage.icon("arcaneIntellect").parent, group)
-    equal(mage.icon("mageArmor").parent, my)
-    equal(group.width, 40, "Arcane Intellect")
-    equal(my.width, 40, "Armor")
-    equal(my.height, 40)
-    equal(select(2, mage.absCenter(group)), 400 + 180, "default places above the center")
-    equal(select(2, mage.absCenter(my)), 400 + 130)
-    local priest = fixture({class = "PRIEST", known = {[FORTITUDE] = true, [INNER_FIRE] = true}})
-    equal(priest.icon("innerFire").parent, priest.bar("my"))
-    equal(priest.bar("group").width, 40, "Divine Spirit and Shadow Protection are off")
-    equal(priest.bar("my").width, 40, "Inner Fire")
-    local druid = fixture({class = "DRUID", known = {[MARK] = true, [THORNS] = true}})
-    equal(druid.icon("thorns").parent, druid.bar("group"), "Thorns can go on another player")
-    equal(druid.bar("group").width, 88)
-    equal(druid.bar("my"), nil, "no self-only buffs: no bar")
-    local warlock = fixture({class = "WARLOCK", known = {[DEMON_SKIN] = true}})
-    equal(warlock.bar("group"), nil, "no group buffs: no bar")
-    equal(warlock.bar("my").width, 40)
-    equal(#warlock.toolkit.Widgets(ADDON), 2, "My buffs and Consumables")
-    local paladin = fixture({class = "PALADIN", known = {[25780] = true}})
-    equal(paladin.icon("righteousFury").parent, paladin.bar("my"))
+    local intellect, armor = mage.widget("arcaneIntellect"), mage.widget("mageArmor")
+    equal(mage.icon("arcaneIntellect").parent, intellect)
+    equal(intellect.dyre.widgetKey, "buff_arcaneIntellect")
+    equal(intellect.dyre.store, mage.dbr.db.buffs.arcaneIntellect, "its own saved table")
+    equal(intellect.width, 40)
+    equal(select(2, mage.absCenter(intellect)), 400 + 180, "group buffs in the upper row")
+    equal(select(2, mage.absCenter(armor)), 400 + 130, "self buffs in the lower row")
+    local priest = fixture({class = "PRIEST", known = {[FORTITUDE] = true, [INNER_FIRE] = true,
+        [DIVINE_SPIRIT] = true}})
+    local fx = priest.absCenter(priest.widget("fortitude"))
+    local dx = priest.absCenter(priest.widget("divineSpirit"))
+    equal(dx - fx, 60, "40 wide, the toolkit's 20 apart")
+    equal(priest.widget("divineSpirit").shown, false, "known but switched off: no widget")
+    priest.settings.DBR_BUFF_DIVINESPIRIT:SetValue(true)
+    equal(priest.widget("divineSpirit").shown, true, "switched on: it shows, in its own place")
+    equal(priest.absCenter(priest.widget("divineSpirit")), dx, "nothing else moved")
+    equal(priest.widget("shadowProtection").shown, false, "not known: no widget")
+    priest.known[SHADOW_PROTECTION] = true
+    priest.settings.DBR_BUFF_SHADOWPROTECTION:SetValue(true)
+    priest.update("SPELLS_CHANGED")
+    equal(priest.widget("shadowProtection").shown, true, "learned: it shows")
 end)
 test("each reminder's bar: Group buffs for what can go on another player, My buffs for self only", function()
     local state = fixture()
     local function bar(reminder) return (reminder.group or reminder.others) and "group" or "my" end
     local wanted = {arcaneIntellect = "group", mageArmor = "my", demonArmor = "my",
         markOfTheWild = "group", thorns = "group", righteousFury = "my", fortitude = "group", innerFire = "my",
-        divineSpirit = "group", shadowProtection = "group", aspect = "my"}
+        divineSpirit = "group", shadowProtection = "group", aspect = "my", battleShout = "group"}
     local count = 0
     for _, list in pairs(state.dbr.BUFFS) do
         for _, reminder in ipairs(list) do
@@ -2167,180 +2883,118 @@ test("each reminder's bar: Group buffs for what can go on another player, My buf
             count = count + 1
         end
     end
-    equal(count, 11, "every reminder is listed here")
+    equal(count, 12, "every reminder is listed here")
 end)
-test("Priest: Divine Spirit, known, switched off: no slot; switched on: Group buffs has two", function()
-    local state = fixture({class = "PRIEST", known = {[FORTITUDE] = true, [INNER_FIRE] = true,
-        [DIVINE_SPIRIT] = true}})
-    local group, my = state.bar("group"), state.bar("my")
-    equal(group.width, 40)
-    equal(my.width, 40)
-    state.slash("unlock")
-    equal(state.icon("divineSpirit").shown, false, "switched off: no sample either")
-    state.slash("lock")
-    state.settings.DBR_BUFF_DIVINESPIRIT:SetValue(true)
-    equal(group.width, 88, "two slots")
-    equal(my.width, 40, "My buffs unchanged")
-    state.slash("unlock")
-    equal(state.icon("fortitude").shown, true)
-    equal(state.icon("divineSpirit").shown, true, "every slot holds its own icon")
-    state.slash("lock")
-    state.settings.DBR_BUFF_DIVINESPIRIT:SetValue(false)
-    equal(group.width, 40, "switched off: back to one")
-    local unknown = fixture({class = "PRIEST", known = {[FORTITUDE] = true}})
-    unknown.settings.DBR_BUFF_DIVINESPIRIT:SetValue(true)
-    equal(unknown.bar("group").width, 40, "switched on but not known: no slot")
-    unknown.known[DIVINE_SPIRIT] = true
-    unknown.update("SPELLS_CHANGED")
-    equal(unknown.bar("group").width, 88, "learned: the bar grows")
-end)
-test("a bar with nothing you can show is hidden, also while unlocked", function()
+test("always shown: the slot draws a buff that is up, in and out of combat; ours under it, armed", function()
     local state = fixture({known = {[INTELLECT] = true}})
-    local my = state.bar("my")
-    equal(state.drivers[my], "hide")
-    equal(my.shown, false)
-    state.slash("unlock")
-    equal(my.shown, false, "no outline around nothing")
-    state.slash("lock")
-    state.known[FROST_ARMOR] = true
-    state.update("SPELLS_CHANGED")
-    equal(state.drivers[my], "[combat] hide; show", "learned Frost Armor: it shows")
-    equal(my.shown, true)
-end)
-test("a spell learned in combat grows its bar only after combat", function()
-    local state = fixture({class = "PRIEST", known = {[FORTITUDE] = true}})
-    local bar = state.bar("group")
-    state.settings.DBR_BUFF_DIVINESPIRIT:SetValue(true)
-    state.combat = true
-    state.applyDrivers()
-    state.known[DIVINE_SPIRIT] = true
-    state.update("SPELLS_CHANGED")
-    equal(bar.width, 40, "no secure change in combat")
-    state.combat = false
-    state.applyDrivers()
-    state.emit("PLAYER_REGEN_ENABLED")
-    equal(bar.width, 88)
-end)
-test("the missing icons pack in from the left edge; the empty part takes no clicks while locked", function()
-    local state = fixture({class = "PRIEST", known = {[FORTITUDE] = true, [DIVINE_SPIRIT] = true,
-        [SHADOW_PROTECTION] = true}})
-    state.settings.DBR_BUFF_DIVINESPIRIT:SetValue(true)
-    state.settings.DBR_BUFF_SHADOWPROTECTION:SetValue(true)
-    local bar = state.bar("group")
-    local function slot(key)
-        local point = state.icon(key).points[#state.icon(key).points]
-        equal(point[1], "LEFT")
-        equal(point[2], bar)
-        return point[4]
+    local icon, slot = state.icon("arcaneIntellect"), state.slotOf("arcaneIntellect")
+    local holder = state.widget("arcaneIntellect")
+    local container
+    for _, frame in ipairs(state.frames) do
+        if frame.kind == "AuraContainer" and frame.parent == slot then container = frame end
     end
-    equal(slot("fortitude"), 0)
-    equal(slot("divineSpirit"), 48)
-    equal(slot("shadowProtection"), 96)
-    state.buff("player", "Power Word: Fortitude")
+    equal(container.unit, "player", "on you")
+    equal(container.slots[1].ids[1459], true, "every rank")
+    equal(container.slots[1].ids[10157], true)
+    equal(container.slots[1].ids[BRILLIANCE], true, "and the group version")
+    equal(container.slots[1].button.mouse, false, "the slot takes no mouse: a click reaches our icon")
+    equal(slot.alpha, nil, "the slot is never made transparent: it shows in and out of combat")
+    equal(visible(icon), true, "missing: ours, above the slot")
+    state.buff("player", "Arcane Intellect")
     state.update("UNIT_AURA", "player")
-    equal(state.icon("fortitude").shown, false)
-    equal(slot("divineSpirit"), 0, "moves up to the left edge")
-    equal(slot("shadowProtection"), 48)
-    equal(bar.width, 136, "the bar keeps its size")
-    equal(bar.mouse, false, "locked: click-through where no icon shows")
-    state.slash("unlock")
-    equal(bar.mouse, true, "unlocked: the bar takes the drag")
-    state.slash("lock")
-    equal(bar.mouse, false)
-end)
-test("unlocked, each bar is outlined and shows its icons to drag; a drag on an icon moves the bar", function()
-    local state = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true}})
-    state.buff("player", "Frost Armor")
-    state.update("UNIT_AURA", "player")
-    state.slash("unlock")
-    contains(state.last(), "Frames unlocked")
-    local group, my = state.bar("group"), state.bar("my")
-    local intellect, armor = state.icon("arcaneIntellect"), state.icon("mageArmor")
-    equal(group.dyre.mover.shown, true, "the toolkit's outline, the bar's full size")
-    equal(intellect.shown, true)
-    equal(armor.shown, true, "a buff that is on shows too, to drag")
-    equal(armor.texture.alpha, 0.4, "dimmed: it is not missing")
-    equal(armor.glow.animation.playing, false)
-    equal(intellect.texture.alpha, 1, "missing: solid and pulsing")
-    equal(intellect.glow.animation.playing, true)
-    equal(intellect.attributes.type1, nil, "dragging never casts")
-    dragBar(state, armor, my, 200, 150)
-    equal(my.moving, false)
-    equal(state.dbr.db.bars.mybuffs.position.relativePoint ~= nil, true, "the toolkit saves the bar's place")
-    equal(state.dbr.db.icons, nil, "never a place per icon")
-    local ax = iconCenter(state, "mageArmor")
-    state.slash("lock")
-    equal(group.dyre.mover.shown, false)
-    equal(intellect.attributes.type1, "spell")
-    equal(armor.shown, false)
-    state.slash("reset")
-    contains(state.last(), "default places")
-    equal(state.dbr.db.bars.mybuffs.position, nil)
-    equal(select(2, state.absCenter(my)), 400 + 130, "back in its default place")
-    equal(ax ~= iconCenter(state, "mageArmor"), true)
-end)
-test("in combat a bar never changes; its size and place wait for the end of combat, opacity does not", function()
-    local state = fixture({known = {[INTELLECT] = true}})
-    local bar = state.bar("group")
+    equal(icon.shown, true, "up: still shown...")
+    equal(icon:GetFrameLevel() < slot:GetFrameLevel(), true, "...under the slot, which draws the buff")
+    equal(icon.glow.points[1] == nil or icon.glow.points[1][1] ~= "TOPLEFT", true,
+        "its pulsing border is inside it, so the slot covers it whole")
+    equal(icon.attributes.spell1, "Arcane Intellect", "armed: if the buff drops, a click recasts it")
+    equal(icon.attributes.unit1, "player", "on you")
+    equal(holder.shown, true)
     state.combat = true
     state.applyDrivers()
-    state.settings[GROUP_SCALE]:SetValue(150)
-    equal(state.dbr.db.bars.groupbuffs.scale, 150, "saved at once")
-    equal(bar.scale ~= 1.5, true, "applied after combat")
-    state.settings.DYRE_DYRESBUFFREMINDERS_GROUPBUFFS_OPACITY:SetValue(50)
-    equal(bar.alpha, 0.5, "opacity at once, also in combat")
-    state.clear()
-    state.slash("reset")
-    contains(state.last(), "after combat")
+    state.emit("PLAYER_REGEN_DISABLED")
+    equal(icon.shown, true, "combat starts: nothing appears or disappears")
+    equal(holder.shown, true)
+    equal(icon:GetFrameLevel() < slot:GetFrameLevel(), true, "still under the slot")
     state.combat = false
     state.applyDrivers()
     state.emit("PLAYER_REGEN_ENABLED")
-    equal(bar.scale, 1.5)
+    equal(icon.shown, true, "combat ends: nothing appears or disappears")
+    state.party({{name = "Healy", class = "PRIEST"}})
+    equal(visible(icon), true, "a group member lacks it: ours above the slot, with its smart click")
+    equal(icon.attributes.unit1, "party1")
+    local druid = fixture({class = "DRUID", known = {[THORNS] = true}})
+    druid.buff("player", "Thorns")
+    druid.update("UNIT_AURA", "player")
+    equal(druid.icon("thorns").attributes.macrotext1, "/cancelform\n/use [@player] Thorns",
+        "a Druid's armed click leaves any form first")
+    local bare = fixture({known = {[INTELLECT] = true}, noAuraContainer = true})
+    bare.buff("player", "Arcane Intellect")
+    bare.update("UNIT_AURA", "player")
+    equal(bare.slotOf("arcaneIntellect"), nil, "no aura container: no slot")
+    equal(bare.drivers[bare.icon("arcaneIntellect")], "hide", "and an up buff is hidden, as before")
 end)
-test("the settings page: each widget's size and opacity, then Reset size", function()
-    local state = fixture({known = {[INTELLECT] = true}})
-    local scale = state.row(GROUP_SCALE)
-    equal(scale.setting.name, "Group buffs: size (%)")
+test("each buff widget moves and saves on its own; one Size and Opacity for every buff icon", function()
+    local state = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true}})
+    local intellect, armor = state.widget("arcaneIntellect"), state.widget("mageArmor")
+    state.slash("unlock")
+    equal(intellect.dyre.mover.shown, true, "outlined while unlocked")
+    local icon = state.icon("mageArmor")
+    icon.scripts.OnDragStart(icon)
+    armor:ClearAllPoints()
+    armor:SetPoint("CENTER", nil, "BOTTOMLEFT", 200, 150)
+    icon.scripts.OnDragStop(icon)
+    equal(state.dbr.db.buffs.mageArmor.position ~= nil, true, "the toolkit saves its place")
+    equal(state.dbr.db.buffs.arcaneIntellect.position, nil, "the other stays where it was")
+    state.slash("lock")
+    local scale = state.row("DBR_BUFF_ICONS_SCALE")
+    equal(scale.setting.name, "Reminder icons: size")
     equal(scale.options.minValue, 50)
     equal(scale.options.maxValue, 200)
-    equal(scale.options.step, 10)
-    equal(state.row("DYRE_DYRESBUFFREMINDERS_GROUPBUFFS_OPACITY").setting.name, "Group buffs: opacity")
-    equal(state.row("DYRE_DYRESBUFFREMINDERS_MYBUFFS_SCALE").setting.name, "My buffs: size (%)")
-    local headings = {}
-    for _, heading in ipairs(state.headings) do headings[#headings + 1] = heading.heading end
-    equal(headings[2], "Consumables")
-    equal(headings[3], "Size and Opacity")
+    state.settings.DBR_BUFF_ICONS_SCALE:SetValue(150)
+    equal(intellect.scale, 1.5, "every buff icon")
+    equal(armor.scale, 1.5)
+    equal(state.dbr.db.buffs.arcaneIntellect.scale, 150, "saved in each one's own table")
+    equal(state.dbr.db.buffs.mageArmor.scale, 150)
+    state.settings.DBR_BUFF_ICONS_OPACITY:SetValue(60)
+    equal(intellect.alpha, 0.6)
+    equal(armor.alpha, 0.6)
     local reset
     for _, row in ipairs(state.page().initializers) do
-        if row.kind == "button" and row.label == "Group buffs" then reset = row end
+        if row.kind == "button" and row.label == "Reminder icons" then reset = row end
     end
-    equal(reset.buttonText, "Reset size")
-    state.settings[GROUP_SCALE]:SetValue(170)
     reset.click()
-    equal(state.dbr.db.bars.groupbuffs.scale, 100)
-    local paladin = fixture({class = "PALADIN", known = {[25780] = true, [21084] = true}})
-    equal(paladin.row("DYRE_DYRESBUFFREMINDERS_SEAL_SCALE").setting.name, "Seal timer: size (%)")
-    equal(paladin.row(GROUP_SCALE), nil, "a Paladin has no group buffs")
-    equal(fixture({class = "WARRIOR"}).row(GROUP_SCALE), nil)
+    equal(intellect.scale, 1, "Reset size: every buff icon")
+    equal(armor.scale, 1)
+    equal(state.dbr.db.buffs.mageArmor.opacity, 60, "opacity stays")
+    state.combat = true
+    state.settings.DBR_BUFF_ICONS_SCALE:SetValue(120)
+    equal(intellect.scale, 1, "in combat: after combat")
+    state.combat = false
+    state.emit("PLAYER_REGEN_ENABLED")
+    equal(intellect.scale, 1.2)
+    state.clear()
+    state.slash("reset")
+    contains(state.last(), "default places")
+    equal(state.dbr.db.buffs.mageArmor.position, nil)
 end)
-test("from 1.0.0: the seal timer keeps its place and size; the loose icons start in their bar", function()
+test("from 1.1.0: each buff starts where its bar was, once; then the bar places are dropped", function()
     local state = fixture({class = "PALADIN", known = {[25780] = true, [21084] = true}, db = {
+        bars = {mybuffs = {scale = 120, position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 300,
+            y = 200}}},
         seal = {enabled = true, scale = 130, position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 300,
-            y = 500}},
-        icons = {righteousFury = {scale = 150, position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 10,
-            y = 20}}}}})
-    local display = state.env.DyresBuffRemindersSeal
-    equal(display.scale, 1.3)
-    local point = display.points[#display.points]
-    equal(point[4], 300)
-    equal(point[5], 500)
-    equal(state.dbr.db.icons, nil)
-    equal(state.dbr.db.bars.mybuffs.scale, 100)
-    equal(state.icon("righteousFury").parent, state.bar("my"))
+            y = 500}}}})
+    local saved = state.dbr.db.buffs.righteousFury
+    equal(saved.position.x, 300, "the bar's one slot: its center")
+    equal(saved.position.y, 200)
+    equal(saved.scale, 120, "with the bar's size")
+    equal(state.widget("righteousFury").scale, 1.2)
+    equal(state.dbr.db.bars, nil, "the bar places are dropped")
+    equal(state.env.DyresBuffRemindersSeal.scale, 1.3, "the seal timer keeps its place and size")
+    local mage = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true}, db = {
+        bars = {mybuffs = {position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 300, y = 200}}}}})
+    equal(mage.dbr.db.buffs.mageArmor.position.x, 300, "Armor, the bar's only self buff")
+    equal(mage.dbr.db.buffs.arcaneIntellect.position, nil, "no group bar was saved: its default row")
 end)
-
--- Settings page, tooltips, and debug ---------------------------------------------------
-
 test("the settings page lists your class's buffs, each group switch under its buff", function()
     local state = fixture({class = "PRIEST", known = {[FORTITUDE] = true}})
     local page = state.page()
@@ -2354,20 +3008,19 @@ test("the settings page lists your class's buffs, each group switch under its bu
     end
     equal(table.concat(names, "|"), "Enable|Power Word: Fortitude|Power Word: Fortitude: also your group|"
         .. "Inner Fire|Divine Spirit|Divine Spirit: also your group|Shadow Protection|"
-        .. "Shadow Protection: also your group|Remind before a buff runs out (seconds)|"
-        .. "Enable|Ammo|Warn at|Group buffs: size (%)|Group buffs: opacity|My buffs: size (%)|My buffs: opacity|"
-        .. "Consumables: size (%)|Consumables: opacity")
+        .. "Shadow Protection: also your group|Remind before a buff runs out|"
+        .. "Reminder icons: size|Reminder icons: opacity", "a Priest has no consumables: no section, no bar")
     local group = state.row("DBR_GROUP_FORTITUDE")
     equal(group.parentInitializer, state.row("DBR_BUFF_FORTITUDE"))
     contains(group.tooltip, "Prayer of Fortitude")
     contains(state.row("DBR_GROUP_DIVINESPIRIT").tooltip, "who uses mana")
     state.settings.DBR_ENABLED:SetValue(false)
-    equal(state.icon("fortitude").shown, false)
+    equal(visible(state.icon("fortitude")), false)
     equal(group.predicate(), false)
     state.settings.DBR_ENABLED:SetValue(true)
-    equal(state.icon("fortitude").shown, true)
+    equal(visible(state.icon("fortitude")), true)
     state.settings.DBR_BUFF_FORTITUDE:SetValue(false)
-    equal(state.icon("fortitude").shown, false)
+    equal(visible(state.icon("fortitude")), false)
     equal(state.dbr.db.spells.fortitude, false)
 end)
 test("the unlocked tooltip says how to move; /dbr debug lists each reminder", function()
@@ -2384,10 +3037,10 @@ test("the unlocked tooltip says how to move; /dbr debug lists each reminder", fu
     state.clear()
     state.slash("debug")
     contains(state.messages[1], "debug class=MAGE available=true enabled=true locked=true combat=false")
-    contains(state.messages[2], "debug arcaneIntellect bar=groupbuffs on=true group=true known=true shown=true "
+    contains(state.messages[2], "debug arcaneIntellect row=groupbuffs on=true group=true known=true shown=true "
         .. "missing=you "
         .. "click=Arcane Intellect@player unknownIDs=none")
-    contains(state.messages[3], "debug mageArmor bar=mybuffs on=true group=nil known=false")
+    contains(state.messages[3], "debug mageArmor row=mybuffs on=true group=nil known=false")
     state.combat = true
     state.clear()
     state.slash("debug")
@@ -2407,7 +3060,7 @@ end)
 test("the master switch hides every icon", function()
     local state = fixture({known = {[INTELLECT] = true}})
     state.settings.DBR_ENABLED:SetValue(false)
-    equal(state.icon("arcaneIntellect").shown, false)
+    equal(visible(state.icon("arcaneIntellect")), false)
     equal(state.icon("arcaneIntellect").attributes.type1, nil)
 end)
 
@@ -2471,7 +3124,7 @@ test("chimes: the lead moves them, in steps of half a second from 0 to 3", funct
     equal(dbr.SanitizeChimeLead(-1), 0)
     equal(dbr.SanitizeChimeLead(0 / 0), 0.5, "NaN")
     equal(dbr.SanitizeChimeLead("2"), 0.5)
-    equal(dbr.db.lead, 5, "the buff reminders' own lead is separate")
+    equal(dbr.db.leadPercent, 10, "the buff reminders' own lead is separate")
 end)
 test("chimes: casting again replaces the earlier chime; other casts are ignored", function()
     local state = fixture()
@@ -2565,11 +3218,9 @@ test("the settings page: a Chimes section with its own switch, lead, and spells"
     equal(state.headings[1].heading, "Reminders")
     equal(state.settings.DBR_ENABLED.name, "Enable", "the page already says Buff Reminders")
     equal(state.settings.DBR_CHIMES_ENABLED.name, "Enable")
-    equal(state.headings[2].heading, "Consumables")
-    equal(state.headings[3].heading, "Size and Opacity")
-    equal(state.headings[4].heading, "Chimes")
+    equal(state.headings[2].heading, "Chimes", "a Mage has no consumables; sizes sit in their sections")
     local switch, switchAt = state.row("DBR_CHIMES_ENABLED")
-    equal(page.initializers[switchAt - 1], state.headings[4], "the section starts with its heading")
+    equal(page.initializers[switchAt - 1], state.headings[2], "the section starts with its heading")
     local _, leadAt = state.row("DBR_LEAD")
     equal(leadAt < switchAt, true, "after the buff reminders")
     local lead = state.row("DBR_CHIME_LEAD")
@@ -2613,7 +3264,7 @@ test("the settings page: a Chimes section with its own switch, lead, and spells"
         equal(oldDropdown.predicate(), false)
     end
     local knight = fixture({class = "DEATHKNIGHT"})
-    equal(knight.headings[5].heading, "Your class has no chime spells yet.")
+    equal(knight.headings[3].heading, "Your class has no chime spells yet.")
 end)
 test("without Dyre's Sounds chimes are timed, nothing plays, and DBR says so once", function()
     local state = fixture({sounds = "none", db = {chimes = {sounds = {blink = "effectmagical"}}}})
@@ -2890,7 +3541,7 @@ test("procs: the settings page has a Procs section, one row per proc, aura sound
     local state = fixture({class = "DRUID"})
     local headings = {}
     for _, heading in ipairs(state.headings) do headings[#headings + 1] = heading.heading end
-    equal(table.concat(headings, "|"), "Reminders|Consumables|Size and Opacity|Chimes|Procs")
+    equal(table.concat(headings, "|"), "Reminders|Consumables|Chimes|Proc Chimes")
     equal(state.settings.DBR_PROCS_ENABLED.name, "Enable")
     local switch, switchAt = state.row("DBR_PROCS_ENABLED")
     local _, chimesAt = state.row("DBR_CHIMES_ENABLED")
@@ -2994,10 +3645,14 @@ test("procs: saved settings are repaired, and the proc list is well formed", fun
         for _, proc in ipairs(list) do
             equal(keys[proc.key], nil, "unique key " .. proc.key)
             keys[proc.key] = class
-            equal(type(proc.buff), "string", proc.key)
             equal(type(proc.label), "string", proc.key)
             equal(type(proc.on), "boolean", proc.key)
-            equal(#proc.spells > 0, true, proc.key)
+            if proc.reactive then
+                equal(type(proc.reactive), "number", proc.key .. " is a spell ID")
+            else
+                equal(type(proc.buff), "string", proc.key)
+                equal(#proc.spells > 0, true, proc.key)
+            end
         end
     end
     equal(keys.nightfall, "WARLOCK")
@@ -3133,7 +3788,7 @@ test("toolkit: DBR registers, and its page sits under Dyre's AddOns with no grid
 end)
 test("toolkit: one lock for every AddOn; DBR shows its frames quietly", function()
     local state = fixture({known = {[INTELLECT] = true}})
-    local bar = state.bar("group")
+    local bar = state.widget("arcaneIntellect")
     equal(state.dbr.db.locked, true, "frames start locked")
     state.clear()
     state.slash("unlock")
@@ -3156,13 +3811,13 @@ test("toolkit: every DBR frame is a widget; DBR never moves, scales, or saves on
     local widgets = state.toolkit.Widgets(ADDON)
     local keys = {}
     for _, widget in ipairs(widgets) do keys[#keys + 1] = widget.dyre.widgetKey end
-    equal(table.concat(keys, ","), "mybuffs,seal,consumables")
+    equal(table.concat(keys, ","), "buff_righteousFury,seal", "a Paladin has no consumables")
     local fury, seal = state.icon("righteousFury"), state.env.DyresBuffRemindersSeal
     equal(fury.scripts.OnMouseWheel, nil, "no wheel resize of DBR's own")
     equal(seal.scripts.OnMouseWheel, nil)
     equal(seal.scripts.OnDragStart, state.toolkit.BeginDrag)
     equal(seal.dyre.store, state.dbr.db.seal, "saved under the keys it had")
-    equal(state.bar("my").dyre.store, state.dbr.db.bars.mybuffs)
+    equal(state.widget("righteousFury").dyre.store, state.dbr.db.buffs.righteousFury)
 end)
 test("toolkit: the copy the tests load matches ../DyresToolkit when it is there", function()
     for _, path in ipairs(TOOLKIT_FILES) do

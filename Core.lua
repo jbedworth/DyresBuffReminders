@@ -92,7 +92,7 @@ local REQUIRED_NAMESPACE = {
     "ParseCommand", "HandleCommand",
     "ClassReminders", "SanitizeReminders", "SanitizeLead", "InitializeReminders",
     "RefreshReminders", "ReportRemindersDebug", "SanitizeSeal", "InitializeSeal",
-    "RefreshSeal", "ReportSealDebug", "HasSealTimer", "SealWidget", "ReminderBars", "CombatAspectWidget", "RefreshCombatAspect",
+    "RefreshSeal", "ReportSealDebug", "HasSealTimer", "SealWidget", "BuffWidgets", "HasBuffSlots", "CombatAspectWidget", "RefreshCombatAspect",
     "SanitizeConsumables", "SanitizeAmmoWarn", "InitializeConsumables", "RefreshConsumables", "ConsumablesWidget",
     "ReportConsumablesDebug",
     "ClassChimes", "SoundLibrary", "ReportMissingSounds", "SanitizeChimes", "ImportChimes", "ReportOtherChimes",
@@ -296,7 +296,7 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     DBR.classFile = class
     DBR.InitializeReminders(class)
     DBR.InitializeSeal(class)
-    DBR.InitializeConsumables()
+    DBR.InitializeConsumables(class)
     if #DBR.ClassReminders() == 0 then
         DBR.Report("There are no buff reminders for your class yet.")
     end

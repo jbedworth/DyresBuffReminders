@@ -7,13 +7,20 @@ local _, DBR = ...
 -- Auras are read only out of combat, to learn a proc's real buff ID (see
 -- ProcSpells.lua); never in combat. The game refuses aura sound changes
 -- during a boss encounter, so registration then waits until it ends.
+--
+-- Reactive abilities (ProcSpells.lua's reactive) are not buffs: DBR plays
+-- their sound itself when C_Spell.IsSpellUsable turns true, on
+-- SPELL_UPDATE_USABLE, also in combat. Rage going up and down makes the
+-- answer flicker within one window, so a sound plays at most once per
+-- REACTIVE_GAP seconds; a secret answer is skipped, never compared.
 
 DBR.DEFAULT_PROC_SOUND = "magical"
 -- At most one sound per this many seconds (the API allows 0 to 5).
 local SOUND_THROTTLE = 1
 local AURA_FILTER = "HELPFUL"
+local REACTIVE_GAP = 3
 
-local procs = {list = {}, handles = {}, deferred = false, available = false}
+local procs = {list = {}, handles = {}, deferred = false, available = false, usable = {}, playedAt = {}}
 
 -- The proc sounds of a class, in settings order; none for a class without a list.
 function DBR.ClassProcs(classFile)
@@ -55,7 +62,14 @@ function DBR.SanitizeProcs(saved)
             else
                 clean.spells[proc.key] = proc.on
             end
-            clean.sounds[proc.key] = DBR.SanitizeProcSound(sounds[proc.key], proc.sound)
+            if proc.reactive then
+                -- Played by DBR, so any sound: the chimes' rules.
+                local default = proc.sound or DBR.DEFAULT_PROC_SOUND
+                clean.sounds[proc.key] = DBR.SanitizeChimeSound and DBR.SanitizeChimeSound(sounds[proc.key], default)
+                    or (type(sounds[proc.key]) == "string" and sounds[proc.key]) or default
+            else
+                clean.sounds[proc.key] = DBR.SanitizeProcSound(sounds[proc.key], proc.sound)
+            end
             local id = learned[proc.key]
             if type(id) == "number" and id > 0 and id == math.floor(id) then
                 clean.learned[proc.key] = id
@@ -119,7 +133,7 @@ function DBR.ApplyProcSounds()
     end
     local trigger = Enum and Enum.UnitAuraSoundTrigger and Enum.UnitAuraSoundTrigger.Added or 0
     for _, proc in ipairs(procs.list) do
-        local sound = settings.spells[proc.key] and (library.AuraSound(settings.sounds[proc.key])
+        local sound = not proc.reactive and settings.spells[proc.key] and (library.AuraSound(settings.sounds[proc.key])
             or library.AuraSound(proc.sound or DBR.DEFAULT_PROC_SOUND))
         if sound then
             procs.registered[proc.key] = {}
@@ -158,7 +172,7 @@ local function Learn()
     end
     local grew = false
     for _, proc in ipairs(procs.list) do
-        local aura = settings.spells[proc.key]
+        local aura = not proc.reactive and settings.spells[proc.key]
             and C_UnitAuras.GetAuraDataBySpellName("player", proc.buff, AURA_FILTER)
         -- A secret answer is never tested or indexed.
         if not DBR.IsSecret(aura) and aura then
@@ -174,8 +188,40 @@ local function Learn()
     end
 end
 
+-- Also in combat: a sound when a switched-on reactive ability turns usable.
+local function CheckReactive()
+    local settings = DBR.db.procs
+    if type(C_Spell.IsSpellUsable) ~= "function" then
+        return
+    end
+    for _, proc in ipairs(procs.list) do
+        local name = proc.reactive and C_Spell.GetSpellName(proc.reactive)
+        if name and not DBR.IsSecret(name) then
+            local usable = C_Spell.IsSpellUsable(name)
+            if not DBR.IsSecret(usable) then
+                usable = usable == true
+                local was = procs.usable[proc.key]
+                procs.usable[proc.key] = usable
+                local now = GetTime()
+                if usable and not was and settings.enabled and settings.spells[proc.key]
+                        and now - (procs.playedAt[proc.key] or -REACTIVE_GAP) >= REACTIVE_GAP then
+                    procs.playedAt[proc.key] = now
+                    local library = DBR.SoundLibrary()
+                    if library and not library.Play(settings.sounds[proc.key], proc.label) then
+                        library.Play(DBR.DEFAULT_PROC_SOUND, proc.label)
+                    end
+                end
+            end
+        end
+    end
+end
+
 local events = CreateFrame("Frame")
 events:SetScript("OnEvent", function(_, event, unit)
+    if event == "SPELL_UPDATE_USABLE" then
+        CheckReactive()
+        return
+    end
     if event == "UNIT_AURA" then
         if unit == "player" then
             Learn()
@@ -192,6 +238,11 @@ end)
 
 function DBR.InitializeProcs(classFile)
     procs.list = DBR.ClassProcs(classFile)
+    for _, proc in ipairs(procs.list) do
+        if proc.reactive then
+            events:RegisterEvent("SPELL_UPDATE_USABLE")
+        end
+    end
     if type(C_UnitAuras) ~= "table" or type(C_UnitAuras.AddAuraSound) ~= "function"
         or type(C_UnitAuras.RemoveAuraSound) ~= "function" then
         return
@@ -265,18 +316,24 @@ function DBR.ReportProcsDebug(classFile)
         tostring(settings and settings.enabled), tostring(procs.available), tostring(procs.deferred),
         others ~= "" and others or "none"))
     for _, proc in ipairs(DBR.ClassProcs(classFile)) do
-        local named = {}
-        for _, id in ipairs(proc.spells) do
-            local name = C_Spell.GetSpellName(id)
-            named[#named + 1] = id .. "=" .. DBR.Describe(name)
+        if proc.reactive then
+            DBR.Report(string.format("debug procs %s on=%s sound=%s reactive=%s=%s usable=%s", proc.key,
+                tostring(settings and settings.spells[proc.key]), tostring(settings and settings.sounds[proc.key]),
+                proc.reactive, DBR.Describe(C_Spell.GetSpellName(proc.reactive)), tostring(procs.usable[proc.key])))
+        else
+            local named = {}
+            for _, id in ipairs(proc.spells or {}) do
+                local name = C_Spell.GetSpellName(id)
+                named[#named + 1] = id .. "=" .. DBR.Describe(name)
+            end
+            local learned = settings and settings.learned[proc.key]
+            local registered = procs.registered and procs.registered[proc.key]
+            DBR.Report(string.format("debug procs %s on=%s sound=%s ids=%s learned=%s registered=%s status=%s",
+                proc.key, tostring(settings and settings.spells[proc.key]),
+                tostring(settings and settings.sounds[proc.key]),
+                table.concat(named, ","), tostring(learned),
+                registered and #registered > 0 and table.concat(registered, ",") or "none",
+                learned and "confirmed" or "unverified"))
         end
-        local learned = settings and settings.learned[proc.key]
-        local registered = procs.registered and procs.registered[proc.key]
-        DBR.Report(string.format("debug procs %s on=%s sound=%s ids=%s learned=%s registered=%s status=%s",
-            proc.key, tostring(settings and settings.spells[proc.key]),
-            tostring(settings and settings.sounds[proc.key]),
-            table.concat(named, ","), tostring(learned),
-            registered and #registered > 0 and table.concat(registered, ",") or "none",
-            learned and "confirmed" or "unverified"))
     end
 end

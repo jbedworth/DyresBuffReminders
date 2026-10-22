@@ -13,7 +13,6 @@ local UNAVAILABLE = "The AddOn settings page is unavailable on this client. Use 
 local REQUIRED_SETTINGS = {
     "RegisterProxySetting", "CreateCheckbox", "CreateSlider", "CreateSliderOptions", "OpenToCategory",
 }
-local BAR_TITLES = {groupbuffs = "Group buffs", mybuffs = "My buffs"}
 
 local NO_CHIME_SPELLS = "Your class has no chime spells yet."
 
@@ -52,10 +51,18 @@ local function Nest(child, parent, predicate)
     end
 end
 
-local function SliderOptions(minValue, maxValue, step)
+-- The value on the right; a percent slider shows it with "%" (author: "this
+-- way, everything looks consistent"), as the toolkit's do. No end labels
+-- (found in client: they crowded the next row).
+local function SliderOptions(minValue, maxValue, step, percent)
     local options = Settings.CreateSliderOptions(minValue, maxValue, step)
     if type(MinimalSliderWithSteppersMixin) == "table" and type(options.SetLabelFormatter) == "function" then
-        options:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right)
+        local labels = MinimalSliderWithSteppersMixin.Label
+        if percent then
+            options:SetLabelFormatter(labels.Right, function(value) return string.format("%d%%", value) end)
+        else
+            options:SetLabelFormatter(labels.Right)
+        end
     end
     return options
 end
@@ -124,7 +131,13 @@ end
 -- an older Dyre's Sounds or client. The settings and saved keys are the same.
 local function AddProc(proc, library, procsSwitch)
     local variable = "DBR_PROC_" .. proc.key:upper()
-    local tooltip = "Play a sound the moment " .. proc.buff .. " appears on you, also in combat."
+    local tooltip = "Play a sound the moment " .. (proc.buff or "") .. " appears on you, also in combat."
+    -- A reactive ability: DBR plays it, so any sound.
+    local filter = "aura"
+    if proc.reactive then
+        tooltip = "Play a sound the moment " .. proc.label .. " becomes usable, also in combat."
+        filter = nil
+    end
     local setting = Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, proc.label, proc.on,
         function() return DBR.db.procs.spells[proc.key] end,
         function(value)
@@ -141,26 +154,26 @@ local function AddProc(proc, library, procsSwitch)
         function() return DBR.db.procs.sounds[proc.key] end,
         function(value)
             local key = library.Resolve(value)
-            if key and library.AuraSound(key) then
+            if key and (not filter or library.AuraSound(key)) then
                 DBR.db.procs.sounds[proc.key] = key
                 DBR.ApplyProcSounds()
                 DBR.PreviewProc(proc.key)
             end
         end)
-    local soundTooltip = "The sound for " .. proc.label .. ". Choosing one plays it once. Only sounds the game "
-        .. "can play for a buff are listed."
+    local soundTooltip = "The sound for " .. proc.label .. ". Choosing one plays it once."
+        .. (filter and " Only sounds the game can play for a buff are listed." or "")
     if HasCheckboxDropdown(library) then
         local row = CreateSettingsCheckboxDropdownInitializer(setting, proc.label, tooltip, sound,
-            library.Choices("aura"), "Sound", soundTooltip)
+            library.Choices(filter), "Sound", soundTooltip)
         layout:AddInitializer(row)
-        library.SetupCheckboxMenu(row, "aura")
+        library.SetupCheckboxMenu(row, filter)
         Nest(row, procsSwitch, ProcsOn)
         return
     end
     local switch = Settings.CreateCheckbox(category, setting, tooltip)
     Nest(switch, procsSwitch, ProcsOn)
-    local dropdown = Settings.CreateDropdown(category, sound, library.Choices("aura"), soundTooltip)
-    library.SetupMenu(dropdown, "aura")
+    local dropdown = Settings.CreateDropdown(category, sound, library.Choices(filter), soundTooltip)
+    library.SetupMenu(dropdown, filter)
     Nest(dropdown, switch, function() return DBR.db.procs.enabled and DBR.db.procs.spells[proc.key] end)
 end
 
@@ -171,7 +184,7 @@ local function AddProcsSection()
         return
     end
     local library = DBR.SoundLibrary()
-    Heading("Procs")
+    Heading("Proc Chimes")
     local tooltip = "A sound the moment a proc appears on you (Clearcasting, Nightfall, and so on), also in "
         .. "combat. The game plays it, from a sound you choose."
     if not library then
@@ -215,26 +228,57 @@ end
 -- Each widget's Size and Opacity, then "Reset size" (Dyre's Toolkit's
 -- sliders, with a gold mark at the default). Moving them is the toolkit's
 -- unlock: /dbr unlock, /dyre unlock, or "Unlock frames" on Dyre's AddOns.
-local function AddSizesSection()
-    local rows = {}
-    for _, bar in ipairs(DBR.ReminderBars()) do
-        rows[#rows + 1] = {widget = bar.widget, title = BAR_TITLES[bar.key]}
+-- One Size and one Opacity for every buff icon (author-approved), then
+-- "Reset size": each buff widget keeps its own saved table (toolkit owner:
+-- one store per widget), and these set the same value on all of them.
+local function AddBuffSizes(widgets)
+    local first = widgets[1]
+    local function Slider(name, label, tooltip)
+        local range = DBR.WIDGET_SIZES[name]
+        if range == true then
+            range = {min = 10, max = 100, step = 5, default = 100}
+        end
+        local setting = Settings.RegisterProxySetting(category, "DBR_BUFF_ICONS_" .. name:upper(),
+            Settings.VarType.Number, label, range.default,
+            function() return first:GetSetting(name) end,
+            function(value)
+                for _, widget in ipairs(widgets) do
+                    widget:SetSetting(name, value)
+                end
+            end)
+        local options = SliderOptions(range.min, range.max, range.step, true)
+        local slider = Settings.CreateSlider(category, setting, options, tooltip)
+        if type(DBR.toolkit.AddDefaultTick) == "function" then
+            DBR.toolkit.AddDefaultTick(slider, range)
+        end
     end
-    local consumables = DBR.ConsumablesWidget()
-    if consumables then
-        rows[#rows + 1] = {widget = consumables, title = "Consumables"}
+    Slider("scale", "Reminder icons: size", "The size of every reminder icon. A change in combat applies "
+        .. "after it.")
+    Slider("opacity", "Reminder icons: opacity", "How solid every reminder icon is. It fades at once, also in "
+        .. "combat.")
+    if type(CreateSettingsButtonInitializer) == "function" and type(layout) == "table"
+            and type(layout.AddInitializer) == "function" then
+        layout:AddInitializer(CreateSettingsButtonInitializer("Reminder icons", "Reset size", function()
+            for _, widget in ipairs(widgets) do
+                widget:ResetSize()
+            end
+            Settings.NotifyUpdate("DBR_BUFF_ICONS_SCALE")
+        end, "Every reminder icon back to its own size. Opacity stays as it is.", true))
+    end
+end
+
+-- At the end of Reminders (author: "the size settings should be in the area
+-- of the thing they are resizing"): the reminder icons' Size and Opacity,
+-- then the seal timer's.
+local function AddReminderSizes()
+    local buffs = DBR.BuffWidgets()
+    if #buffs > 0 then
+        AddBuffSizes(buffs)
     end
     local sealWidget = DBR.SealWidget()
     if sealWidget then
-        rows[#rows + 1] = {widget = sealWidget, title = "Seal timer"}
-    end
-    if #rows == 0 then
-        return
-    end
-    Heading("Size and Opacity")
-    for _, row in ipairs(rows) do
-        DBR.toolkit.AddWidgetSettings(category, layout, row.widget, {
-            labels = {scale = row.title .. ": size (%)", opacity = row.title .. ": opacity"},
+        DBR.toolkit.AddWidgetSettings(category, layout, sealWidget, {
+            labels = {scale = "Seal timer: size", opacity = "Seal timer: opacity"},
         })
     end
 end
@@ -289,27 +333,129 @@ local function AddCombatAspect(aspectSwitch, key)
     Nest(dropdown, switch, function() return CombatOn() and saved.soundOn end)
 end
 
--- Consumables (Part B): Enable, then Ammo and its Warn at.
+-- Consumables (Part B), for a class with any (DBR.CONSUMABLES): Enable, then
+-- Ammo and its Warn at (bow, gun, and crossbow classes), then each reagent
+-- whose spell you know at login, with its own Warn at.
+local function AddReagent(reagent, master)
+    local key = reagent.key
+    local saved = DBR.db.consumables
+    local items = {}
+    for _, rank in ipairs(reagent.ranks) do
+        items[#items + 1] = rank.name
+    end
+    local on = Settings.RegisterProxySetting(category, "DBR_REAGENT_" .. key:upper(), Settings.VarType.Boolean,
+        reagent.label .. " reagent", true, function() return saved.reagents[key].on end,
+        function(value)
+            saved.reagents[key].on = value == true
+            DBR.RefreshConsumables()
+        end)
+    local switch = Settings.CreateCheckbox(category, on,
+        "How many you carry of the reagent your highest rank of " .. reagent.label .. " uses ("
+            .. table.concat(items, ", ") .. "), also in combat. The count turns red and pulses at or below Warn "
+            .. "at; at 0 it shows as missing.")
+    local range = reagent.warn
+    local warn = Settings.RegisterProxySetting(category, "DBR_REAGENT_WARN_" .. key:upper(), Settings.VarType.Number,
+        "Warn at", range.default, function() return saved.reagents[key].warn end,
+        function(value)
+            saved.reagents[key].warn = DBR.SanitizeReagentWarn(reagent, value)
+            DBR.RefreshConsumables()
+        end)
+    local slider = Settings.CreateSlider(category, warn, SliderOptions(range.min, range.max, range.step),
+        "The " .. reagent.label .. " reagent count that turns red and pulses.")
+    if type(DBR.toolkit.AddDefaultTick) == "function" then
+        DBR.toolkit.AddDefaultTick(slider, range)
+    end
+    Nest(switch, master, function() return saved.enabled end)
+    Nest(slider, switch, function() return saved.enabled and saved.reagents[key].on end)
+end
+
 local function AddConsumablesSection()
+    local list = DBR.ClassConsumables()
+    if not list then
+        return
+    end
     Heading("Consumables")
     local saved = DBR.db.consumables
     local master = Flag("DBR_CONSUMABLES_ENABLED", "Enable", "consumables", "enabled", true,
-        "Show what your class's abilities use up, also in combat: for now, your ammo.", DBR.RefreshConsumables)
-    local ammoSwitch = Flag("DBR_CONSUMABLE_AMMO", "Ammo", "consumables", "ammo", true,
-        "With a bow, crossbow, or gun in your ranged slot: your equipped arrows or bullets and how many are left. "
-            .. "The count turns red and pulses at or below Warn at; out of ammo, or none equipped, it shows as "
-            .. "missing.", DBR.RefreshConsumables)
-    Nest(ammoSwitch, master, function() return saved.enabled end)
-    local warn = Settings.RegisterProxySetting(category, "DBR_AMMO_WARN", Settings.VarType.Number, "Warn at",
-        DBR.DEFAULT_AMMO_WARN, function() return saved.ammoWarn end,
+        "Show what your class's abilities use up, also in combat: your ammo or reagents.", DBR.RefreshConsumables)
+    if list.ammo then
+        local ammoSwitch = Flag("DBR_CONSUMABLE_AMMO", "Ammo", "consumables", "ammo", true,
+            "With a bow, crossbow, or gun in your ranged slot: your equipped arrows or bullets and how many are "
+                .. "left. The count turns red and pulses at or below Warn at; out of ammo, or none equipped, it "
+                .. "shows as missing.", DBR.RefreshConsumables)
+        Nest(ammoSwitch, master, function() return saved.enabled end)
+        local warn = Settings.RegisterProxySetting(category, "DBR_AMMO_WARN", Settings.VarType.Number, "Warn at",
+            DBR.DEFAULT_AMMO_WARN, function() return saved.ammoWarn end,
+            function(value)
+                saved.ammoWarn = DBR.SanitizeAmmoWarn(value)
+                DBR.RefreshConsumables()
+            end)
+        local slider = Settings.CreateSlider(category, warn,
+            SliderOptions(DBR.AMMO_WARN_MIN, DBR.AMMO_WARN_MAX, DBR.AMMO_WARN_STEP),
+            "The ammo count that turns red and pulses.")
+        Nest(slider, ammoSwitch, function() return saved.enabled and saved.ammo end)
+    end
+    for _, reagent in ipairs(list.reagents or {}) do
+        if DBR.ReagentRank(reagent) then
+            AddReagent(reagent, master)
+        end
+    end
+    -- Its own Size and Opacity here, where you look for them (author).
+    DBR.toolkit.AddWidgetSettings(category, layout, DBR.ConsumablesWidget(), {
+        labels = {scale = "Consumables: size", opacity = "Consumables: opacity"},
+    })
+end
+
+-- A buff's own "remind before it runs out" (Buffs.lua's lead), under its
+-- switch, with the toolkit's gold default mark where the toolkit offers it.
+local function AddBuffLead(reminder, buffSwitch)
+    local key, range = reminder.key, reminder.lead
+    local setting = Settings.RegisterProxySetting(category, "DBR_LEAD_" .. key:upper(), Settings.VarType.Number,
+        "Remind before it runs out (sec)", range.default,
+        function() return DBR.db.leads[key] end,
         function(value)
-            saved.ammoWarn = DBR.SanitizeAmmoWarn(value)
-            DBR.RefreshConsumables()
+            DBR.db.leads[key] = DBR.SanitizeBuffLead(reminder, value)
+            DBR.RefreshReminders()
         end)
-    local slider = Settings.CreateSlider(category, warn,
-        SliderOptions(DBR.AMMO_WARN_MIN, DBR.AMMO_WARN_MAX, DBR.AMMO_WARN_STEP),
-        "The ammo count that turns red and pulses.")
-    Nest(slider, ammoSwitch, function() return saved.enabled and saved.ammo end)
+    local slider = Settings.CreateSlider(category, setting, SliderOptions(range.min, range.max, range.step),
+        "Show " .. reminder.label .. "'s icon this many seconds before it runs out, in and out of combat, so you "
+            .. "can recast it in time; its border turns yellow and flashes.")
+    if type(DBR.toolkit.AddDefaultTick) == "function" then
+        DBR.toolkit.AddDefaultTick(slider, range)
+    end
+    Nest(slider, buffSwitch, function() return DBR.db.enabled and DBR.db.spells[key] end)
+end
+
+-- The shared "Remind before a buff runs out", in percent of each buff's own
+-- length (author), for every buff without its own lead.
+local function AddSharedLead(master, Enabled)
+    local lead = Settings.RegisterProxySetting(category, "DBR_LEAD", Settings.VarType.Number,
+        "Remind before a buff runs out", DBR.DEFAULT_LEAD,
+        function() return DBR.db.leadPercent end,
+        function(value)
+            DBR.db.leadPercent = DBR.SanitizeLead(value)
+            DBR.RefreshReminders()
+        end)
+    local leadSlider = Settings.CreateSlider(category, lead, SliderOptions(DBR.LEAD_MIN, DBR.LEAD_MAX, 1, true),
+        "Warn this share of a buff's own length before it runs out: its border turns yellow and flashes, so you "
+            .. "can recast it in time. 10% of a 30-minute buff is 3 minutes. 0 warns only once it is gone, with "
+            .. "a red border, also in combat.")
+    if type(DBR.toolkit.AddDefaultTick) == "function" then
+        DBR.toolkit.AddDefaultTick(leadSlider, {min = DBR.LEAD_MIN, max = DBR.LEAD_MAX, default = DBR.DEFAULT_LEAD})
+    end
+    Nest(leadSlider, master, Enabled)
+end
+
+-- A buff switch's tooltip: what it shows, and for a tank buff whom it watches.
+local function BuffTooltip(reminder)
+    local text = "Show " .. reminder.label .. ": red border while it is missing, yellow and flashing before it "
+        .. "runs out, also in combat. Click it to cast it."
+    -- A tank buff: the key points only (author); README has the rest.
+    if reminder.tank then
+        return "Maintains " .. reminder.label .. " on you, or on the group's Tank if there is one. Red when "
+            .. "it's missing, yellow before it runs out."
+    end
+    return text
 end
 
 local function GroupTooltip(reminder)
@@ -322,7 +468,8 @@ local function GroupTooltip(reminder)
         end
     end
     local text = "Also remind you when a " .. who .. " lacks " .. reminder.label
-        .. ". The icon shows how many, and its tooltip who."
+        .. ". The icon shows how many, and its tooltip who. Your group is checked out of combat only: in a "
+        .. "fight it shows only your own."
     if #versions > 0 then
         text = text .. " With two or more missing, a click casts " .. versions[1]
             .. " if you know it and carry its reagent."
@@ -340,7 +487,8 @@ function DBR.InitializeOptions()
     end
     Heading("Reminders")
     local master = Flag("DBR_ENABLED", "Enable", nil, "enabled", true,
-        "An icon with a pulsing border for each buff you lack, out of combat. Click it to cast the buff.",
+        "An icon for each of your buffs: red border while it is missing, yellow and flashing before it runs "
+            .. "out, also in combat. Click it to cast the buff.",
         function()
             DBR.RefreshReminders()
             DBR.RefreshSeal()
@@ -349,13 +497,21 @@ function DBR.InitializeOptions()
     for _, reminder in ipairs(DBR.ClassReminders()) do
         local key = reminder.key
         local buff = Flag("DBR_BUFF_" .. key:upper(), reminder.label, "spells", key, reminder.on,
-            "Show an icon with a pulsing border while you lack " .. reminder.label .. ", out of combat.",
-            DBR.RefreshReminders)
+            BuffTooltip(reminder), DBR.RefreshReminders)
         Nest(buff, master, Enabled)
         if reminder.group then
             local group = Flag("DBR_GROUP_" .. key:upper(), reminder.label .. ": also your group", "groups", key,
                 true, GroupTooltip(reminder), DBR.RefreshReminders)
             Nest(group, buff, function() return DBR.db.enabled and DBR.db.spells[key] end)
+        end
+        if reminder.lead then
+            AddBuffLead(reminder, buff)
+        end
+        if reminder.tankOnly then
+            local always = Flag("DBR_ALWAYS_" .. key:upper(), "Always show " .. reminder.label, "alwaysShow", key,
+                false, "Show " .. reminder.label .. " even when you are not tanking. Without this it shows only "
+                    .. "with the Tank role in your group, or with its improved talent.", DBR.RefreshReminders)
+            Nest(always, buff, function() return DBR.db.enabled and DBR.db.spells[key] end)
         end
         if reminder.combatAspect and DBR.CombatAspectWidget() then
             AddCombatAspect(buff, key)
@@ -368,20 +524,17 @@ function DBR.InitializeOptions()
             DBR.RefreshSeal)
         Nest(sealSwitch, master, Enabled)
     end
-    local lead = Settings.RegisterProxySetting(category, "DBR_LEAD", Settings.VarType.Number,
-        "Remind before a buff runs out (seconds)", DBR.DEFAULT_LEAD,
-        function() return DBR.db.lead end,
-        function(value)
-            DBR.db.lead = DBR.SanitizeLead(value)
-            DBR.RefreshReminders()
-        end)
-    local leadSlider = Settings.CreateSlider(category, lead, SliderOptions(DBR.LEAD_MIN, DBR.LEAD_MAX, 1),
-        "Show the icon this many seconds before a buff on you or your group runs out, so you can recast it in "
-            .. "time. 0 shows it when the buff is gone. Out of combat only: a buff that runs out in a fight "
-            .. "shows after it.")
-    Nest(leadSlider, master, Enabled)
+    -- The shared lead only where a buff uses it (author: a Warrior's Battle
+    -- Shout has its own, so a second slider would do nothing); db.leadPercent stays.
+    local shared = false
+    for _, reminder in ipairs(DBR.ClassReminders()) do
+        shared = shared or not reminder.lead
+    end
+    if shared then
+        AddSharedLead(master, Enabled)
+    end
+    AddReminderSizes()
     AddConsumablesSection()
-    AddSizesSection()
     AddChimesSection()
     AddProcsSection()
 end

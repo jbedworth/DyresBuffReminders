@@ -67,10 +67,8 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
 - Combat aspect (author, 1.1.0): a secure button
   (`DyresBuffRemindersCombatAspect`) that is no widget of its own (author:
   to the player "this should behave like 1 widget"): parented to UIParent
-  (the bar's driver hides the bar in combat) and anchored, out of combat, to
-  My buffs' Aspect slot (LEFT, slot x (40 + 8)), or the bar's start edge
-  when the Aspect reminder is off; it takes the bar's scale (the widget's
-  onLayout) and opacity (onOpacity). No sample when unlocked: the Aspect slot
+  and anchored, out of combat, CENTER on the Aspect widget, above its aura
+  slot; it takes that widget's scale (onLayout) and opacity (onOpacity). No sample when unlocked: the Aspect slot
   is the one to drag. `db.combatAspect` keeps only enabled, soundOn, and
   sound (a pre-release's place, scale, and opacity are dropped). Its switch
   works with the Aspect reminder off. Armed out of combat only: while
@@ -82,6 +80,18 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   to 0.4 and stops the pulse, never alpha 0 (invisible frames must not take
   clicks). Optional sound at `PLAYER_REGEN_DISABLED` (Dyre's Sounds, its
   own switch, default "talent"). Nothing changes secure state in combat.
+  Warrior (author, 1.2.0): Battle Shout (others, so Group buffs; watched on
+  you; 6673, 5242, 6192, 11549, 11550, 11551, 25289). Its own lead
+  (Buffs.lua `lead`, author: "I usually don't let BS get below 1 min"):
+  5-120 s, step 5, default 60, saved in `db.leads`; any reminder with
+  `lead` gets this setting under its switch, the rest use the shared one.
+  No in-combat timing (author, after a probe: "let's go back to the somewhat
+  simpler solution"): AddOns cannot see a buff drop in combat. Found in
+  client: the engine's slot frame is forbidden to AddOn code then (IsShown
+  errors on it, though IsForbidden says false), and a buff cannot be read by
+  spell ID then (aura probe: Mark of the Wild and Thorns turn secret,
+  `ShouldSpellAuraBeSecret` true, `GetPlayerAuraBySpellID` returns
+  nothing). Never touch the engine's slot frames outside initializeFrame.
   Warlock: Demon Armor
   (Demon Skin counts; recasts the last used, else Demon Armor, Demon Skin).
   Druid: Mark of the Wild (group, everyone; Gift of the Wild ranks with Wild
@@ -99,20 +109,72 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   the group frames' range re-checks at once; a tank between 30 and 40 yards
   is re-checked at the next aura, roster, role, or combat-end event. Out of combat only, so `PLAYER_ROLES_ASSIGNED`,
   `ROLE_CHANGED_INFORM`, and roster changes in combat apply after it. The
-  tooltip says "Thorns: on you" or "on <name>". Priest: Power Word: Fortitude
+  tooltip says "Thorns: on you" or "on <name>". The click's unit is the
+  tank's token (`party2`), set out of combat: a roster change in combat can
+  shift the token to another player until combat ends (documented to the
+  player). A name instead was not taken: `CastSpellByName` is a legacy
+  global, not in the pinned generated docs, so whether its unit accepts a
+  name cannot be confirmed from source, and names can be secret. While the
+  watched tank has it (author, 1.2.0, "Go with A"): the slot draws only your
+  own buffs, so our icon shows above it with the tank's time left (a
+  cooldown set out of combat), no border, armed to recast on the tank
+  (`TankAction`, with /cancelform); yellow from the lead and red at the
+  tank's known end, by alpha, also in combat; a recast on the targeted tank
+  in combat restarts both. A dispel on the tank in combat is not seen until
+  after. The Thorns switch's tooltip keeps to the key points (author: "Maintains
+  Thorns on you or the designated group Tank"); README and this file hold
+  the rest. Priest: Power Word: Fortitude
   (group, everyone; Prayer of Fortitude ranks with Holy or Sacred Candles),
   Inner Fire (self), Divine Spirit (off; group, mana users; Prayer of Spirit),
   Shadow Protection (off; group, everyone; Prayer of Shadow Protection).
-  Paladin: Righteous Fury (25780, self). Ask the author before changing
+  Paladin: Righteous Fury (25780, self; author, 1.2.0: a long buff shown only for
+  a tank, `tankOnly`: the Tank role via `UnitGroupRolesAssigned` (secret or
+  missing counts as no), Improved Righteous Fury (`IsSpellKnown` on Classic
+  20468-20470, or a point in a talent whose spell name holds the buff's
+  name, from the active C_Traits config: node `activeRank`, entry,
+  definition `spellID`, so a renumbered ID or another language still finds
+  it; confirmed in client on a prot Paladin), or the per-character "Always
+  show Righteous Fury" (`db.alwaysShow`, off); re-checked on roles, roster,
+  `PLAYER_TALENT_UPDATE`, `TRAIT_CONFIG_UPDATED`, and `SPELLS_CHANGED`, out of
+  combat; the talent names are read again only after those events or
+  `PLAYER_ENTERING_WORLD`). Ask the author before changing
   defaults.
-- Running out (author-approved, for every buff, also group members'): the
-  icon also shows while a buff has at most `db.lead` seconds left (default
-  5, 0-30, a slider; 0 shows it only once gone), from the aura's
-  `expirationTime` read out of combat. One `C_Timer.After` timer, tokened so
-  a newer refresh makes older ones do nothing, refreshes when the earliest
-  buff reaches the lead time; no polling. A secret or missing end time
-  counts as on. In combat nothing changes; a buff that ran out shows after.
-  The tooltip splits "Missing" from "Running out".
+- Running out (author, 1.2.0: "For a buff that lasts 30-60 min, a 0-60
+  second reminder might need a bigger window"; for every buff, also group
+  members'): a buff runs out while it has at most `db.leadPercent` percent
+  of its own length left (0-20, default 10, a slider with the toolkit's
+  default mark, its value as "10%"; no end labels, found in client: the
+  pinned MinimalSlider's Min and Max labels crowded the next row; 0 warns
+  only once gone). Labels whose value shows "%" carry no "(%)" (author:
+  "everything looks consistent"), and DBR's own percent sliders show "%" as
+  the toolkit's do. The length is the aura's `duration`
+  read out of combat, per unit and rank, else Buffs.lua's `duration`, else
+  it counts as running out at once. A buff with its own `lead` (Battle
+  Shout) keeps that in seconds. 1.1.0's `db.lead` (seconds) is dropped; the
+  percent starts at its default. From the aura's `expirationTime` read out of
+  combat; one `C_Timer.After` timer, tokened so a newer refresh makes older
+  ones do nothing, refreshes when the earliest buff reaches the lead time;
+  no polling. A secret or missing end time counts as on. The tooltip splits
+  "Missing" from "Running out".
+- Borders (author: "our 'watcher' should give a red outline if it's at 0
+  (or down), a yellow flashing if it's in the warning window, otherwise, no
+  border"): red (1, 0.2, 0.2), steady, on our icon while the buff is missing,
+  also while it waits under the slot, so it shows the moment the slot goes;
+  none while ours is raised and only running out. Yellow (1, 1, 0), flashing
+  (Alpha, BOUNCE), on a plain frame above the slot (and above our raised
+  icon, below the combat aspect button), no mouse, shown by alpha only, so it
+  changes in combat: from the lead until the known end of the watched unit's
+  buff (yours, or the tank's), one tokened `C_Timer` per edge; at the end it
+  goes, and the red one under the slot shows. Out of combat a group
+  member's running out turns it on until the next refresh; anyone missing it
+  makes it red instead. In combat your own cast (`UNIT_SPELLCAST_SUCCEEDED`,
+  readable then) restarts the time, with the last read's length, else
+  `duration`: a group version, a `castOnYou` buff (Battle Shout), or a
+  self-only buff always; a single-target one when it went on the timed unit
+  (the event names no target: you, with no target, yourself targeted, or a
+  target you cannot help; another unit, when it is your target; a secret
+  answer counts as not). The combat aspect button keeps its pulsing gold
+  border; the seal timer and ammo are unchanged.
 - Druid forms (author-approved): buffs with `cancelForm` (Mark of the Wild,
   Thorns) click as a `macrotext` "/cancelform" then "/use [@unit] Name"
   while any form is active (`GetShapeshiftFormInfo`, refreshed on
@@ -120,8 +182,7 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   (`C_Spell.GetSpellSubtext`) for its reagent. Going back into the form
   cannot be automatic: casts need a hardware press and the form waits for
   the global cooldown.
-- One icon per buff, shown only while the buff is missing, with a solid gold
-  border that pulses (an Alpha animation, BOUNCE). Group buffs (a switch each,
+- One icon per buff, with the borders above. Group buffs (a switch each,
   on by default) count party or raid members, skipping dead, offline, or
   out-of-sight members, and for mana buffs warriors and rogues; the icon
   shows the count and its tooltip who.
@@ -136,10 +197,35 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   picture is always the spell its click casts (author), also unlocked: the
   action's spell, else the spell a click would cast now.
 - Aura APIs refuse AddOn code in combat, so DBR reads auras only out of
-  combat. Secure icons change only out of combat, so each bar is hidden for
-  combat by `RegisterStateDriver(bar, "visibility", "[combat] hide; show")`;
-  changes asked for in combat wait for `PLAYER_REGEN_ENABLED`. After a reload
-  in combat, the bars and icons are created only when combat ends.
+  combat. Secure icons change only out of combat; changes asked for in
+  combat wait for `PLAYER_REGEN_ENABLED`. After a reload in combat, the
+  widgets and icons are created only when combat ends.
+- Design rule (author, 1.2.0: "there is a difference between how short
+  duration/situational and long duration buffs should behave"): short or
+  situational buffs (the seal timer, Battle Shout) show only when needed or
+  ticking; long buffs (Mark of the Wild, Thorns, Arcane Intellect, armors,
+  Fortitude, and the like) are always shown, drawn by the engine while up,
+  with our reminder when missing. In Buffs.lua, `combatWindow = true` marks a
+  short buff (only Battle Shout now): its slot is transparent out of combat
+  and its icon hidden while up outside its lead; in combat DBR's own timer
+  (expiry from the last out-of-combat read, reset by your own cast,
+  `duration` 120 without a read) opens it at the lead, by alpha. A drop in
+  combat shows at the window time (author: accepted for Battle Shout). The
+  seal timer is its own design, unchanged.
+- Always shown (author, 1.2.0: "If it's always there, it might not be as
+  jarring"): each buff widget has a Blizzard AuraContainer slot (player
+  only, every rank and group-version ID as `includeSpellIDs`, set up only in
+  initializeFrame, no mouse, no duration text or bar), visible in and out of
+  combat, that draws the buff while it is up. Our icon is always shown while
+  the buff is known and switched on (not dead, not on a taxi), its red
+  border inside the icon so the slot covers it whole. Out of combat, DBR
+  sets its level: under the slot while the buff is up on everyone (armed to
+  recast it on you, `ArmedAction`, a Druid's with /cancelform), above it
+  while anyone lacks it or yours runs out (smart click, countdown). In
+  combat our icon's level does not change: when a buff drops the engine
+  hides its slot and the red-bordered icon shows through. A state above the slot at combat start
+  stays until combat ends. Without the container, up buffs' icons hide, as
+  before 1.2.0.
 - No reminders on a flight path (author: one you cannot act on is noise):
   `UnitOnTaxi("player")` (pinned UnitDocumentation.lua:2570; secret or
   missing counts as no) hides the icons like being dead, re-checked on
@@ -149,27 +235,19 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   can dismount). The Consumables bar stays (information).
 - Events in bursts (`UNIT_AURA` from a group buff) refresh once, 0.2 s after
   the first; only the player's, party, and raid units' auras count.
-- The icons sit in two bars (author-approved, 1.1.0): "Group buffs"
-  (`DyresBuffRemindersGroupBuffs`: every buff that can go on another player,
-  Buffs.lua's `group` or `others`, so also Thorns, which watches one unit;
-  author) and "My buffs"
-  (`DyresBuffRemindersMyBuffs`, the rest); a bar the class has no reminder
-  for is not made. Each bar is a toolkit widget (`CreateWidget`, keys
-  `groupbuffs` and `mybuffs`, store `db.bars.<key>`, Size 50-200% in 10%
-  steps and Opacity, mouse "unlocked"). A bar's size is the icons this
-  character can show (known and switched on), 40 wide, 8 apart; it changes
-  out of combat only, from its left edge (`SetContentSize(w, h, "LEFT")`),
-  on `SPELLS_CHANGED` and the switches (found in client: counting the
-  class's every icon left an empty slot for an unknown or switched-off
-  buff). A bar with none is hidden (`hide` driver), also unlocked. Unlocked,
-  every countable icon shows, the buffs that are on dimmed (alpha 0.4, no
-  pulse), so every slot holds an icon (author: "render unlocked at the
-  bar-full"). Locked, the missing ones pack in from the left edge, in
-  Buffs.lua's order; the bar takes no mouse, so its empty part is
-  click-through. Each icon is a drag handle (`AddDragHandle`). Defaults:
-  group 180 and my 130 above the center. The 1.0.0 per-icon places (`db.icons`) are
-  dropped on load: no bar can take them. No grow-direction setting yet
-  (author).
+- Each buff is its own toolkit widget (author, 1.2.0), like the seal timer:
+  `DyresBuffRemindersBuff_<key>`, key `buff_<key>`, its own store
+  `db.buffs[key]` (toolkit owner: one store per widget, for 2.3.0 stacks),
+  40x40, mouse "unlocked", the icon a drag handle. Its place never changes
+  on its own (author: "I don't want the bars to change order or position").
+  A buff not known or switched off hides its holder; otherwise the holder
+  stays shown and only its icon hides. Defaults: two rows, 20 apart (the
+  toolkit's snap gap): buffs that can go on another player (Buffs.lua's
+  `group` or `others`) at 180 above the center, self buffs at 130. 1.1.0's
+  bar places (`db.bars`) seed each buff's place once (bar center plus its
+  slot, with the bar's scale), then are dropped. One "Reminder icons" Size and
+  Opacity for all, set on every buff widget, with "Reset size". Toolkit
+  2.3.0 stacks (Alt to detach) are planned for these and the seal widget.
 
 ### The seal timer (built; author-approved)
 
@@ -204,8 +282,13 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
 
 ### Consumables: ammo (built, 1.1.0; author-approved, Part B's first item)
 
-- Any character with a Bow, Crossbow, or Gun in the ranged slot (author: not
-  by class): `C_Item.GetItemInfoInstant` on `GetInventoryItemID("player",
+- By class since 1.2.0 (author: "only classes that could equip a ranged
+  weapon that requires ammo should see that"): `DBR.CONSUMABLES[class]`,
+  data that picks the list as Buffs.lua does, `ammo = true` for Hunter,
+  Warrior, and Rogue. A class with no entry gets no Consumables bar, no
+  unlocked sample, and no Consumables or size rows.
+- With a Bow, Crossbow, or Gun in the ranged slot:
+  `C_Item.GetItemInfoInstant` on `GetInventoryItemID("player",
   INVSLOT_RANGED)`, classID 2 and subclass Bows 2, Guns 3, Crossbow 18
   (pinned ItemConstantsDocumentation.lua). Thrown 16, Wand 19, or none: no
   slot. Bows and crossbows take arrows, guns bullets.
@@ -228,9 +311,39 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   at 0; else a gold border. Updates on
   `BAG_UPDATE_DELAYED`, `UNIT_INVENTORY_CHANGED` (player), and
   `PLAYER_EQUIPMENT_CHANGED`, also in combat (no secure parts).
-- Settings: a "Consumables" section: Enable (`DBR_CONSUMABLES_ENABLED`),
-  Ammo (`DBR_CONSUMABLE_AMMO`), Warn at (`DBR_AMMO_WARN`); not tied to the
+- Settings: a "Consumables" section, for a class with an entry: Enable
+  (`DBR_CONSUMABLES_ENABLED`), Ammo (`DBR_CONSUMABLE_AMMO`), Warn at
+  (`DBR_AMMO_WARN`) for an ammo class, then each reagent; not tied to the
   Reminders switch.
+
+### Consumables: reagents (built, 1.2.0; author-approved: "In")
+
+- `DBR.CONSUMABLES[class].reagents`: {key, label, warn = {min, max, step,
+  default}, ranks = {{spell, item, name}...}}, general for any class, only
+  DRUID now. Rebirth (20484, 20739, 20742, 20747, 20748: Maple 17034,
+  Stranglethorn 17035, Ashwood 17036, Hornbeam 17037, Ironwood 17038 Seed;
+  Warn at 0-10, default 2, author) and Gift of the Wild (21849 Wild Berries
+  17021, 21850 Wild Thornroot 17026; 0-40, default 5; not on Forever before
+  launch, so data only: it shows once known). Classic IDs, not in the
+  pinned source; `/dbr debug` prints each rank's spell and item names to
+  confirm them (found in client: all seven spell IDs and Rebirth R1-R2's
+  seeds resolve). An item the client has not loaded reads "(not cached,
+  loading)": DBR asks for it (`C_Item.RequestLoadItemDataByID`) and prints
+  its name on `ITEM_DATA_LOAD_RESULT`, or that the ID is wrong when the load
+  fails; an unknown spell's summary reads "rank=not known". The counter and
+  tooltip never need the item's name (the data's name is the fallback).
+- The highest rank known (`C_SpellBook.IsSpellKnown`, re-read on
+  `SPELLS_CHANGED`) picks the item; none known, nothing. Count:
+  `C_Item.GetItemCount`, a secret or missing answer keeps the last readable
+  count for that item. As ammo: red count and red pulsing border at or below
+  Warn at, greyed at 0, gold and white otherwise; hover-only tooltip with
+  the item's name, "N left; warns at W.", and "For Rebirth (Rank N).".
+- The same Consumables bar: ammo first, then each reagent, 10 apart, the bar
+  as wide as its shown icons (`SetContentSize`, anchored LEFT), hidden with
+  none. Saved in `db.consumables.reagents[key] = {on, warn}`, repaired for
+  every class's reagents. Settings: "<label> reagent" (`DBR_REAGENT_<KEY>`)
+  and its Warn at (`DBR_REAGENT_WARN_<KEY>`, the toolkit's default mark),
+  for each reagent whose spell is known when the page is built (at login).
 
 ### Cooldown chimes (built; merged from DCC)
 
@@ -286,7 +399,13 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   on, sound. Warlock Nightfall (Shadow Trance 17941, off, sound impspell, as
   WTF); Mage Clearcasting 12536 (off: author, the game plays a sound for it);
   Druid Clearcasting 16870 (off, same reason) and Nature's Grace 16886 (on);
-  Shaman Clearcasting 16246 (off); Warrior Flurry 12966-12970 (off). No source
+  Shaman Clearcasting 16246 (off); Warrior Flurry 12966-12970 (off).
+  Reactive (author, 1.2.0): Warrior Overpower 7384 and Revenge 6572 (on),
+  not buffs: DBR plays their sound itself when `C_Spell.IsSpellUsable`
+  (by name, so every rank) turns true on `SPELL_UPDATE_USABLE`, also in
+  combat (readable then: found in client with the probe), at most once per 3
+  seconds each (rage makes the answer flicker); a secret answer is skipped.
+  Any Dyre's Sounds sound (no aura filter). No source
   confirmed these on Forever (ForeverAuras lists only spells the author has
   had; TalentsForeverBook says Forever changed Nightfall, Nature's Grace, and
   Flurry): an ID is used only when `C_Spell.GetSpellName` names it the buff,
@@ -303,7 +422,7 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   older WTF whose Nightfall is on while DBR's is on too, DBR warns once at
   login (naming only CurseForge to update) and keeps playing, as it treats
   older MTF and WTF chimes (author's rule, chosen for consistency).
-- Settings: a "Procs" section (switch "Enable", `DBR_PROCS_ENABLED`) after the chimes, for a class with
+- Settings: a "Proc Chimes" section (author: renamed from "Procs") (switch "Enable", `DBR_PROCS_ENABLED`) after the chimes, for a class with
   procs: Enable, then one row per proc (switch and sound, aura filter),
   with the same two-row fallback as the chimes.
 
@@ -359,9 +478,11 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   `DyresBuffRemindersDB`), under the heading "Reminders" (author: the page is
   already "Buff Reminders"): Enable (`DBR_ENABLED`), one switch per class buff with its
   group switch nested under it, Seal timer (Paladins), Remind before a buff
-  runs out (seconds); then "Size and Opacity": each widget's Size and Opacity
-  sliders and "Reset size" (the toolkit's `AddWidgetSettings`, labelled
-  "Group buffs: size (%)" and so on; the toolkit's "Dyre's AddOns" page has
+  runs out, then the sizes (author: "the size settings should be in
+  the area of the thing they are resizing"; no shared "Size and Opacity"
+  section): "Reminder icons: size" and opacity for every buff widget,
+  "Reset size", then the toolkit's `AddWidgetSettings` for the seal; the
+  Consumables bar's are at the end of its own section; the toolkit's "Dyre's AddOns" page has
   the one unlock switch and grid); then a
   "Chimes" section: Enable (`DBR_CHIMES_ENABLED`), Chime early (seconds), and one
   row per class spell (author-approved): its switch and Sound dropdown on
@@ -372,7 +493,7 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   With an older Dyre's Sounds (no `SetupCheckboxMenu`) or a client without
   that initializer, the switch, then its dropdown on its own row nested under
   it (`SetupMenu`). The settings and saved keys are the same either way. Then
-  the "Procs" section (see above). Section headings appear where the
+  the "Proc Chimes" section (see above). Section headings appear where the
   client has
   `CreateSettingsListSectionHeaderInitializer`.
 
@@ -397,7 +518,7 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
 - README.md is the user-facing overview, TESTING.md the verification method,
   source evidence, unverified IDs, and in-client checklist,
   docs/RELEASE_PLAN.md the release process, docs/CURSEFORGE_LISTING.md the
-  CurseForge form text, and CHANGELOG.md the per-release change list.
+  CurseForge form text, docs/CLASS_COVERAGE.md the per-class coverage plan, and CHANGELOG.md the per-release change list.
 - Documentation describes purpose, design, rules, and methodology. Do not add
   dated status reports or test-result logs to the docs; CHANGELOG.md is the
   release record. Keep README's claims true.

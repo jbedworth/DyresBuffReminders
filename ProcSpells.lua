@@ -13,6 +13,13 @@ local _, DBR = ...
 -- of Fury, found in client). None is confirmed in client yet (TESTING.md).
 -- on is the default switch (author: Mage Clearcasting off, the game already
 -- plays a sound for it; Flurry off); sound is a Dyre's Sounds file sound.
+--
+-- reactive: not a buff but an ability that becomes usable for a moment
+-- (Overpower after a dodge, Revenge after a block, dodge, or parry; author:
+-- "Warrior is missing ... Overpower and Revenge procs"). Its Classic rank 1
+-- ID; asked for by name, so your highest rank counts. C_Spell.IsSpellUsable
+-- is readable in combat (found in client with /dbr probe), so DBR plays the
+-- sound itself when the ability turns usable, any sound Dyre's Sounds has.
 DBR.PROC_SOUNDS = {
     -- Nightfall (talent): Shadow Trance, your next Shadow Bolt is instant.
     -- Off by default, as in WTF (author-approved: many players use it, others
@@ -41,5 +48,7 @@ DBR.PROC_SOUNDS = {
     WARRIOR = {
         {key = "flurry", label = "Flurry", buff = "Flurry", spells = {12966, 12967, 12968, 12969, 12970},
             on = false},
+        {key = "overpower", label = "Overpower", reactive = 7384, on = true, sound = "talent"},
+        {key = "revenge", label = "Revenge", reactive = 6572, on = true, sound = "magical"},
     },
 }

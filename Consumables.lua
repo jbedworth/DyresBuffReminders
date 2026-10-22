@@ -1,9 +1,12 @@
 local addonName, DBR = ...
 
--- Class consumables (author-approved, Part B), starting with ammo (author:
--- "an ammo consumable tracker for any ranged weapon equipped that takes
--- ammo"). Not by class: any character with a Bow, Crossbow, or Gun in the
--- ranged slot. Thrown weapons and wands take none.
+-- Class consumables (author-approved, Part B): ammo (author: "an ammo
+-- consumable tracker for any ranged weapon equipped that takes ammo") and,
+-- 1.2.0, reagents (author: a Druid's Rebirth seed). The class picks the list
+-- (DBR.CONSUMABLES, data as Buffs.lua; author: "only classes that could
+-- equip a ranged weapon that requires ammo should see that"); a class with
+-- none has no Consumables bar or settings. Ammo also needs a Bow, Crossbow,
+-- or Gun in the ranged slot; thrown weapons and wands take none.
 --
 -- The count is the equipped ammo slot's (GetInventoryItemCount on slot 0, the
 -- total of that ammo across your bags). It and GetInventoryItemID are legacy
@@ -18,7 +21,32 @@ local addonName, DBR = ...
 DBR.AMMO_WARN_MIN, DBR.AMMO_WARN_MAX, DBR.AMMO_WARN_STEP = 0, 1000, 50
 DBR.DEFAULT_AMMO_WARN = 200
 
+-- ammo: the class can equip a bow, gun, or crossbow (Classic: Hunter,
+-- Warrior, Rogue). reagents: per spell, the item each rank uses (Classic
+-- IDs; /dbr debug prints each one's names to confirm them on Forever), the
+-- item's name for its tooltip before the client knows it, and Warn at's
+-- range (author: Rebirth "default to 2, 0-10 range").
+DBR.CONSUMABLES = {
+    HUNTER = {ammo = true},
+    WARRIOR = {ammo = true},
+    ROGUE = {ammo = true},
+    DRUID = {reagents = {
+        {key = "rebirth", label = "Rebirth", warn = {min = 0, max = 10, step = 1, default = 2},
+            ranks = {{spell = 20484, item = 17034, name = "Maple Seed"},
+                {spell = 20739, item = 17035, name = "Stranglethorn Seed"},
+                {spell = 20742, item = 17036, name = "Ashwood Seed"},
+                {spell = 20747, item = 17037, name = "Hornbeam Seed"},
+                {spell = 20748, item = 17038, name = "Ironwood Seed"}}},
+        -- Not on Forever before launch (author): it shows once a rank is known.
+        {key = "giftOfTheWild", label = "Gift of the Wild", warn = {min = 0, max = 40, step = 1, default = 5},
+            ranks = {{spell = 21849, item = 17021, name = "Wild Berries"},
+                {spell = 21850, item = 17026, name = "Wild Thornroot"}}},
+    }},
+}
+
 local ICON_SIZE = 40
+-- Between the bar's icons: their borders stand 4 outside each.
+local ICON_GAP = 10
 local BORDER = 3
 local GOLD = {1, 0.82, 0}
 local RED = {1, 0.2, 0.2}
@@ -44,7 +72,7 @@ local DEFAULT_ICONS = {arrow = "Interface\\Icons\\INV_Ammo_Arrow_02",
 -- Beside My buffs' default place.
 local DEFAULT_POINT = {point = "CENTER", relativePoint = "CENTER", x = 150, y = 130}
 
-local ammo = {}
+local ammo = {icons = {}, reagents = {}}
 
 function DBR.SanitizeAmmoWarn(value)
     if type(value) ~= "number" or value ~= value then
@@ -54,12 +82,46 @@ function DBR.SanitizeAmmoWarn(value)
     return math.max(DBR.AMMO_WARN_MIN, math.min(DBR.AMMO_WARN_MAX, stepped))
 end
 
--- Core calls this from SanitizeDB; the toolkit clamps the sizes.
+-- A reagent's Warn at, stepped and clamped; else its default.
+function DBR.SanitizeReagentWarn(reagent, value)
+    local range = reagent.warn
+    if type(value) ~= "number" or value ~= value then
+        return range.default
+    end
+    local stepped = range.min + math.floor((value - range.min) / range.step + 0.5) * range.step
+    return math.max(range.min, math.min(range.max, stepped))
+end
+
+-- Core calls this from SanitizeDB; the toolkit clamps the sizes. Every
+-- class's reagents keep a setting, as the buffs do.
 function DBR.SanitizeConsumables(saved, sanitizePosition)
     saved = type(saved) == "table" and saved or {}
+    local old = type(saved.reagents) == "table" and saved.reagents or {}
+    local reagents = {}
+    for _, list in pairs(DBR.CONSUMABLES) do
+        for _, reagent in ipairs(list.reagents or {}) do
+            local entry = type(old[reagent.key]) == "table" and old[reagent.key] or {}
+            reagents[reagent.key] = {on = entry.on ~= false, warn = DBR.SanitizeReagentWarn(reagent, entry.warn)}
+        end
+    end
     return {enabled = saved.enabled ~= false, ammo = saved.ammo ~= false,
-        ammoWarn = DBR.SanitizeAmmoWarn(saved.ammoWarn), position = sanitizePosition(saved.position),
-        scale = saved.scale, opacity = saved.opacity}
+        ammoWarn = DBR.SanitizeAmmoWarn(saved.ammoWarn), reagents = reagents,
+        position = sanitizePosition(saved.position), scale = saved.scale, opacity = saved.opacity}
+end
+
+-- Your class's consumables, or nil.
+function DBR.ClassConsumables()
+    return ammo.list
+end
+
+-- The highest rank of the reagent's spell you know, and its number; or nil.
+function DBR.ReagentRank(reagent)
+    for index = #reagent.ranks, 1, -1 do
+        local rank = reagent.ranks[index]
+        if C_SpellBook.IsSpellKnown(rank.spell) == true then
+            return rank, index
+        end
+    end
 end
 
 -- A readable, non-secret number, or nil.
@@ -136,8 +198,8 @@ local function ReadCount()
     return count
 end
 
-local function Pulse(on)
-    local pulse = ammo.icon.pulse
+local function Pulse(icon, on)
+    local pulse = icon.pulse
     if on and not pulse:IsPlaying() then
         pulse:Play()
     elseif not on then
@@ -145,11 +207,20 @@ local function Pulse(on)
     end
 end
 
--- Also in combat: nothing here is secure.
-function DBR.RefreshConsumables()
-    if not ammo.frame then
-        return
-    end
+-- Count and border, as ammo (author): white and gold while fine; red and
+-- pulsing at or below Warn at; greyed, red, and pulsing at 0.
+local function ShowCount(icon, state, count)
+    icon.count:SetText(count and tostring(count) or "?")
+    local color = state == "ok" and WHITE or RED
+    icon.count:SetTextColor(color[1], color[2], color[3])
+    local border = state == "ok" and GOLD or RED
+    icon.glow:SetBackdropBorderColor(border[1], border[2], border[3])
+    icon.texture:SetDesaturated(state == "missing")
+    Pulse(icon, state ~= "ok")
+end
+
+-- Whether the ammo icon shows.
+local function RefreshAmmo()
     local saved = DBR.db.consumables
     local kind = saved.enabled and saved.ammo and AmmoKind() or nil
     ammo.kind = kind
@@ -165,12 +236,10 @@ function DBR.RefreshConsumables()
             icon.texture:SetDesaturated(false)
             icon.glow:SetBackdropBorderColor(GOLD[1], GOLD[2], GOLD[3])
             icon.count:SetText("")
-            Pulse(false)
-            ammo.frame:Show()
-        else
-            ammo.frame:Hide()
+            Pulse(icon, false)
+            return true
         end
-        return
+        return false
     end
     local itemID = InventoryItemID(AMMO_SLOT)
     ammo.itemID = itemID
@@ -194,15 +263,112 @@ function DBR.RefreshConsumables()
         state, ammo.hint = "ok", nil
     end
     ammo.state = state
-    icon.count:SetText(count and tostring(count) or "?")
-    local color = state == "ok" and WHITE or RED
-    icon.count:SetTextColor(color[1], color[2], color[3])
     -- Low or missing: the border (the part that pulses) is red too (author).
-    local border = state == "ok" and GOLD or RED
-    icon.glow:SetBackdropBorderColor(border[1], border[2], border[3])
-    icon.texture:SetDesaturated(state == "missing")
-    Pulse(state ~= "ok")
-    ammo.frame:Show()
+    ShowCount(icon, state, count)
+    return true
+end
+
+-- Whether a reagent's icon shows: with a rank of its spell known (author:
+-- nothing without Rebirth), the item that rank uses and how many you carry.
+-- A missing or secret count keeps the last readable one for that item.
+local function RefreshReagent(entry)
+    local saved = DBR.db.consumables
+    local reagent, icon = entry.reagent, entry.icon
+    local wanted = saved.enabled and saved.reagents[reagent.key].on
+    local rank, index
+    if wanted then
+        rank, index = DBR.ReagentRank(reagent)
+    end
+    entry.rank, entry.rankIndex = rank, index
+    if ammo.hover then
+        icon:SetMouseClickEnabled(not DBR.db.locked)
+    end
+    if not rank then
+        entry.state = nil
+        return false
+    end
+    if entry.item ~= rank.item then
+        entry.item, entry.count = rank.item, nil
+    end
+    local count = type(C_Item) == "table" and type(C_Item.GetItemCount) == "function"
+        and C_Item.GetItemCount(rank.item) or nil
+    if DBR.IsSecret(count) then
+        entry.countState = "secret"
+    elseif type(count) ~= "number" then
+        entry.countState = "missing"
+    else
+        entry.countState, entry.count = "ok", count
+    end
+    count = entry.count
+    local _, _, texture = ItemInfo(rank.item)
+    icon.texture:SetTexture(texture or C_Spell.GetSpellTexture(rank.spell))
+    local state = "ok"
+    if count and count <= 0 then
+        state = "missing"
+    elseif count and count <= saved.reagents[reagent.key].warn then
+        state = "low"
+    end
+    entry.state = state
+    ShowCount(icon, state, count)
+    return true
+end
+
+-- The shown icons side by side from the bar's left edge; the bar as wide as
+-- they are (the toolkit's SetContentSize keeps its left edge), hidden with none.
+local function Layout(shown)
+    local frame = ammo.frame
+    for _, icon in ipairs(ammo.icons) do
+        icon:Hide()
+    end
+    for index, icon in ipairs(shown) do
+        icon:ClearAllPoints()
+        icon:SetPoint("LEFT", frame, "LEFT", (index - 1) * (ICON_SIZE + ICON_GAP), 0)
+        icon:Show()
+    end
+    if #shown > 0 and type(frame.SetContentSize) == "function" then
+        frame:SetContentSize(#shown * ICON_SIZE + (#shown - 1) * ICON_GAP, ICON_SIZE, "LEFT")
+    end
+    frame:SetShown(#shown > 0)
+end
+
+-- Also in combat: nothing here is secure.
+function DBR.RefreshConsumables()
+    if not ammo.frame then
+        return
+    end
+    local shown = {}
+    if ammo.icon and RefreshAmmo() then
+        shown[#shown + 1] = ammo.icon
+    end
+    for _, entry in ipairs(ammo.reagents) do
+        if RefreshReagent(entry) then
+            shown[#shown + 1] = entry.icon
+        end
+    end
+    Layout(shown)
+end
+
+local function ItemName(rank)
+    local name = type(C_Item) == "table" and type(C_Item.GetItemNameByID) == "function"
+        and C_Item.GetItemNameByID(rank.item) or nil
+    return (type(name) == "string" and not DBR.IsSecret(name)) and name or rank.name
+end
+
+local function ShowReagentTooltip(icon)
+    local entry = icon.entry
+    local rank = entry.rank
+    GameTooltip:SetOwner(icon, "ANCHOR_TOP")
+    GameTooltip:SetText(rank and ItemName(rank) or entry.reagent.label, GOLD[1], GOLD[2], GOLD[3])
+    if not DBR.db.locked then
+        GameTooltip:AddLine("Drag to move the Consumables bar.", 1, 1, 1, true)
+    elseif rank then
+        local warn = DBR.db.consumables.reagents[entry.reagent.key].warn
+        if entry.count then
+            GameTooltip:AddLine(entry.count .. " left; warns at " .. warn .. ".", 1, 1, 1, true)
+        end
+        GameTooltip:AddLine("For " .. entry.reagent.label .. " (Rank " .. entry.rankIndex .. ").", 1, 1, 1, true)
+    end
+    GameTooltip:Show()
 end
 
 local function ShowTooltip(icon)
@@ -222,8 +388,8 @@ local function ShowTooltip(icon)
     GameTooltip:Show()
 end
 
-local function CreateIcon(frame)
-    local icon = CreateFrame("Frame", "DyresBuffRemindersAmmo", frame)
+local function CreateIcon(frame, name, onEnter)
+    local icon = CreateFrame("Frame", name, frame)
     icon:SetSize(ICON_SIZE, ICON_SIZE)
     icon:SetPoint("LEFT", frame, "LEFT", 0, 0)
     -- Hover for the tooltip, never clicks: the bar stays click-through.
@@ -231,7 +397,7 @@ local function CreateIcon(frame)
         ammo.hover = true
         icon:SetMouseMotionEnabled(true)
         icon:SetMouseClickEnabled(false)
-        icon:SetScript("OnEnter", ShowTooltip)
+        icon:SetScript("OnEnter", onEnter)
         icon:SetScript("OnLeave", function() GameTooltip:Hide() end)
     end
     icon.texture = icon:CreateTexture(nil, "ARTWORK")
@@ -271,18 +437,37 @@ events:SetScript("OnEvent", function()
     DBR.RefreshConsumables()
 end)
 
-function DBR.InitializeConsumables()
+function DBR.InitializeConsumables(class)
+    local list = class and DBR.CONSUMABLES[class]
+    ammo.list = list
+    if not list then
+        return
+    end
     local frame = CreateFrame("Frame", "DyresBuffRemindersConsumables", UIParent)
     ammo.frame = frame
-    ammo.icon = CreateIcon(frame)
+    if list.ammo then
+        ammo.icon = CreateIcon(frame, "DyresBuffRemindersAmmo", ShowTooltip)
+        ammo.icons[#ammo.icons + 1] = ammo.icon
+    end
+    for _, reagent in ipairs(list.reagents or {}) do
+        local icon = CreateIcon(frame, "DyresBuffRemindersReagent_" .. reagent.key, ShowReagentTooltip)
+        local entry = {reagent = reagent, icon = icon}
+        icon.entry = entry
+        ammo.reagents[#ammo.reagents + 1] = entry
+        ammo.icons[#ammo.icons + 1] = icon
+    end
     DBR.toolkit.CreateWidget({
         addon = addonName, key = "consumables", title = "Consumables", frame = frame,
         store = DBR.db.consumables, width = ICON_SIZE, height = ICON_SIZE, point = DEFAULT_POINT,
         sizes = DBR.WIDGET_SIZES,
     })
-    -- The icon covers the bar: a drag that starts on it moves the bar.
-    frame:AddDragHandle(ammo.icon)
-    for _, event in ipairs({"BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_ENTERING_WORLD"}) do
+    -- The icons cover the bar: a drag that starts on one moves the bar.
+    for _, icon in ipairs(ammo.icons) do
+        frame:AddDragHandle(icon)
+    end
+    -- SPELLS_CHANGED: a new rank of a reagent's spell uses another item.
+    for _, event in ipairs({"BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_ENTERING_WORLD",
+        "SPELLS_CHANGED"}) do
         events:RegisterEvent(event)
     end
     events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
@@ -293,8 +478,84 @@ function DBR.ConsumablesWidget()
     return ammo.frame
 end
 
+-- /dbr debug asks the client for items it has not loaded yet (found in
+-- client: an unseen seed's name is nil, not a wrong ID); the answer
+-- (ITEM_DATA_LOAD_RESULT, pinned ItemDocumentation.lua) prints its name, or
+-- that no such item exists.
+local loading = {pending = {}}
+
+local function CachedName(item)
+    local name = type(C_Item) == "table" and type(C_Item.GetItemNameByID) == "function"
+        and C_Item.GetItemNameByID(item) or nil
+    return (type(name) == "string" and not DBR.IsSecret(name)) and name or nil
+end
+
+local function LoadName(item)
+    if type(C_Item) ~= "table" or type(C_Item.RequestLoadItemDataByID) ~= "function" then
+        return "(not cached)"
+    end
+    if not loading.frame then
+        loading.frame = CreateFrame("Frame")
+        loading.frame:SetScript("OnEvent", function(_, _, itemID, success)
+            if DBR.IsSecret(itemID) or not loading.pending[itemID] then
+                return
+            end
+            loading.pending[itemID] = nil
+            if success == true then
+                DBR.Report(string.format("debug reagent item=%d itemName=%s (loaded)", itemID,
+                    DBR.Describe(CachedName(itemID))))
+            else
+                DBR.Report(string.format("debug reagent item=%d not found: the ID is wrong on this client", itemID))
+            end
+            if next(loading.pending) == nil then
+                loading.frame:UnregisterEvent("ITEM_DATA_LOAD_RESULT")
+            end
+        end)
+    end
+    loading.pending[item] = true
+    loading.frame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
+    C_Item.RequestLoadItemDataByID(item)
+    return "(not cached, loading)"
+end
+
+-- /dbr debug, a reagent's lines: each rank's spell and item, with the
+-- names the client gives, so one run confirms the IDs on Forever.
+local function ReportReagent(entry)
+    local reagent = entry.reagent
+    for index, rank in ipairs(reagent.ranks) do
+        local spellName = C_Spell.GetSpellName(rank.spell)
+        local itemName = CachedName(rank.item) or LoadName(rank.item)
+        local count = type(C_Item) == "table" and type(C_Item.GetItemCount) == "function"
+            and C_Item.GetItemCount(rank.item) or nil
+        DBR.Report(string.format("debug reagent %s r%d spell=%d spellName=%s known=%s item=%d itemName=%s count=%s",
+            reagent.key, index, rank.spell, DBR.Describe(spellName),
+            tostring(C_SpellBook.IsSpellKnown(rank.spell) == true), rank.item, DBR.Describe(itemName),
+            DBR.Describe(count)))
+    end
+    local saved = DBR.db.consumables.reagents[reagent.key]
+    if not entry.rankIndex then
+        DBR.Report(string.format("debug reagent %s on=%s rank=not known warnAt=%s", reagent.key,
+            tostring(saved.on), tostring(saved.warn)))
+        return
+    end
+    DBR.Report(string.format("debug reagent %s on=%s rank=%s count=%s countAPI=%s warnAt=%s state=%s",
+        reagent.key, tostring(DBR.db.consumables.reagents[reagent.key].on), tostring(entry.rankIndex),
+        tostring(entry.count), tostring(entry.countState), tostring(DBR.db.consumables.reagents[reagent.key].warn),
+        tostring(entry.state)))
+end
+
 -- /dbr debug: what John needs to confirm ammo on Forever in one line.
 function DBR.ReportConsumablesDebug()
+    if not ammo.list then
+        DBR.Report("debug consumables none for this class")
+        return
+    end
+    for _, entry in ipairs(ammo.reagents) do
+        ReportReagent(entry)
+    end
+    if not ammo.icon then
+        return
+    end
     local itemID = ammo.itemID
     local name = itemID and type(C_Item) == "table" and type(C_Item.GetItemNameByID) == "function"
         and C_Item.GetItemNameByID(itemID) or nil

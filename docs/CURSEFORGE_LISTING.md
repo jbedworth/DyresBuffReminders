@@ -24,7 +24,7 @@ tested.
 
 ## Summary
 
-Missing buffs in two tidy bars, one click to cast. Thorns that follows your tank, Hunter aspect reminders, an ammo count, a seal timer, cooldown chimes, and proc sounds, for World of Warcraft: Forever.
+Missing buffs, one click to cast, also in combat. Thorns that follows your tank, Hunter aspect reminders, an ammo count, a seal timer, cooldown chimes, and proc sounds, for World of Warcraft: Forever.
 
 ## Description
 
@@ -35,14 +35,21 @@ Per-file changelogs need no manual text: each CI upload uses the version's
 `CHANGELOG.md` section, through `release-notes.md`.
 
 ```markdown
-**Dyre's Buff Reminders** shows the class buffs you are missing, in two tidy bars, and casts them with one click. It also tracks your ammo, times your seal, chimes before your cooldowns are ready, and sounds your procs. Made for World of Warcraft: Forever.
+**Dyre's Buff Reminders** shows the class buffs you are missing, each in its own icon, and casts them with one click. It also tracks your ammo, times your seal, chimes before your cooldowns are ready, and sounds your procs. Made for World of Warcraft: Forever.
+
+### What's new in 1.2.0
+- **Buff warnings in combat.** Each buff is now its own icon, always shown, in a place you choose that never moves. If a buff on you expires or is dispelled, even mid-fight, the reminder shows at once with a red border and a click recasts it.
+- **Thorns on your tank, in the fight too.** While the tank has Thorns, its icon shows the tank's time left, then turns yellow before it runs out and red when it does, also in combat. Whom a click casts on is set before the fight: the tank, or you when solo or tanking.
+- **Druid: Rebirth seeds.** How many seeds you carry for your highest rank of Rebirth, red when you are down to 2 (you choose), also in combat. Gift of the Wild's reagents count the same way once you know it.
+- **Ammo only where it applies.** Only Hunters, Warriors, and Rogues see the ammo count and its settings.
+- **Warnings that fit the buff.** The border turns yellow and flashes a share of each buff's own length before it runs out (10% at first: 3 minutes before a 30-minute buff ends), also in combat; red means missing.
+- **Warrior: Battle Shout, Overpower, and Revenge.** A Battle Shout reminder, and a sound the moment Overpower or Revenge becomes usable, also in combat.
 
 ### What's new in 1.1.0
 - **Druid: Thorns follows your tank.** In a party or raid with a member set to the Tank role, Thorns watches that tank, and a click casts it on them. Solo, with no tank, as the tank yourself, or when the tank is dead, offline, or out of range, it watches you, and a click casts it on you. It switches back to you as soon as the tank's party frame greys out. The tooltip always says whom it watches.
 - **Hunter: Aspect reminder.** No aspect up? A click recasts the last combat aspect you used (Hawk, Monkey, Wild, or Beast), never Cheetah or Pack, and it never takes down an aspect that is already up.
 - **Hunter: combat aspect reminder.** Start a fight with Cheetah or Pack still up, and an icon with your combat aspect appears the moment combat starts: one click puts it up. An optional sound warns you too.
 - **Ammo for any bow, gun, or crossbow** (Hunters, Warriors, and Rogues): your arrows or bullets and how many are left, also in combat. Running low, the count and border turn red and pulse; with none equipped, it tells you to equip the ones in your bags.
-- **Two buff bars**, My buffs and Group buffs, that show only what is missing. Click to cast; the empty part of a bar lets clicks through to the world.
 - Reminders hide on flight paths, and every icon shows the exact spell a click casts.
 
 ### Which buffs
@@ -51,9 +58,10 @@ Per-file changelogs need no manual text: each CI upload uses the version's
 - **Mage:** Arcane Intellect (also for group members who use mana) and your armor (Frost, Ice, or Mage Armor).
 - **Priest:** Power Word: Fortitude (also for your group) and Inner Fire; Divine Spirit and Shadow Protection as options.
 - **Warlock:** Demon Armor (Demon Skin counts).
+- **Warrior:** Battle Shout, a full minute before it runs out (you choose the seconds); it needs rage, so cast it while you still have some after a fight.
 - **Paladin:** Righteous Fury, and a seal timer: while a seal is up, its time left counts down, also in combat; in combat with no seal, your last seal pulses and a click casts it.
 
-Every rank counts, and only buffs you know show. Warriors, Rogues, and Shamans have no buff reminders yet (ammo works for anyone with a bow, gun, or crossbow).
+Every rank counts, and only buffs you know show. Rogues and Shamans have no buff reminders yet (ammo works for Hunters, Warriors, and Rogues with a bow, gun, or crossbow).
 
 ### Click to cast
 - A click buffs you first, then the next group member in range who lacks it. The icon shows how many lack it, and its tooltip who.
@@ -62,22 +70,22 @@ Every rank counts, and only buffs you know show. Warriors, Rogues, and Shamans h
 - Druids in a form: a click leaves the form, then casts the buff.
 
 ### Before it runs out
-The icon shows 5 seconds before a buff on you or your group runs out (you choose the seconds), so you can recast it in time.
+The border turns yellow and flashes before a buff on you or your group runs out, so you can recast it in time. You choose how early, as a share of the buff's own length (0-20%, 10% at first), so a long buff warns minutes ahead and a short one seconds ahead. It works in combat too, and your own recast resets it.
 
 ### In combat, and after
-The game does not let AddOns read buffs in combat, so the buff bars hide when a fight starts and come back after; a buff that runs out in a fight shows then. These keep working in combat: the Paladin seal timer, the Hunter combat aspect icon (set up before the fight), the ammo count, the cooldown chimes, and the proc sounds.
+The game does not let AddOns read buffs in combat, so in a fight the game itself draws each buff on you in its place; if one expires or is dispelled, it disappears and DBR's reminder, with its red border, shows through at once, and a click recasts it on you. Your group's buffs, and Thorns on the tank, are checked again after the fight.
 
 ### Cooldown chimes
 A sound just before your chosen spells are ready again, also in combat, for every class. Every rank of a spell counts, unlike the Cooldown Manager on Forever. Each spell has its own switch and sound (Text to Speech can say "Blink ready"), and you choose how early it chimes. The sounds come from **Dyre's Sounds**, which installs with it.
 
 ### Proc sounds
-A sound the moment a proc appears on you, also in combat: Nightfall, Clearcasting, Nature's Grace, and Flurry. Each has its own switch and sound.
+A sound the moment a proc appears on you, also in combat: Nightfall, Clearcasting, Nature's Grace, and Flurry, plus a Warrior's Overpower and Revenge the moment they become usable. Each has its own switch and sound.
 
 ### Put them where you like
-Unlock with `/dbr unlock` to drag the buff bars, the ammo bar, and the seal timer; they snap to your other Dyre's frames and to a grid. Each has its own size and opacity. `/dbr reset` puts them back. Moving and sizing come from **Dyre's Toolkit**, which installs with it. Settings are saved per character.
+Unlock with `/dbr unlock` to drag each buff icon, the ammo bar, and the seal timer; they snap to your other Dyre's frames and to a grid. The buff icons share one size and opacity; the Consumables bar (under Consumables) and the seal timer have their own. `/dbr reset` puts them back. Moving and sizing come from **Dyre's Toolkit**, which installs with it. Settings are saved per character.
 
 ### Commands
-- `/dbr` opens the settings: Reminders, Consumables, Size and Opacity, Chimes, and Procs.
+- `/dbr` opens the settings: Reminders, Consumables, Chimes, and Proc Chimes.
 - `/dbr unlock`, `/dbr lock`, `/dbr reset`, `/dbr debug`.
 - `/buffreminders` works the same, in case another AddOn uses `/dbr`.
 

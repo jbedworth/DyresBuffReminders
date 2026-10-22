@@ -5,6 +5,30 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.2.0
+
+### Features
+
+- Buff warnings in combat. Each buff is now its own icon, always shown, in a place you choose that never moves: while the buff is on you, the game draws it there with its time left, in and out of combat. If it expires, is dispelled, or is cancelled, the reminder shows at once with a red border, also in combat, and a click recasts it on you. Out of combat the reminders work as before: group members, Thorns on the tank, the group versions, and the warning before a buff runs out.
+- The border tells you where each buff stands: red while it is missing, yellow and flashing while it is about to run out, none while it is up. The yellow warning works in combat too: DBR times it from when the buff runs out, and your own recast resets it.
+- Druid: while your tank has Thorns, its icon shows the tank's time left, turns yellow before it runs out and red when it does, also in combat (timed from before the fight; recasting it on the tank while you target them restarts it). A click casts on the tank, or on you when you are solo or the tank; that is set before a fight and stays through it. The README explains the details.
+- "Remind before a buff runs out" is now a share of each buff's own length: 0-20%, 10% at first, so a 30-minute buff warns 3 minutes before it ends and a 10-minute one 1 minute before. 0% warns only once the buff is gone. Your old setting in seconds starts again at 10%. Battle Shout keeps its own time in seconds.
+- One "Reminder icons" size and opacity for all buff icons, at the end of the Reminders section in `/dbr`.
+- Warrior: a Battle Shout reminder (it reaches your party); a click casts it. It shows a full minute before Battle Shout runs out, so you can plan your rage for it; set that time under the Battle Shout switch ("Remind before it runs out", 5-120 seconds). Unlike your long buffs, it shows only when needed: missing, or within that minute, out of combat and in it (in combat DBR counts from your own casts). It needs rage, so cast it while you still have some after a fight.
+- Paladin: Righteous Fury shows only when you tank: with the Tank role in your group, with Improved Righteous Fury, or with the new "Always show Righteous Fury" switch under it in `/dbr`. Otherwise it no longer reminds you.
+- Druid: a Rebirth reagent counter on the Consumables bar: how many seeds you carry for your highest rank of Rebirth (Maple Seed up to Ironwood Seed), also in combat. At or below "Warn at" (2 at first, 0-10) the count and border turn red and pulse; with none left it shows as missing. Gift of the Wild's reagents (Wild Berries, Wild Thornroot) count the same way once you know it. Without Rebirth nothing shows. Set each under "Consumables" in `/dbr`.
+- Warrior: Overpower and Revenge sounds. The moment either becomes usable, also in combat, a sound plays (at most once per 3 seconds each), with its own switch and sound choice under "Proc Chimes" in `/dbr`. On at first.
+
+### Fixes
+
+- A buff that is still on but about to run out now shows its time left on the icon (a countdown), so it no longer looks as if the buff were already gone.
+
+### Other changes
+
+- Settings are grouped by what they change: each size and opacity sits at the end of its own section (the reminder icons and the seal timer under Reminders, the Consumables bar under Consumables), and the "Size and Opacity" section is gone. "Procs" is now "Proc Chimes".
+- Ammo is now only for Hunters, Warriors, and Rogues, the classes that can equip a bow, gun, or crossbow. Other classes no longer see the ammo sample while frames are unlocked, nor its settings; a class with nothing to count has no Consumables bar or section at all.
+- The two buff bars are gone: each buff icon starts where its bar was, and you can now place each one on its own. Snapped icons still move together with Shift-drag.
+
 ## 1.1.0
 
 ### Features

@@ -5,16 +5,24 @@ local addonName, DBR = ...
 -- or about to run out (author-approved: a few seconds before, a setting), with
 -- a pulsing gold border that draws the eye.
 --
--- The icons sit in two bars (author-approved, 1.1.0): "Group buffs" (buffs
--- that can go on another player) and "My buffs" (self-only buffs). Each bar is a Dyre's
--- Toolkit widget, so the toolkit places, drags, sizes, and saves it; DBR only
--- fills it. A bar is as wide as the icons this character can show (the buff
--- is known and switched on), and grows or shrinks from its left edge when
--- that changes, out of combat. Unlocked, every one of them shows (the buffs
--- that are on, dimmed), so the outline holds a real icon in every slot.
--- Locked, the missing ones pack in from the left edge, and the bar itself
--- takes no mouse, so its empty part is click-through. A bar with none to show
--- is hidden, also while unlocked.
+-- Each buff is its own Dyre's Toolkit widget (author, 1.2.0: "move all
+-- tracked buffs to widgets", like the seal timer), in a fixed place that
+-- never moves on its own: the toolkit places, drags, sizes, and saves it.
+-- 1.1.0's two bars are gone; their places seed the icons' places once. A
+-- buff you do not know or have switched off shows no widget. Unlocked, every
+-- one shows (the buffs that are on, dimmed).
+--
+-- Each widget shows all the time, in and out of combat (author: "If it's
+-- always there, it might not be as jarring"). While the buff is up on you,
+-- Blizzard's AuraContainer draws it there (its icon and time left), the same
+-- in and out of combat. Under it sits our icon, armed to recast it on you:
+-- when the buff expires, is dispelled, or is cancelled, the engine hides its
+-- slot and our pulsing icon shows through, also in combat. Out of combat,
+-- while anyone lacks the buff or yours is running out, our icon is raised
+-- above the slot, with its smart click (group members, the tank, the group
+-- version) and countdown; that state stays through a fight. AddOn code can
+-- read none of this in combat (found in client: these auras are secret
+-- then), so only the engine's slot tells you in combat.
 --
 -- Clicking an icon casts the missing buff: on you first, then the first group
 -- member in range who lacks it, so each click moves down the list as the buff
@@ -24,36 +32,53 @@ local addonName, DBR = ...
 --
 -- Aura APIs refuse AddOn code in combat on Forever, so DBR checks only out of
 -- combat. The icons are secure buttons, which change only out of combat, so
--- the game hides each bar for combat with a state driver: a reminder is for
--- between pulls. A buff that runs out in combat shows after.
+-- each icon's state driver and level are set out of combat: shown while
+-- the buff is known and switched on, hidden when off, dead, or on a taxi.
+-- Without the aura container, an up buff's icon hides, as before 1.2.0.
 --
 -- "About to run out" needs the aura's expirationTime, read out of combat; a
 -- one-shot timer refreshes the icons when the earliest buff reaches the lead
--- time (no polling). A buff without a readable time counts as on.
+-- time (no polling). A buff without a readable time counts as on. The lead
+-- is a share of the buff's own length (author: "a 0-60 second reminder might
+-- need a bigger window" for a 30-60 minute buff), except a buff with its own
+-- lead in seconds (Buffs.lua's lead: Battle Shout).
+--
+-- The border tells the state (author): red while the buff is missing (gone,
+-- dispelled, or cancelled), yellow and flashing while it runs out, none
+-- while it is up. The red one is on our icon, under the aura slot, so it
+-- shows the moment the slot goes, also in combat; the yellow one is a plain
+-- frame above the slot, timed from the known end and your own casts.
 
 -- Every DBR widget's sizes: Size 50-200% (the range the loose icons had),
 -- and Opacity.
 DBR.WIDGET_SIZES = {scale = {min = 50, max = 200, step = 10, default = 100}, opacity = true}
--- Seconds before a buff runs out that its icon shows; 0 shows it as it falls.
+-- The share of a buff's length, in percent, before it runs out that its
+-- icon warns (author: 0-20%, default 10%); 0 warns only once it is gone.
 DBR.LEAD_MIN = 0
-DBR.LEAD_MAX = 30
-DBR.DEFAULT_LEAD = 5
+DBR.LEAD_MAX = 20
+DBR.DEFAULT_LEAD = 10
 
 local ICON_SIZE = 40
--- Wide enough that two icons' pulsing borders never touch.
-local ICON_GAP = 8
+-- The default row's spacing: the toolkit's snap gap, so the default row is snapped.
+local ICON_SPACING = 20
 local BORDER = 3
 local GOLD = {1, 0.82, 0}
+local RED = {1, 0.2, 0.2}
+local YELLOW = {1, 1, 0}
 local PULSE_SECONDS = 0.6
 local PULSE_LOW_ALPHA = 0.15
--- In the order they are made; y is each bar's default place above the center.
-local BARS = {
-    {key = "groupbuffs", name = "DyresBuffRemindersGroupBuffs", title = "Group buffs", y = 180},
-    {key = "mybuffs", name = "DyresBuffRemindersMyBuffs", title = "My buffs", y = 130},
+-- The default rows, where 1.1.0's bars were: buffs that can go on another
+-- player above, self-only buffs below; y is above the screen's center.
+local ROWS = {
+    {key = "groupbuffs", y = 180},
+    {key = "mybuffs", y = 130},
 }
-local COMBAT_DRIVER = "[combat] hide; show"
 local HIDDEN_DRIVER = "hide"
+local SHOWN_DRIVER = "show"
 local COMBAT_ONLY_DRIVER = "[combat] show; hide"
+local CONTAINER_TEMPLATE = "CustomAuraContainerTemplate"
+-- The aura slot sits above the icon, so a buff that is up covers it.
+local SLOT_LEVELS_ABOVE = 5
 -- Unlocked, a buff that is on shows this solid, so the missing ones stand out.
 local DIM_ALPHA = 0.4
 -- Classes without mana need no mana buffs (Arcane Intellect, Divine Spirit).
@@ -67,10 +92,11 @@ local REFRESH_DELAY = 0.2
 -- A timer can fire a hair early; this much past the lead time still counts.
 local TIMER_SLACK = 0.05
 
-local reminders = {list = {}, icons = {}, names = {}, spellKeys = {}, spellNames = {}, bars = {}}
+local reminders = {list = {}, icons = {}, names = {}, spellKeys = {}, spellNames = {}, widgets = {},
+    seen = {}, windows = {}, warns = {}, timed = {}, casts = {}}
 
--- The bar a reminder sits in: Group buffs for any buff that can go on
--- another player (Buffs.lua's group or others), My buffs for self-only ones.
+-- The default row a reminder starts in: the upper for any buff that can go on
+-- another player (Buffs.lua's group or others), the lower for self-only ones.
 local function BarKey(reminder)
     return (reminder.group or reminder.others) and "groupbuffs" or "mybuffs"
 end
@@ -80,6 +106,37 @@ function DBR.ClassReminders()
     return reminders.list
 end
 
+-- A buff's own lead time (Buffs.lua's lead), stepped and clamped; else its default.
+function DBR.SanitizeBuffLead(reminder, value)
+    local range = reminder.lead
+    if type(value) ~= "number" or value ~= value then
+        return range.default
+    end
+    local stepped = range.min + math.floor((value - range.min) / range.step + 0.5) * range.step
+    return math.max(range.min, math.min(range.max, stepped))
+end
+
+-- The seconds before this buff runs out that it warns: its own setting in
+-- seconds (Battle Shout), else the shared share of its length (duration,
+-- from the aura read; else Buffs.lua's duration). With no length known, it
+-- warns at once (math.huge): better early than never.
+local function LeadSeconds(reminder, duration)
+    if reminder.lead then
+        return DBR.db.leads[reminder.key]
+    end
+    local percent = DBR.db.leadPercent
+    if percent == 0 then
+        return 0
+    end
+    duration = duration or reminder.duration
+    if not duration then
+        return math.huge
+    end
+    return duration * percent / 100
+end
+
+-- The shared lead, a whole percent; anything else (1.1.0's seconds were
+-- saved as db.lead, which is dropped) is the default.
 function DBR.SanitizeLead(value)
     if type(value) ~= "number" or value ~= math.floor(value) then
         return DBR.DEFAULT_LEAD
@@ -88,28 +145,43 @@ function DBR.SanitizeLead(value)
 end
 
 -- The saved reminder settings for every class's buffs, repaired; Core calls
--- this from SanitizeDB. Keys no class has are dropped. Each bar's place and
--- sizes are the toolkit's to clamp; before 1.1.0 each icon had its own place
--- (db.icons), which no bar can take, so the bars start at their defaults.
+-- this from SanitizeDB. Keys no class has are dropped. Each buff widget has
+-- its own table, db.buffs[key] (the coordinator: each widget its own store),
+-- whose place and sizes the toolkit clamps. 1.1.0's bars (db.bars) are kept
+-- only until their places seed the buff widgets, once.
 function DBR.SanitizeReminders(db, sanitizePosition)
     local spells = type(db.spells) == "table" and db.spells or {}
     local groups = type(db.groups) == "table" and db.groups or {}
     local last = type(db.last) == "table" and db.last or {}
     local bars = type(db.bars) == "table" and db.bars or {}
-    db.spells, db.groups, db.last, db.bars, db.icons = {}, {}, {}, {}, nil
-    db.lead = DBR.SanitizeLead(db.lead)
+    local buffs = type(db.buffs) == "table" and db.buffs or {}
+    db.spells, db.groups, db.last, db.buffs, db.icons = {}, {}, {}, {}, nil
+    db.bars = nil
+    for _, row in ipairs(ROWS) do
+        local saved = type(bars[row.key]) == "table" and bars[row.key] or nil
+        local position = saved and sanitizePosition(saved.position)
+        if position then
+            db.bars = db.bars or {}
+            db.bars[row.key] = {position = position, scale = saved.scale}
+        end
+    end
+    -- 1.1.0's lead was seconds (db.lead): the percent starts at its default.
+    db.leadPercent = DBR.SanitizeLead(db.leadPercent)
+    db.lead = nil
+    local leads = type(db.leads) == "table" and db.leads or {}
+    db.leads = {}
+    local alwaysShow = type(db.alwaysShow) == "table" and db.alwaysShow or {}
+    db.alwaysShow = {}
     local aspect = type(db.combatAspect) == "table" and db.combatAspect or {}
     -- Its place, size, and opacity are My buffs' (a pre-release had its own).
     db.combatAspect = {enabled = aspect.enabled ~= false, soundOn = aspect.soundOn ~= false,
         sound = DBR.SanitizeChimeSound and DBR.SanitizeChimeSound(aspect.sound) or aspect.sound}
-    for _, bar in ipairs(BARS) do
-        local saved = type(bars[bar.key]) == "table" and bars[bar.key] or {}
-        db.bars[bar.key] = {position = sanitizePosition(saved.position), scale = saved.scale,
-            opacity = saved.opacity}
-    end
     for _, list in pairs(DBR.BUFFS) do
         for _, reminder in ipairs(list) do
             local key = reminder.key
+            local widget = type(buffs[key]) == "table" and buffs[key] or {}
+            db.buffs[key] = {position = sanitizePosition(widget.position), scale = widget.scale,
+                opacity = widget.opacity}
             if type(spells[key]) == "boolean" then
                 db.spells[key] = spells[key]
             else
@@ -117,6 +189,12 @@ function DBR.SanitizeReminders(db, sanitizePosition)
             end
             if reminder.group then
                 db.groups[key] = groups[key] ~= false
+            end
+            if reminder.lead then
+                db.leads[key] = DBR.SanitizeBuffLead(reminder, leads[key])
+            end
+            if reminder.tankOnly then
+                db.alwaysShow[key] = alwaysShow[key] == true
             end
             if reminder.prefer and type(last[key]) == "string" then
                 db.last[key] = last[key]
@@ -179,10 +257,11 @@ end
 
 -- Out of combat only. "on", "soon" (runs out within the lead time), or
 -- "missing". A secret answer counts as on: DBR cannot tell. A buff still on
--- notes when it reaches the lead time, for the refresh timer.
+-- notes when it reaches the lead time, for the refresh timer. "on" and
+-- "soon" also return when the buff runs out and its full duration, when
+-- readable, for the countdown and the running-out border.
 local function BuffState(unit, reminder)
-    local lead = DBR.db.lead
-    local found, longest = false, nil
+    local found, longest, duration = false, nil, nil
     for _, name in ipairs(reminders.names[reminder.key]) do
         local aura = C_UnitAuras.GetAuraDataBySpellName(unit, name, "HELPFUL")
         if DBR.IsSecret(aura) then
@@ -194,20 +273,25 @@ local function BuffState(unit, reminder)
             if not left then
                 return "on"
             end
-            longest = math.max(longest or left, left)
+            if not longest or left > longest then
+                longest = left
+                duration = not DBR.IsSecret(aura.duration) and type(aura.duration) == "number"
+                    and aura.duration > 0 and aura.duration or nil
+            end
         end
     end
     if not found then
         return "missing"
     end
+    local lead = LeadSeconds(reminder, duration)
     if longest <= lead + TIMER_SLACK then
-        return "soon"
+        return "soon", GetTime() + longest, duration
     end
     local due = longest - lead
     if not reminders.nextCheck or due < reminders.nextCheck then
         reminders.nextCheck = due
     end
-    return "on"
+    return "on", GetTime() + longest, duration
 end
 
 -- Another group member who is alive, online, and in sight (out of sight, a
@@ -295,18 +379,23 @@ end
 local function Missing(reminder)
     local missing = {}
     local watched = Watched(reminder)
-    local state = BuffState(watched, reminder)
+    local state, expires, duration = BuffState(watched, reminder)
+    -- The end DBR times in combat: the watched unit's (yours, or the tank's).
+    reminders.timed[reminder.key] = watched
+    reminders.seen[reminder.key] = state ~= "missing" and expires and {expires = expires, duration = duration}
+        or nil
     if state ~= "on" then
-        missing[#missing + 1] = {unit = watched, name = UnitLabel(watched), soon = state == "soon"}
+        missing[#missing + 1] = {unit = watched, name = UnitLabel(watched), soon = state == "soon",
+            expires = expires, duration = duration}
     end
     if reminder.group and DBR.db.groups[reminder.key] then
         for _, unit in ipairs(GroupUnits()) do
             if Usable(unit, reminder) then
-                state = BuffState(unit, reminder)
+                state, expires, duration = BuffState(unit, reminder)
                 if state ~= "on" then
                     local name = UnitName(unit)
                     missing[#missing + 1] = {unit = unit, name = (not DBR.IsSecret(name) and name) or unit,
-                        soon = state == "soon"}
+                        soon = state == "soon", expires = expires, duration = duration}
                 end
             end
         end
@@ -464,8 +553,26 @@ local function ClickTexture(reminder, action)
     return BestTexture(reminder)
 end
 
+-- The click armed for combat while the buff is up: what a click would cast
+-- now, on you; a Druid's leaves any form first (it cannot be checked then).
+local function ArmedAction(reminder)
+    local spell = SingleSpell(reminder)
+    if spell then
+        return {cast = spell, spell = spell, unit = "player", name = "you", armed = true}
+    end
+end
+
+-- Up on the tank: armed to recast it on them (with /cancelform, as above).
+-- The unit is the tank's token, set out of combat; it stays through a fight.
+local function TankAction(reminder, unit)
+    local spell = SingleSpell(reminder)
+    if spell then
+        return {cast = spell, spell = spell, unit = unit, name = UnitLabel(unit), armed = true}
+    end
+end
+
 local function ApplyClick(icon, reminder, action)
-    if action and reminder.cancelForm and InForm() then
+    if action and reminder.cancelForm and (action.armed or InForm()) then
         action.leavesForm = true
         icon.action = action
         icon:SetAttribute("type1", "macro")
@@ -502,48 +609,212 @@ local function Pulse(icon, on)
     end
 end
 
+-- A buff still on but running out shows its time left (author: it looked
+-- already gone): a cooldown sweep with numbers to when the first one runs
+-- out. Drawn by the game, so no polling. None while anyone lacks it.
+local function ShowTimeLeft(icon, missing)
+    local first
+    for _, entry in ipairs(missing or {}) do
+        if not entry.soon or not entry.expires then
+            first = nil
+            break
+        end
+        if not first or entry.expires < first.expires then
+            first = entry
+        end
+    end
+    if first then
+        local duration = first.duration or (first.expires - GetTime())
+        icon.timeLeft:SetCooldown(first.expires - duration, duration)
+        icon.timeLeft:Show()
+    else
+        icon.timeLeft:Hide()
+    end
+    icon.runningOut = first ~= nil
+end
+
 local function ShowIcon(icon, shown, count)
     icon.count:SetText(count and count > 1 and count or "")
     icon.wanted = shown == true
-    icon:SetShown(shown)
-    Pulse(icon, shown)
 end
 
-local function BarWidth(count)
-    return math.max(count, 1) * ICON_SIZE + math.max(count - 1, 0) * ICON_GAP
+-- Out of combat: our icon's own border, red while missing, else none. Under
+-- the aura slot it stays red, so it shows the moment the slot goes.
+local function SetBorder(icon, color)
+    icon.border = color
+    icon.redAtEnd = false
+    icon.glow:SetShown(color ~= nil)
+    icon.glow:SetAlpha(1)
+    if color then
+        icon.glow:SetBackdropBorderColor(color[1], color[2], color[3])
+    end
+end
+
+-- Watching another unit (a tank buff): no slot draws their buff, so ours
+-- does, red only from its known end (by alpha, so also in combat).
+local function RedAtEnd(icon)
+    SetBorder(icon, RED)
+    icon.glow:SetAlpha(0)
+    icon.redAtEnd = true
+end
+
+-- The running-out border, above the aura slot: alpha and its animation only,
+-- so it changes in combat too.
+local function SetWarn(key, on)
+    local holder = reminders.widgets[key]
+    local warn = holder and holder.warn
+    if not warn then
+        return
+    end
+    if on then
+        warn:SetAlpha(1)
+        if not warn.flash:IsPlaying() then
+            warn.flash:Play()
+        end
+    else
+        warn.flash:Stop()
+        warn:SetAlpha(0)
+    end
+end
+
+-- Off; any timer set before does nothing.
+local function StopWarn(key)
+    reminders.warns[key] = (reminders.warns[key] or 0) + 1
+    SetWarn(key, false)
+end
+
+-- From the buff's known end: flashing from its lead until it runs out, when
+-- the slot goes and the red border under it shows (or, on a tank, ours turns
+-- red). One C_Timer per edge (no polling); a newer schedule makes the older
+-- timers do nothing.
+local function ScheduleWarn(reminder, expires, duration)
+    local key = reminder.key
+    StopWarn(key)
+    local token = reminders.warns[key]
+    local left = expires - GetTime()
+    if left <= TIMER_SLACK then
+        return
+    end
+    C_Timer.After(left, function()
+        if reminders.warns[key] == token then
+            SetWarn(key, false)
+            local icon = reminders.icons[key]
+            if icon.redAtEnd then
+                icon.glow:SetAlpha(1)
+            end
+        end
+    end)
+    local lead = LeadSeconds(reminder, duration)
+    if lead <= 0 then
+        return
+    end
+    local due = left - lead
+    if due <= TIMER_SLACK then
+        SetWarn(key, true)
+        return
+    end
+    C_Timer.After(due, function()
+        if reminders.warns[key] == token then
+            SetWarn(key, true)
+        end
+    end)
 end
 
 -- Whether this character can show the reminder: known and switched on.
+-- The names of the talents with a point in them, on the active talent
+-- config. Forever's talents are a C_Traits tree (pinned Camelot
+-- Blizzard_ClassTalentsFrame.lua): node rank, entry, definition, spell.
+-- Kept until a talent or spell event (no rescan on every refresh).
+local function TalentNames()
+    if reminders.talents then
+        return reminders.talents
+    end
+    local names = {}
+    reminders.talents = names
+    if type(C_ClassTalents) ~= "table" or type(C_ClassTalents.GetActiveConfigID) ~= "function"
+        or type(C_Traits) ~= "table" or type(C_Traits.GetConfigInfo) ~= "function" then
+        return names
+    end
+    local configID = C_ClassTalents.GetActiveConfigID()
+    local config = type(configID) == "number" and C_Traits.GetConfigInfo(configID)
+    if type(config) ~= "table" or type(config.treeIDs) ~= "table" then
+        return names
+    end
+    for _, treeID in ipairs(config.treeIDs) do
+        for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID) or {}) do
+            local node = C_Traits.GetNodeInfo(configID, nodeID)
+            local rank = type(node) == "table" and node.activeRank
+            if type(rank) == "number" and rank > 0 then
+                for _, entryID in ipairs(node.entryIDs or {}) do
+                    local entry = C_Traits.GetEntryInfo(configID, entryID)
+                    local definition = type(entry) == "table" and entry.definitionID
+                        and C_Traits.GetDefinitionInfo(entry.definitionID)
+                    local spellID = type(definition) == "table" and definition.spellID
+                    local name = type(spellID) == "number" and C_Spell.GetSpellName(spellID)
+                    if type(name) == "string" and not DBR.IsSecret(name) then
+                        names[#names + 1] = name
+                    end
+                end
+            end
+        end
+    end
+    return names
+end
+
+-- A talent for the buff: one of its talent spells known, or a point in a
+-- talent whose name holds the buff's own (Improved Righteous Fury), so a
+-- renumbered ID or another language still finds it.
+local function HasTalent(reminder)
+    for _, id in ipairs(reminder.tankOnly.talent or {}) do
+        if Knows(id) then
+            return true
+        end
+    end
+    local buff = C_Spell.GetSpellName(reminder.spells[1])
+    if type(buff) ~= "string" or DBR.IsSecret(buff) then
+        return false
+    end
+    for _, name in ipairs(TalentNames()) do
+        if name ~= buff and name:find(buff, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+-- A tank-only buff (Buffs.lua's tankOnly, author: Righteous Fury): the Tank
+-- role (a secret or missing answer is not a tank), its talent, or the
+-- player's "Always show" switch.
+local function ForTank(reminder)
+    if DBR.db.alwaysShow[reminder.key] then
+        return true
+    end
+    if type(UnitGroupRolesAssigned) == "function" and IsTank("player") then
+        return true
+    end
+    return HasTalent(reminder)
+end
+
 local function Countable(reminder)
+    if reminder.tankOnly and not ForTank(reminder) then
+        return false
+    end
     return DBR.db.enabled and DBR.db.spells[reminder.key] and Known(reminder) or false
 end
 
--- Out of combat: the bar's size follows its countable icons (from its left
--- edge), it hides with none, and the icons shown pack in from the left, in
--- Buffs.lua's order.
-local function Pack(bar)
-    local count = 0
-    for _, icon in ipairs(bar.icons) do
-        if icon.countable then
-            count = count + 1
-        end
+-- Out of combat: our icon above the slot (anyone lacks it, it runs out, or
+-- unlocked) or under it (the slot covers it while the buff is up).
+local function Raise(icon, holder, above)
+    if holder.slot then
+        icon:SetFrameLevel(holder.slot:GetFrameLevel() + (above and SLOT_LEVELS_ABOVE or -SLOT_LEVELS_ABOVE + 1))
     end
-    if bar.count ~= count then
-        bar.count = count
-        bar.frame:SetContentSize(BarWidth(count), ICON_SIZE, "LEFT")
-    end
-    local driver = count > 0 and COMBAT_DRIVER or HIDDEN_DRIVER
-    if bar.driver ~= driver then
-        bar.driver = driver
-        RegisterStateDriver(bar.frame, "visibility", driver)
-    end
-    local slot = 0
-    for _, icon in ipairs(bar.icons) do
-        if icon.wanted then
-            icon:ClearAllPoints()
-            icon:SetPoint("LEFT", bar.frame, "LEFT", slot * (ICON_SIZE + ICON_GAP), 0)
-            slot = slot + 1
-        end
+end
+
+-- Out of combat: whether the icon shows at all.
+local function SetDriver(icon, driver)
+    if icon.driver ~= driver then
+        icon.driver = driver
+        RegisterStateDriver(icon, "visibility", driver)
     end
 end
 
@@ -561,7 +832,7 @@ function DBR.RefreshReminders()
     if not reminders.ready then
         return
     end
-    -- Secure icons change only out of combat; their bars hide for combat.
+    -- Secure icons change only out of combat.
     if InCombatLockdown() then
         reminders.dirty = true
         return
@@ -580,29 +851,95 @@ function DBR.RefreshReminders()
         icon.missing, icon.soon = nil, nil
         icon.watching = reminder.tank and UnitLabel(Watched(reminder)) or nil
         icon.texture:SetAlpha(1)
+        icon.timeLeft:Hide()
+        local holder = reminders.widgets[reminder.key]
+        holder:SetShown(countable)
         if unlocked then
             -- Dragging must not cast. A buff that is on shows dimmed, still.
             ApplyClick(icon, reminder, nil)
             local missing = countable and canCheck and #Missing(reminder) > 0
             ShowIcon(icon, countable, nil)
-            Pulse(icon, missing)
+            SetBorder(icon, missing and RED or nil)
+            StopWarn(reminder.key)
             icon.texture:SetAlpha((missing or not canCheck) and 1 or DIM_ALPHA)
+            SetDriver(icon, countable and SHOWN_DRIVER or HIDDEN_DRIVER)
+            Raise(icon, holder, true)
         elseif countable and canCheck then
             local missing = Missing(reminder)
             icon.missing, icon.soon = MissingNames(missing, false), MissingNames(missing, true)
-            ApplyClick(icon, reminder, ClickAction(reminder, missing))
-            ShowIcon(icon, #missing > 0, #missing)
+            if #missing > 0 then
+                -- Someone lacks it, or yours runs out: ours, above the slot;
+                -- red while anyone lacks it, else yellow and flashing.
+                ApplyClick(icon, reminder, ClickAction(reminder, missing))
+                ShowIcon(icon, true, #missing)
+                ShowTimeLeft(icon, missing)
+                SetDriver(icon, SHOWN_DRIVER)
+                Raise(icon, holder, true)
+                local lacking = #icon.missing > 0
+                local timed = reminders.timed[reminder.key]
+                if not lacking and timed ~= "player" then
+                    RedAtEnd(icon)
+                else
+                    SetBorder(icon, lacking and RED or nil)
+                end
+                local seen = reminders.seen[reminder.key]
+                if lacking then
+                    StopWarn(reminder.key)
+                elseif seen and missing[1].unit == reminders.timed[reminder.key] then
+                    ScheduleWarn(reminder, seen.expires, seen.duration)
+                else
+                    -- Only a group member's runs out: until the next refresh.
+                    StopWarn(reminder.key)
+                    SetWarn(reminder.key, true)
+                end
+            elseif reminders.timed[reminder.key] ~= "player" then
+                -- Up on the tank (Thorns): the slot draws only your own
+                -- buffs, so ours shows it, above the slot, with the tank's
+                -- time left (a cooldown, set now, runs on in combat); a click
+                -- recasts it on them. Red from its known end.
+                local seen = reminders.seen[reminder.key]
+                local timed = reminders.timed[reminder.key]
+                ApplyClick(icon, reminder, TankAction(reminder, timed))
+                ShowIcon(icon, true, nil)
+                ShowTimeLeft(icon, {{soon = true, expires = seen and seen.expires,
+                    duration = seen and seen.duration}})
+                SetDriver(icon, SHOWN_DRIVER)
+                Raise(icon, holder, true)
+                RedAtEnd(icon)
+                if seen then
+                    ScheduleWarn(reminder, seen.expires, seen.duration)
+                else
+                    StopWarn(reminder.key)
+                end
+            else
+                -- Up on everyone: the slot shows it; ours waits under it,
+                -- armed to recast it on you if it drops.
+                ApplyClick(icon, reminder, ArmedAction(reminder))
+                ShowIcon(icon, true, nil)
+                -- A short buff (combatWindow) shows only when needed: hidden
+                -- out of combat while up; in combat its window decides.
+                local driver = reminder.combatWindow and COMBAT_ONLY_DRIVER or SHOWN_DRIVER
+                SetDriver(icon, reminders.container and driver or HIDDEN_DRIVER)
+                Raise(icon, holder, false)
+                SetBorder(icon, RED)
+                local seen = reminders.seen[reminder.key]
+                if seen then
+                    ScheduleWarn(reminder, seen.expires, seen.duration)
+                else
+                    StopWarn(reminder.key)
+                end
+            end
         else
             ApplyClick(icon, reminder, nil)
             ShowIcon(icon, false)
+            SetDriver(icon, HIDDEN_DRIVER)
+            SetBorder(icon, nil)
+            StopWarn(reminder.key)
         end
     end
     for _, reminder in ipairs(reminders.list) do
         local icon = reminders.icons[reminder.key]
         icon.texture:SetTexture(ClickTexture(reminder, icon.action))
-    end
-    for _, bar in ipairs(reminders.bars) do
-        Pack(bar)
     end
     DBR.RefreshCombatAspect(canCheck)
     -- One timer for the next buff to reach the lead time; a newer refresh
@@ -629,7 +966,7 @@ local function ShowTooltip(icon)
     GameTooltip:SetOwner(icon, "ANCHOR_TOP")
     GameTooltip:SetText(icon.label, GOLD[1], GOLD[2], GOLD[3])
     if not DBR.db.locked then
-        GameTooltip:AddLine("Drag to move this bar.", 1, 1, 1, true)
+        GameTooltip:AddLine("Drag to move it.", 1, 1, 1, true)
     else
         if icon.watching then
             GameTooltip:AddLine(icon.label .. ": on " .. icon.watching, 1, 1, 1, true)
@@ -665,10 +1002,17 @@ local function CreateIcon(reminder, bar, name, template)
     icon:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
     icon.count = icon:CreateFontString(nil, "OVERLAY", "NumberFontNormalLarge")
     icon.count:SetPoint("BOTTOMRIGHT", -2, 2)
-    -- The attention border: a solid gold edge that pulses.
+    -- The time left while the buff is running out (ShowTimeLeft).
+    icon.timeLeft = CreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
+    icon.timeLeft:SetAllPoints()
+    icon.timeLeft:SetHideCountdownNumbers(false)
+    icon.timeLeft:EnableMouse(false)
+    icon.timeLeft:Hide()
+    -- The attention border: gold and pulsing on the combat aspect button; a
+    -- reminder's is red while its buff is missing (SetBorder).
     local glow = CreateFrame("Frame", nil, icon, "BackdropTemplate")
-    glow:SetPoint("TOPLEFT", -BORDER - 1, BORDER + 1)
-    glow:SetPoint("BOTTOMRIGHT", BORDER + 1, -BORDER - 1)
+    -- Inside the icon, so the aura slot above it covers it whole.
+    glow:SetAllPoints(icon)
     glow:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = BORDER})
     glow:SetBackdropBorderColor(GOLD[1], GOLD[2], GOLD[3])
     glow:EnableMouse(false)
@@ -697,13 +1041,11 @@ end
 -- 0: an invisible frame must not take clicks (MTF 0.3.2's bug); a stray
 -- click casts with "!", which takes nothing down.
 --
--- To the player it is the Aspect slot of My buffs (author: "this should
--- behave like 1 widget"): not a widget of its own, it sits on that slot (or
--- the bar's start edge when the Aspect reminder is off) with the bar's scale
--- and opacity, and has no sample of its own. It is anchored to the bar, not
--- its child: the bar's state driver hides the bar in combat, when this must
--- show. Anchors and scale change out of combat only; an anchor to a hidden
--- frame still places it.
+-- To the player it is the Aspect widget (author: "this should behave like 1
+-- widget"): not a widget of its own, it sits on the Aspect widget, above its
+-- aura slot, with its scale and opacity, and has no sample of its own. It is
+-- anchored to the widget, not its child, so its own driver alone decides
+-- when it shows. Anchors and scale change out of combat only.
 local combat = {}
 
 -- Out of combat: the travel aspect on you, by name, or nil. A secret aura
@@ -720,27 +1062,16 @@ local function TravelUp(reminder)
     end
 end
 
--- Out of combat: on the Aspect slot of My buffs, with its scale.
+-- Out of combat: on the Aspect widget, with its scale, above its aura slot.
 local function PlaceCombatAspect()
-    local button, bar = combat.button, combat.bar
-    if not button or not bar or InCombatLockdown() then
+    local button, holder = combat.button, combat.holder
+    if not button or not holder or InCombatLockdown() then
         return
     end
-    local aspectIcon = reminders.icons[combat.reminder.key]
-    local slot = 0
-    if aspectIcon.countable then
-        for _, icon in ipairs(bar.icons) do
-            if icon == aspectIcon then
-                break
-            end
-            if icon.countable then
-                slot = slot + 1
-            end
-        end
-    end
-    button:SetScale(bar.frame:GetScale())
+    button:SetScale(holder:GetScale())
     button:ClearAllPoints()
-    button:SetPoint("LEFT", bar.frame, "LEFT", slot * (ICON_SIZE + ICON_GAP), 0)
+    button:SetPoint("CENTER", holder, "CENTER", 0, 0)
+    button:SetFrameLevel(holder:GetFrameLevel() + SLOT_LEVELS_ABOVE * 3)
 end
 
 -- Out of combat only.
@@ -816,13 +1147,9 @@ local function CreateCombatAspect(reminder)
     button:SetScript("OnEnter", CombatAspectTooltip)
     SecureHandlerWrapScript(button, "OnClick", button, "return nil, true", "self:Hide()")
     combat.button, combat.reminder = button, reminder
-    for _, bar in ipairs(reminders.bars) do
-        if bar.key == BarKey(reminder) then
-            combat.bar = bar
-        end
-    end
-    if combat.bar then
-        button:SetAlpha(combat.bar.frame:GetAlpha())
+    combat.holder = reminders.widgets[reminder.key]
+    if combat.holder then
+        button:SetAlpha(combat.holder:GetAlpha())
     end
     PlaceCombatAspect()
 end
@@ -855,6 +1182,9 @@ end
 local events = CreateFrame("Frame")
 -- Events about one unit; only your own and your group's count.
 local UNIT_EVENTS = {UNIT_AURA = true, UNIT_IN_RANGE_UPDATE = true, UNIT_CONNECTION = true}
+-- Events after which the talent names are read again (also in combat).
+local TALENT_EVENTS = {PLAYER_TALENT_UPDATE = true, TRAIT_CONFIG_UPDATED = true, SPELLS_CHANGED = true,
+    PLAYER_ENTERING_WORLD = true}
 -- For a tank buff (Thorns): the game says when a group member comes into or
 -- leaves its party range (UNIT_IN_RANGE_UPDATE, pinned
 -- UnitDocumentation.lua:4328; the group frames' range, not the spell's, so a
@@ -862,61 +1192,306 @@ local UNIT_EVENTS = {UNIT_AURA = true, UNIT_IN_RANGE_UPDATE = true, UNIT_CONNECT
 -- (UNIT_CONNECTION). No polling: the family rule.
 local TANK_EVENTS = {"UNIT_IN_RANGE_UPDATE", "UNIT_CONNECTION"}
 
--- A bar for the class's reminders that go in it, sized for all of them; nil
--- when none do. The toolkit owns its place, size, opacity, and mouse (the
--- default, "unlocked": the bar takes clicks only while unlocked, to drag).
-local function CreateBar(spec)
-    local list = {}
-    for _, reminder in ipairs(reminders.list) do
-        if BarKey(reminder) == spec.key then
-            list[#list + 1] = reminder
+-- Whether the client has Blizzard's aura container (as the seal timer).
+local function HasAuraContainer()
+    if type(C_XMLUtil) ~= "table" or type(C_XMLUtil.GetTemplateInfo) ~= "function"
+        or type(C_AddOns) ~= "table" or type(C_AddOns.LoadAddOn) ~= "function" then
+        return false
+    end
+    if not C_AddOns.IsAddOnLoaded("Blizzard_AuraContainer") then
+        C_AddOns.LoadAddOn("Blizzard_AuraContainer")
+    end
+    return C_XMLUtil.GetTemplateInfo(CONTAINER_TEMPLATE) ~= nil
+end
+
+local function NoMouse(region)
+    for _, method in ipairs({"SetMouseClickEnabled", "SetMouseMotionEnabled"}) do
+        if type(region[method]) == "function" then
+            region[method](region, false)
         end
     end
-    if #list == 0 then
-        return nil
+    region:EnableMouse(false)
+end
+
+-- Every spell ID the buff can be on you as: its ranks and group versions, as
+-- the set includeSpellIDs wants (found in client with the seal timer).
+local function BuffIDs(reminder)
+    local ids = {}
+    for _, id in ipairs(reminder.spells) do
+        ids[id] = true
     end
-    local frame = CreateFrame("Frame", spec.name, UIParent)
-    local bar = {key = spec.key, frame = frame, icons = {}, count = 0}
-    -- The combat aspect button follows its bar's size and opacity.
+    for _, entry in ipairs(reminder.group and reminder.group.spells or {}) do
+        ids[entry.spell] = true
+    end
+    return ids
+end
+
+-- The aura slot over a buff's icon: the engine shows it while the buff is on
+-- you, also in combat, with its icon and time left; set up only here, in
+-- initializeFrame (family rule). It takes no mouse, so a click reaches the
+-- icon. Shown in and out of combat alike.
+local function CreateSlot(reminder, holder, icon)
+    local layer = CreateFrame("Frame", nil, holder)
+    layer:SetAllPoints(holder)
+    layer:SetFrameLevel(icon:GetFrameLevel() + SLOT_LEVELS_ABOVE)
+    NoMouse(layer)
+    -- A short buff's slot is transparent out of combat: shown only when needed.
+    if reminder.combatWindow then
+        layer:SetAlpha(0)
+    end
+    local container = CreateFrame("AuraContainer", nil, layer, CONTAINER_TEMPLATE)
+    container:SetPoint("CENTER", holder, "CENTER")
+    container:SetSize(1, 1)
+    container:AddAuraSlot(reminder.key, "HELPFUL", {
+        candidateFilters = {includeSpellIDs = BuffIDs(reminder)},
+        initializeFrame = function(button)
+            NoMouse(button)
+            button:SetAllPoints(holder)
+            local texture = button:CreateTexture(nil, "ARTWORK")
+            texture:SetAllPoints()
+            texture:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+            local cooldown = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+            cooldown:SetAllPoints(button)
+            cooldown:SetHideCountdownNumbers(false)
+            button:SetIcon(texture)
+            button:SetDurationCooldown(cooldown)
+        end,
+    })
+    container:SetUnit("player")
+    container:UpdateAllAuras()
+    return layer
+end
+
+-- The running-out border above the aura slot (and above our icon when it is
+-- raised): plain, not secure, no mouse; shown by its alpha (SetWarn).
+local function CreateWarn(holder, slot)
+    local warn = CreateFrame("Frame", nil, holder, "BackdropTemplate")
+    warn:SetAllPoints(holder)
+    warn:SetFrameLevel(slot:GetFrameLevel() + SLOT_LEVELS_ABOVE + 1)
+    warn:SetBackdrop({edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = BORDER})
+    warn:SetBackdropBorderColor(YELLOW[1], YELLOW[2], YELLOW[3])
+    NoMouse(warn)
+    warn:SetAlpha(0)
+    local flash = warn:CreateAnimationGroup()
+    flash:SetLooping("BOUNCE")
+    local fade = flash:CreateAnimation("Alpha")
+    fade:SetFromAlpha(1)
+    fade:SetToAlpha(PULSE_LOW_ALPHA)
+    fade:SetDuration(PULSE_SECONDS)
+    warn.flash = flash
+    return warn
+end
+
+-- A buff's default place: its row, centered, the toolkit's snap gap apart;
+-- or, once, its 1.1.0 bar's place plus its slot there.
+local function DefaultPoint(reminder, row, index, count)
+    local offset = (index - (count + 1) / 2) * (ICON_SIZE + ICON_SPACING)
+    return {point = "CENTER", relativePoint = "CENTER", x = offset, y = row.y}
+end
+
+local function SeedFromBar(reminder, index, count)
+    local bar = DBR.db.bars and DBR.db.bars[BarKey(reminder)]
+    if not bar then
+        return
+    end
+    local saved = DBR.db.buffs[reminder.key]
+    -- In the bar's own scaled units, as its place was saved: the bar was as
+    -- wide as its icons, 40 apart plus 8.
+    local offset = (index - (count + 1) / 2) * (ICON_SIZE + 8)
+    saved.position = {point = bar.position.point, relativePoint = bar.position.relativePoint,
+        x = bar.position.x + offset, y = bar.position.y}
+    saved.scale = saved.scale or bar.scale
+end
+
+-- One buff's widget: a holder the toolkit places and sizes; our secure icon
+-- in it, and the aura slot above. The toolkit owns its mouse ("unlocked":
+-- only to drag); the icon takes clicks itself.
+local function CreateBuffWidget(reminder, row, index, count)
+    if not DBR.db.buffs[reminder.key].position then
+        SeedFromBar(reminder, index, count)
+    end
+    local holder = CreateFrame("Frame", "DyresBuffRemindersBuff_" .. reminder.key, UIParent)
+    local icon = CreateIcon(reminder, holder)
+    icon:SetAllPoints(holder)
+    reminders.icons[reminder.key] = icon
+    reminders.widgets[reminder.key] = holder
+    if reminders.container then
+        holder.slot = CreateSlot(reminder, holder, icon)
+        holder.warn = CreateWarn(holder, holder.slot)
+    end
     local function OnLayout()
-        if combat.bar == bar then
+        if combat.holder == holder then
             PlaceCombatAspect()
         end
     end
     local function OnOpacity(_, alpha)
-        if combat.bar == bar then
+        if combat.holder == holder and combat.button then
             combat.button:SetAlpha(alpha)
         end
     end
-    for _, reminder in ipairs(list) do
-        local icon = CreateIcon(reminder, frame)
-        reminders.icons[reminder.key] = icon
-        bar.icons[#bar.icons + 1] = icon
-        if Countable(reminder) then
-            bar.count = bar.count + 1
-        end
-    end
-    -- Made at its size now, so it does not jump at the first refresh.
     DBR.toolkit.CreateWidget({
-        addon = addonName, key = spec.key, title = spec.title, frame = frame, store = DBR.db.bars[spec.key],
-        width = BarWidth(bar.count), height = ICON_SIZE,
-        point = {point = "CENTER", relativePoint = "CENTER", x = 0, y = spec.y}, sizes = DBR.WIDGET_SIZES,
+        addon = addonName, key = "buff_" .. reminder.key, title = reminder.label, frame = holder,
+        store = DBR.db.buffs[reminder.key], width = ICON_SIZE, height = ICON_SIZE,
+        point = DefaultPoint(reminder, row, index, count), sizes = DBR.WIDGET_SIZES,
         onLayout = OnLayout, onOpacity = OnOpacity,
     })
-    -- The icons cover the bar: a drag that starts on one moves it.
-    for _, icon in ipairs(bar.icons) do
-        frame:AddDragHandle(icon)
-    end
-    bar.driver = bar.count > 0 and COMBAT_DRIVER or HIDDEN_DRIVER
-    RegisterStateDriver(frame, "visibility", bar.driver)
-    return bar
+    -- The icon covers the widget: a drag that starts on it moves the widget.
+    holder:AddDragHandle(icon)
 end
 
--- The bars, the icons, and their events; out of combat only.
-local function SetUp()
-    for _, spec in ipairs(BARS) do
-        reminders.bars[#reminders.bars + 1] = CreateBar(spec)
+-- In combat, a short buff (Buffs.lua's combatWindow, author: Battle Shout)
+-- shows only while missing or within its lead. Its time is secret in combat,
+-- so DBR times it: from the last out-of-combat read, reset by your own cast
+-- (readable in combat), with one C_Timer to the window (no polling). Out of
+-- the window its icon and slot are transparent (SetAlpha is allowed in combat
+-- on a secure button). A drop in combat cannot be seen (AddOns cannot read
+-- buffs then), so it shows at the window time (author: accepted for Battle
+-- Shout). It counts YOUR casts (author: "a helper to maintain YOUR battle
+-- shout's up-time"). The transparent icon still takes clicks (it casts the
+-- buff; author: "I can live with that").
+local function WindowAlpha(key, shown)
+    local alpha = shown and 1 or 0
+    reminders.icons[key]:SetAlpha(alpha)
+    local holder = reminders.widgets[key]
+    if holder and holder.slot then
+        holder.slot:SetAlpha(alpha)
     end
+end
+
+local function ScheduleWindow(reminder, expires)
+    local key = reminder.key
+    local token = (reminders.windows[key] or 0) + 1
+    reminders.windows[key] = token
+    local due = expires - LeadSeconds(reminder) - GetTime()
+    if due <= TIMER_SLACK then
+        WindowAlpha(key, true)
+        return
+    end
+    WindowAlpha(key, false)
+    C_Timer.After(due, function()
+        if reminders.windows[key] == token and InCombatLockdown() then
+            WindowAlpha(key, true)
+        end
+    end)
+end
+
+local function OpenWindow(key)
+    reminders.windows[key] = (reminders.windows[key] or 0) + 1
+    WindowAlpha(key, true)
+end
+
+local function WindowReminders()
+    local list = {}
+    for _, reminder in ipairs(reminders.list) do
+        if reminder.combatWindow and reminders.widgets[reminder.key] and reminders.container then
+            list[#list + 1] = reminder
+        end
+    end
+    return list
+end
+
+-- Combat starts: up and outside its lead, transparent until the window.
+local function StartWindows()
+    for _, reminder in ipairs(WindowReminders()) do
+        local seen = reminders.seen[reminder.key]
+        if seen then
+            ScheduleWindow(reminder, seen.expires)
+        else
+            OpenWindow(reminder.key)
+        end
+    end
+end
+
+-- In combat: whether a single-target cast went on the unit DBR times. The
+-- cast event names no target, so: you, with no target, yourself targeted,
+-- or a target you cannot help (the client casts it on you); another unit,
+-- when it is your target. A secret answer counts as not.
+local function CastOn(timed)
+    local exists = UnitExists("target")
+    if DBR.IsSecret(exists) then
+        return false
+    end
+    if timed ~= "player" then
+        local same = exists and UnitIsUnit("target", timed)
+        return not DBR.IsSecret(same) and same == true
+    end
+    if not exists then
+        return true
+    end
+    local you = UnitIsUnit("target", "player")
+    if DBR.IsSecret(you) then
+        return false
+    end
+    if you then
+        return true
+    end
+    if type(UnitCanAssist) ~= "function" then
+        return false
+    end
+    local friend = UnitCanAssist("player", "target")
+    return not DBR.IsSecret(friend) and friend == false
+end
+
+-- In combat: your own cast of a buff restarts its time (the length from the
+-- last read, else Buffs.lua's duration): the running-out border and, for a
+-- short buff, its window. A group version, a buff that always lands on you
+-- (castOnYou), or a self-only buff always counts; a single-target one, when
+-- CastOn says it went on the timed unit.
+local function OwnCast(name)
+    for _, reminder in ipairs(reminders.list) do
+        local key = reminder.key
+        local kind = reminders.casts[key] and reminders.casts[key][name]
+        local holder = reminders.widgets[key]
+        local mine = kind == "group" or reminder.castOnYou
+            or not (reminder.group or reminder.others or reminder.tank)
+        if kind and holder and holder.warn and (mine or CastOn(reminders.timed[key] or "player")) then
+            local seen = reminders.seen[key]
+            local duration = seen and seen.duration or reminder.duration
+            if duration then
+                local expires = GetTime() + duration
+                reminders.seen[key] = {expires = expires, duration = duration}
+                local icon = reminders.icons[key]
+                if icon.redAtEnd then
+                    icon.glow:SetAlpha(0)
+                    icon.timeLeft:SetCooldown(GetTime(), duration)
+                end
+                ScheduleWarn(reminder, expires, duration)
+                if reminder.combatWindow then
+                    ScheduleWindow(reminder, expires)
+                end
+            end
+        end
+    end
+end
+
+-- Combat ends: the icon solid, the slot transparent again (out of combat
+-- the refresh decides).
+local function EndWindows()
+    for _, reminder in ipairs(WindowReminders()) do
+        OpenWindow(reminder.key)
+        local holder = reminders.widgets[reminder.key]
+        if holder.slot then
+            holder.slot:SetAlpha(0)
+        end
+    end
+end
+
+-- The widgets, the icons, and their events; out of combat only.
+local function SetUp()
+    reminders.container = HasAuraContainer()
+    for _, row in ipairs(ROWS) do
+        local list = {}
+        for _, reminder in ipairs(reminders.list) do
+            if BarKey(reminder) == row.key then
+                list[#list + 1] = reminder
+            end
+        end
+        for index, reminder in ipairs(list) do
+            CreateBuffWidget(reminder, row, index, #list)
+        end
+    end
+    -- 1.1.0's bar places have seeded the icons: drop them.
+    DBR.db.bars = nil
     for _, reminder in ipairs(reminders.list) do
         -- Needs the secure wrap that hides it on a click; without it, no button.
         if reminder.combatAspect and type(SecureHandlerWrapScript) == "function" then
@@ -925,9 +1500,15 @@ local function SetUp()
         end
     end
     reminders.ready = true
+    if #WindowReminders() > 0 then
+        events:RegisterEvent("PLAYER_REGEN_DISABLED")
+    end
     for _, event in ipairs({"UNIT_AURA", "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "SPELLS_CHANGED",
         "PLAYER_REGEN_ENABLED", "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST", "BAG_UPDATE_DELAYED",
         "UPDATE_SHAPESHIFT_FORM", "PLAYER_ROLES_ASSIGNED", "ROLE_CHANGED_INFORM",
+        -- Talent changes, for a tank-only buff's talent (pinned
+        -- SpecializationInfoDocumentation.lua:503, SharedTraitsDocumentation.lua:873).
+        "PLAYER_TALENT_UPDATE", "TRAIT_CONFIG_UPDATED",
         -- Taking off and landing on a flight path (pinned LossOfControlDocumentation.lua:133-139).
         "PLAYER_CONTROL_LOST", "PLAYER_CONTROL_GAINED"}) do
         events:RegisterEvent(event)
@@ -946,14 +1527,22 @@ end
 events:SetScript("OnEvent", function(_, event, unit, _, spellID)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         RememberCast(spellID)
-        if combat.button and InCombatLockdown() and not DBR.IsSecret(spellID) then
-            CombatAspectCast(C_Spell.GetSpellName(spellID))
+        if InCombatLockdown() and not DBR.IsSecret(spellID) then
+            local name = C_Spell.GetSpellName(spellID)
+            if combat.button then
+                CombatAspectCast(name)
+            end
+            OwnCast(name)
         end
         return
     end
     if event == "PLAYER_REGEN_DISABLED" then
+        StartWindows()
         CombatStarts()
         return
+    end
+    if TALENT_EVENTS[event] then
+        reminders.talents = nil
     end
     if UNIT_EVENTS[event] and (DBR.IsSecret(unit) or not GroupUnit(unit)) then
         return
@@ -967,6 +1556,7 @@ events:SetScript("OnEvent", function(_, event, unit, _, spellID)
             SetUp()
             return
         end
+        EndWindows()
         DBR.RefreshReminders()
         return
     end
@@ -977,6 +1567,20 @@ function DBR.InitializeReminders(class)
     reminders.list = DBR.BUFFS[class] or {}
     for _, reminder in ipairs(reminders.list) do
         reminders.names[reminder.key] = BuffNames(reminder)
+        local casts = {}
+        for _, id in ipairs(reminder.spells) do
+            local name = C_Spell.GetSpellName(id)
+            if name then
+                casts[name] = "single"
+            end
+        end
+        for _, entry in ipairs(reminder.group and reminder.group.spells or {}) do
+            local name = C_Spell.GetSpellName(entry.spell)
+            if name then
+                casts[name] = "group"
+            end
+        end
+        reminders.casts[reminder.key] = casts
         if reminder.prefer then
             local forget = {}
             for _, id in ipairs(reminder.forget or {}) do
@@ -1009,13 +1613,21 @@ function DBR.InitializeReminders(class)
     SetUp()
 end
 
--- The bars' widgets, for the settings page: {key, widget}, in BARS order.
-function DBR.ReminderBars()
+-- The buff widgets, for the settings page, in Buffs.lua's order.
+function DBR.BuffWidgets()
     local list = {}
-    for _, bar in ipairs(reminders.bars) do
-        list[#list + 1] = {key = bar.key, widget = bar.frame}
+    for _, reminder in ipairs(reminders.list) do
+        local holder = reminders.widgets[reminder.key]
+        if holder then
+            list[#list + 1] = holder
+        end
     end
     return list
+end
+
+-- Whether the buff widgets have the aura container (in-combat display).
+function DBR.HasBuffSlots()
+    return reminders.container == true
 end
 
 local function ReportCombatAspectDebug()
@@ -1052,7 +1664,7 @@ function DBR.ReportRemindersDebug()
             missing = table.concat(MissingNames(Missing(reminder)), ",")
         end
         local action = icon and icon.action
-        DBR.Report(string.format("debug %s bar=%s on=%s group=%s known=%s shown=%s missing=%s click=%s "
+        DBR.Report(string.format("debug %s row=%s on=%s group=%s known=%s shown=%s missing=%s click=%s "
             .. "unknownIDs=%s last=%s", reminder.key, BarKey(reminder), tostring(DBR.db.spells[reminder.key]), tostring(DBR.db.groups[reminder.key]),
             tostring(Known(reminder)), tostring(icon and icon:IsShown()), missing,
             action and (tostring(action.cast) .. "@" .. action.unit) or "none",

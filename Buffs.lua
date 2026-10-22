@@ -23,7 +23,18 @@ local _, DBR = ...
 -- daze you when you are hit). bang: the click casts with "!" ("/use !Name"),
 -- which never takes the buff down when it is already up (a Hunter's
 -- aspects toggle). combatAspect: the combat aspect button watches for
--- the forget spells (travel aspects) when combat starts.
+-- the forget spells (travel aspects) when combat starts. lead: the buff's
+-- own "remind before it runs out" setting, {min, max, step, default} in
+-- seconds, instead of the shared one (author: Battle Shout, "I usually don't
+-- let BS get below 1 min"). combatWindow: a short or situational buff
+-- (author's rule), shown only when needed: missing or within its lead, out
+-- of combat and in it (DBR's own timing in combat); every other buff is
+-- always shown. duration is its length when no out-of-combat read gave one.
+-- castOnYou: its cast always lands on you too (Battle Shout), so any cast of
+-- it in combat restarts its time.
+-- tankOnly: shown only for a tank (the Tank role, one of its talent spells
+-- known, a point in a talent whose name holds the buff's name, or the
+-- player's "Always show" switch); otherwise not at all.
 DBR.BUFFS = {
     MAGE = {
         {key = "arcaneIntellect", label = "Arcane Intellect", on = true,
@@ -38,6 +49,15 @@ DBR.BUFFS = {
         {key = "aspect", label = "Aspect", on = true,
             spells = {13165, 14318, 14319, 14320, 14321, 14322, 25296, 13163, 20043, 20190, 13161, 5118, 13159},
             prefer = {13165, 13163}, forget = {5118, 13159}, bang = true, combatAspect = true},
+    },
+    -- Battle Shout reaches your party, so it sits in Group buffs (author: a
+    -- buff that can go on another player); DBR watches it on you. It needs
+    -- rage, which runs out soon after a fight.
+    WARRIOR = {
+        {key = "battleShout", label = "Battle Shout", on = true, others = true,
+            spells = {6673, 5242, 6192, 11549, 11550, 11551, 25289},
+            lead = {min = 5, max = 120, step = 5, default = 60}, combatWindow = true, duration = 120,
+            castOnYou = true},
     },
     WARLOCK = {
         -- Demon Skin counts as Demon Armor before you learn it.
@@ -55,7 +75,12 @@ DBR.BUFFS = {
     -- Self buffs only (author-approved): blessings are per member and
     -- situational, and PallyPower covers them.
     PALADIN = {
-        {key = "righteousFury", label = "Righteous Fury", on = true, spells = {25780}},
+        -- Only for a tank (author): the Tank role, or Improved Righteous
+        -- Fury (any rank: these Classic IDs, or a talent point in a talent
+        -- named after the buff, found on Forever's talent tree), or the
+        -- player's "Always show" switch.
+        {key = "righteousFury", label = "Righteous Fury", on = true, spells = {25780},
+            tankOnly = {talent = {20468, 20469, 20470}}},
     },
     PRIEST = {
         {key = "fortitude", label = "Power Word: Fortitude", on = true,
