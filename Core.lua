@@ -98,7 +98,8 @@ local REQUIRED_NAMESPACE = {
     "ClassChimes", "SoundLibrary", "ReportMissingSounds", "SanitizeChimes", "ImportChimes", "ReportOtherChimes",
     "InitializeChimes", "PreviewChime", "ReportChimesDebug",
     "ClassProcs", "HasProcSounds", "SanitizeProcs", "SanitizeProcSound", "ApplyProcSounds", "PreviewProc",
-    "InitializeProcs", "ImportProcs", "ReportProcsDebug", "OtherProcs", "ReportOtherProcs", "AddOnLoaded",
+    "InitializeProcs", "ImportProcs", "SanitizeCasts", "ClassCasts", "InitializeCasts", "PreviewCast",
+    "ReportCastsDebug", "ReportProcsDebug", "OtherProcs", "ReportOtherProcs", "AddOnLoaded",
     "StandsAside", "SetProbe", "ProbeOn", "ProbeOff", "InitializeProbe", "ReportProbeDebug",
     "InitializeOptions", "OpenSettings",
 }
@@ -170,6 +171,9 @@ function DBR.SanitizeDB(db)
     if DBR.SanitizeProcs and type(DBR.PROC_SOUNDS) == "table" then
         db.procs = DBR.SanitizeProcs(db.procs)
     end
+    if DBR.SanitizeCasts and type(DBR.CAST_SOUNDS) == "table" then
+        db.casts = DBR.SanitizeCasts(db.casts)
+    end
     return db
 end
 
@@ -237,6 +241,7 @@ function DBR.ReportDebug()
     DBR.ReportConsumablesDebug()
     DBR.ReportChimesDebug(not DBR.IsSecret(class) and class or nil)
     DBR.ReportProcsDebug(not DBR.IsSecret(class) and class or nil)
+    DBR.ReportCastsDebug(not DBR.IsSecret(class) and class or nil)
     DBR.ReportProbeDebug()
 end
 
@@ -315,6 +320,7 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     end
     DBR.InitializeProcs(class)
     DBR.ReportOtherProcs(class)
+    DBR.InitializeCasts(class)
     DBR.InitializeProbe()
     DBR.InitializeOptions()
     DBR.toolkit.RegisterAddOn({addon = addonName, title = DEFAULT_TITLE, setLocked = DBR.ApplyLocked,

@@ -227,6 +227,23 @@ A sound the moment a proc appears on you, so you can use it, also in combat:
   leaves Nightfall to DBR; with an older one still playing it, DBR says so
   once at login.
 
+## Cast chimes
+
+A sound the moment you cast a travel spell or shift into a Druid form, also
+in combat. Druid: shifting into **Travel Form** ("Meep meep"), **Bear** or
+**Dire Bear Form** ("Rawr"), **Cat Form** ("Meow"), **Aquatic Form**
+("Splash"), or **Moonkin Form** ("Hoot hoot"), 0.75 seconds after you shift
+and only if you are still in that form (powershifting chimes once), never
+when you leave a form;
+**Dash** (off at first). Hunter: **Aspect of the Cheetah** (on) and **Aspect
+of the Pack** (off at first). Rogue: **Sprint** (on). Every rank counts. At
+first Text to Speech says those words ("Meep meep" for the travel spells)
+(set up a voice under the game's Text to Speech options; without one, the
+chimes' default sound plays); choose any Dyre's Sounds sound per spell under
+**Cast Chimes** in `/dbr`, whose **Enable** turns them all off. Sprint and
+Dash also have a cooldown chime under **Chimes**; Travel Form and the
+aspects have no cooldown.
+
 ## With Mage Tools Forever or Warlock Tools Forever
 
 Mage Tools Forever (from 1.2.0) and Warlock Tools Forever (from 1.3.0) rely
@@ -240,7 +257,7 @@ you can turn them off in MTF or WTF.
 
 | Command | What it does |
 |---|---|
-| `/dbr`, `/dbr options` | Opens the settings (out of combat): the buff reminders, then the cooldown chimes |
+| `/dbr`, `/dbr options` | Opens the settings (out of combat): Reminders, Consumables, Chimes, Proc Chimes, and Cast Chimes |
 | `/dbr unlock`, `/dbr lock` | Unlocks every Dyre's AddOn's frames to drag them, and locks them again |
 | `/dbr reset` | Moves the buff icons, the Consumables bar, and the seal timer back to their default places |
 | `/dbr debug` | Diagnostics: each reminder, who lacks it, what a click casts, and any spell IDs the client does not know; the seal timer; each chime spell, Dyre's Sounds, and the latest chime events; and each proc, its spell IDs, and whether it is confirmed in game |

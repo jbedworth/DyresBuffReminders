@@ -442,6 +442,41 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   procs: Enable, then one row per proc (switch and sound, aura filter),
   with the same two-row fallback as the chimes.
 
+### Cast chimes (built 1.4.0; author: "a sound when Travel Form, Pact of Cheeta and Sprint fire off")
+
+- Data in ProcSpells.lua `CAST_SOUNDS`, per class: key, label, spells
+  (Classic IDs, every rank by name), on, speech (else "Meep meep"), form.
+  Druid forms (author: "Shifting INTO form only, not out"; all on): Travel
+  783, Bear 5487 and Dire Bear 9634 ("Rawr"), Cat 768 ("Meow"), Aquatic 1066
+  ("Splash"), Moonkin 24858 ("Hoot hoot"); Dash 1850/9821/9823 (off); Hunter Aspect of the Cheetah 5118
+  ("Pact of Cheeta", author's name; on) and Aspect of the Pack 13159 (off);
+  Rogue Sprint 2983/8696/11305 (on). Travel Form and the aspects have no
+  cooldown in Classic; Sprint and Dash are also cooldown chimes.
+- A form chimes on `UPDATE_SHAPESHIFT_FORM` when the active form (the
+  `GetShapeshiftFormInfo` entry that is active; its fourth value is the
+  spell, as the pinned Blizzard_ActionBar/Shared/StanceBar.lua:70 reads it)
+  changes to a new one, `FORM_CHIME_DELAY` (0.75 s, ProcSpells.lua) later
+  and only if that form is still active then (author: "add a .75 second
+  delay ... and debounce it (powershifting)"): every change, leaving too,
+  bumps a token that cancels the pending chime, so Cat, caster, Cat chimes
+  once and in-and-out none. Non-form cast chimes (Sprint, the aspects) stay
+  immediate. Leaving a form (no form) and the same form again
+  (the event repeats, also on loading) never chime, nor the form you log
+  in in; a form's cast event is ignored, since leaving a form is a cast too.
+- Other spells: on the player's `UNIT_SPELLCAST_SUCCEEDED` (readable in combat; a secret
+  spell ID is skipped), DBR plays the spell's sound through Dyre's Sounds;
+  one the client cannot play falls back to the chimes' default. Default
+  sound "voice" saying "Meep meep" (`CAST_SPEECH`; the Road Runner's own
+  sound is copyrighted, so DBR cannot ship it). Saved in
+  `db.casts = {enabled, spells, sounds}`, repaired for every class.
+- Settings: a "Cast Chimes" section after Proc Chimes, for a class with
+  any: Enable (`DBR_CASTS_ENABLED`), then one row per spell (switch
+  `DBR_CAST_<KEY>` and sound, any sound), with the chimes' two-row
+  fallback. `/dbr debug` adds `debug casts enabled=... <key>=on|off:<sound>
+  ... last=<spell>`.
+- A recast that cancels an aspect may also chime: the event cannot tell (to
+  confirm in client).
+
 ### Reactive-ability probe (debug only; author-approved for a test)
 
 - `/dbr probe on|off` (saved per character as `db.probe`, off by default; no

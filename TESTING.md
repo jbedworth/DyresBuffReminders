@@ -353,6 +353,18 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       with the same settings.
 - [ ] With MTF on a Mage (or WTF on a Warlock) that still chimes: DBR says
       once at login to turn theirs off; with theirs off, it says nothing.
+- [ ] Cast Chimes, 1.4.0: with a Text to Speech voice set up, a Hunter's
+      Aspect of the Cheetah and a Rogue's Sprint say "Meep meep" the moment
+      they are cast, in and out of combat. A Druid shifting into Travel Form
+      says "Meep meep", Bear or Dire Bear "Rawr", Cat "Meow", Aquatic
+      "Splash", Moonkin "Hoot hoot", about 0.75 s after the shift, also
+      straight from one form to another; a powershift (Cat, caster, Cat
+      quickly) chimes once, and in and out quickly not at all;
+      leaving a form says nothing, and neither does logging in in one. Dash
+      and Aspect of the Pack only once switched on under "Cast Chimes".
+      Choosing another sound plays it once. Note whether recasting an aspect
+      (taking it down) also chimes. `/dbr debug` shows `debug casts
+      enabled=true ... last=<spell>`.
 - [ ] Proc sounds, one class at a time: `/dbr` shows a "Proc Chimes" section
       with one row per proc; the sound menu lists only file sounds; choosing
       one plays it. Switch the proc on, get the proc in combat: the sound

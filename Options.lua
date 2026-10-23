@@ -197,6 +197,70 @@ local function AddProcsSection()
     end
 end
 
+-- One cast chime under its section's switch: its switch and its sound on one
+-- row, or two with an older Dyre's Sounds or client (as a chime).
+local function AddCast(cast, library, castsSwitch)
+    local variable = "DBR_CAST_" .. cast.key:upper()
+    local tooltip = "Play a sound the moment you cast " .. cast.label .. ", also in combat."
+    if cast.form then
+        tooltip = "Play a sound the moment you shift into " .. cast.label .. ", also in combat; not when you "
+            .. "leave it."
+    end
+    local setting = Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, cast.label, cast.on,
+        function() return DBR.db.casts.spells[cast.key] end,
+        function(value) DBR.db.casts.spells[cast.key] = value == true end)
+    local function CastsOn() return DBR.db.casts.enabled end
+    if not library or (type(Settings.CreateDropdown) ~= "function" and not HasCheckboxDropdown(library)) then
+        Nest(Settings.CreateCheckbox(category, setting, tooltip), castsSwitch, CastsOn)
+        return
+    end
+    local sound = Settings.RegisterProxySetting(category, variable .. "_SOUND", Settings.VarType.String, "Sound",
+        DBR.DEFAULT_CAST_SOUND,
+        function() return DBR.db.casts.sounds[cast.key] end,
+        function(value)
+            local key = library.Resolve(value)
+            if key then
+                DBR.db.casts.sounds[cast.key] = key
+                DBR.PreviewCast(cast.key)
+            end
+        end)
+    local soundTooltip = "The sound for " .. cast.label .. ". Choosing one plays it once. Text to Speech says \""
+        .. (cast.speech or DBR.CAST_SPEECH) .. "\"."
+    if HasCheckboxDropdown(library) then
+        local row = CreateSettingsCheckboxDropdownInitializer(setting, cast.label, tooltip, sound,
+            library.Choices(), "Sound", soundTooltip)
+        layout:AddInitializer(row)
+        library.SetupCheckboxMenu(row)
+        Nest(row, castsSwitch, CastsOn)
+        return
+    end
+    local switch = Settings.CreateCheckbox(category, setting, tooltip)
+    Nest(switch, castsSwitch, CastsOn)
+    local dropdown = Settings.CreateDropdown(category, sound, library.Choices(), soundTooltip)
+    library.SetupMenu(dropdown)
+    Nest(dropdown, switch, function() return DBR.db.casts.enabled and DBR.db.casts.spells[cast.key] end)
+end
+
+-- The cast chimes section (author, 1.4.0), for a class with any.
+local function AddCastsSection()
+    local spells = DBR.ClassCasts(DBR.classFile)
+    if #spells == 0 then
+        return
+    end
+    local library = DBR.SoundLibrary()
+    Heading("Cast Chimes")
+    local tooltip = "A sound the moment you cast a travel spell (Travel Form, Aspect of the Cheetah, Sprint, "
+        .. "and so on) or shift into a Druid form, also in combat. Text to Speech speaks at first (\""
+        .. DBR.CAST_SPEECH .. "\" for the travel spells)."
+    if not library then
+        tooltip = tooltip .. " Install Dyre's Sounds to hear them and to choose each one's sound."
+    end
+    local castsSwitch = Flag("DBR_CASTS_ENABLED", "Enable", "casts", "enabled", true, tooltip, function() end)
+    for _, cast in ipairs(spells) do
+        AddCast(cast, library, castsSwitch)
+    end
+end
+
 -- The cooldown chimes section: its own switch, the lead, then your class's spells.
 local function AddChimesSection()
     local library = DBR.SoundLibrary()
@@ -542,6 +606,7 @@ function DBR.InitializeOptions()
     AddConsumablesSection()
     AddChimesSection()
     AddProcsSection()
+    AddCastsSection()
 end
 
 function DBR.OpenSettings()

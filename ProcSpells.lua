@@ -52,3 +52,36 @@ DBR.PROC_SOUNDS = {
         {key = "revenge", label = "Revenge", reactive = 6572, on = true, sound = "magical"},
     },
 }
+
+-- Cast chimes (author, 1.4.0: "a sound when Travel Form, Pact of Cheeta and
+-- Sprint fire off ... the road-runner meep meep or something fun"): a sound
+-- the moment you cast one of these, also in combat, every rank by name. The
+-- Road Runner's own sound is copyrighted, so the default is Text to Speech
+-- saying the spell's speech (else DBR.CAST_SPEECH); each spell has its own
+-- switch and sound. Classic IDs; Travel Form and the aspects have no
+-- cooldown, Sprint and Dash chime under Chimes too. form: a Druid form
+-- (author: "Shifting INTO form only, not out"), which chimes when you enter
+-- it, from the form change, never when you leave it.
+DBR.DEFAULT_CAST_SOUND = "voice"
+-- Seconds after a form change before its chime (author: "add a .75 second
+-- delay ... and debounce it (powershifting)").
+DBR.FORM_CHIME_DELAY = 0.75
+DBR.CAST_SPEECH = "Meep meep"
+DBR.CAST_SOUNDS = {
+    DRUID = {
+        {key = "travelform", label = "Travel Form", spells = {783}, on = true, form = true},
+        {key = "bearform", label = "Bear Form (and Dire Bear)", spells = {5487, 9634}, on = true, form = true,
+            speech = "Rawr"},
+        {key = "catform", label = "Cat Form", spells = {768}, on = true, form = true, speech = "Meow"},
+        {key = "aquaticform", label = "Aquatic Form", spells = {1066}, on = true, form = true, speech = "Splash"},
+        {key = "moonkinform", label = "Moonkin Form", spells = {24858}, on = true, form = true, speech = "Hoot hoot"},
+        {key = "dash", label = "Dash", spells = {1850, 9821, 9823}, on = false},
+    },
+    HUNTER = {
+        {key = "cheetah", label = "Aspect of the Cheetah", spells = {5118}, on = true},
+        {key = "pack", label = "Aspect of the Pack", spells = {13159}, on = false},
+    },
+    ROGUE = {
+        {key = "sprint", label = "Sprint", spells = {2983, 8696, 11305}, on = true},
+    },
+}

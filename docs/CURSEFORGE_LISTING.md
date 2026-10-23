@@ -24,7 +24,7 @@ tested.
 
 ## Summary
 
-Your class buffs, always in view and one click to cast, with a red border when one drops, also in combat. Reagent and ammo counts, a seal timer, cooldown chimes, and proc chimes.
+Your class buffs, always in view and one click to cast, with a red border when one drops, also in combat. Reagent and ammo counts, a seal timer, and cooldown, proc, and cast chimes.
 
 ## Description
 
@@ -35,14 +35,14 @@ Per-file changelogs need no manual text: each CI upload uses the version's
 `CHANGELOG.md` section, through `release-notes.md`.
 
 ```markdown
-**Dyre's Buff Reminders** keeps your class buffs in view, each in its own icon, and casts them with one click. It also counts your ammo and reagents, times your seal, chimes before your cooldowns are ready, and chimes your procs. Made for World of Warcraft: Forever.
+**Dyre's Buff Reminders** keeps your class buffs in view, each in its own icon, and casts them with one click. It also counts your ammo and reagents, times your seal, chimes before your cooldowns are ready, and chimes your procs and travel spells. Made for World of Warcraft: Forever.
 
 **Mage Tools Forever** and **Warlock Tools Forever** rely on it for their buff reminders and chimes, and it works on every class.
 
-### What's new in 1.3.0
-- **Mage: Dampen or Amplify Magic** (off at first) and an **Arcane Powder** count for Arcane Brilliance.
-- **Warlock: Infernal Stone and Demonic Figurine** counts for Inferno and Ritual of Doom.
-- **From Mage Tools Forever or Warlock Tools Forever:** the first time DBR runs on a character, it copies that AddOn's buff reminder settings.
+### What's new in 1.4.0
+- **Cast Chimes:** "Meep meep" the moment you cast Aspect of the Cheetah or Sprint, or shift into Travel Form, and a sound for shifting into Bear ("Rawr"), Cat ("Meow"), Aquatic, or Moonkin Form, also in combat; never when you leave a form. Choose any sound for each.
+
+Mage Tools Forever and Warlock Tools Forever players: the first time DBR runs on a character, it copies that AddOn's buff reminder settings.
 
 ### Always in view
 Each buff has its own icon, in a place you choose that never moves. While a buff is on you, the game draws it there with its time left, in and out of combat. The border tells you where it stands:
@@ -83,11 +83,14 @@ A sound just before your chosen spells are ready again, also in combat, for ever
 ### Proc chimes
 A sound the moment a proc appears on you, also in combat: Nightfall, Clearcasting, Nature's Grace, and Flurry, plus a Warrior's Overpower and Revenge the moment they become usable. Each has its own switch and sound.
 
+### Cast chimes
+A sound the moment you cast a travel spell or shift into a Druid form, also in combat: shifting into Travel, Bear or Dire Bear, Cat, Aquatic, or Moonkin Form (never out of one), and Dash; Hunter Aspect of the Cheetah and Aspect of the Pack; Rogue Sprint. At first, Text to Speech says "Meep meep" (or "Rawr", "Meow", and so on for the forms); each has its own switch and sound under **Cast Chimes**.
+
 ### Put them where you like
 Unlock with `/dbr unlock` to drag each buff icon, the Consumables bar, and the seal timer; they snap to your other Dyre's frames and to a grid. Each one's size and opacity sit at the end of its own section in `/dbr`: **Reminder icons** (all buff icons) and the seal timer under Reminders, the Consumables bar under Consumables. `/dbr reset` puts them back. Moving and sizing come from **Dyre's Toolkit**, which installs with it. Settings are saved per character.
 
 ### Commands
-- `/dbr` (or `/dbr options`) opens the settings: Reminders, Consumables, Chimes, and Proc Chimes.
+- `/dbr` (or `/dbr options`) opens the settings: Reminders, Consumables, Chimes, Proc Chimes, and Cast Chimes.
 - `/dbr unlock`, `/dbr lock`, `/dbr reset`, `/dbr debug`.
 - `/buffreminders` works the same, in case another AddOn uses `/dbr`.
 

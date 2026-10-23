@@ -76,6 +76,13 @@ name("Aspect of the Wild", 20043, 20190)
 name("Aspect of the Beast", 13161)
 name("Aspect of the Cheetah", 5118)
 name("Aspect of the Pack", 13159)
+name("Travel Form", 783)
+name("Bear Form", 5487)
+name("Dire Bear Form", 9634)
+name("Cat Form", 768)
+name("Aquatic Form", 1066)
+name("Dash", 1850, 9821, 9823)
+name("Sprint", 8696, 11305)
 name("Seal of Righteousness", 21084, 20154, 20287, 20288, 20289, 20290, 20291, 20292, 20293)
 name("Seal of Command", 20375, 20915, 20918, 20919, 20920)
 name("Seal of Fury", 20163, 20419, 20421, 20422, 20423, 1311649, 1311656)
@@ -330,9 +337,13 @@ local function fixture(options)
             return ""
         end,
     }
-    -- Druid forms: state.form is the active form's index (1 Bear, 2 Cat), or nil.
-    env.GetNumShapeshiftForms = function() return 2 end
-    env.GetShapeshiftFormInfo = function(index) return 3000 + index, state.form == index, true, nil end
+    -- Druid forms: state.form is the active form's index (1 Bear, 2 Cat, 3 Aquatic, 4 Travel, 5 Dire
+    -- Bear), or nil; the fourth value is the form's spell, as the pinned StanceBar.lua reads it.
+    state.formSpells = {5487, 768, 1066, 783, 9634}
+    env.GetNumShapeshiftForms = function() return #state.formSpells end
+    env.GetShapeshiftFormInfo = function(index)
+        return 3000 + index, state.form == index, true, state.formSpells[index]
+    end
     if not options.noRange then
         env.C_Spell.IsSpellInRange = function(spell, unit)
             if state.secretRange then return state.secret() end
@@ -965,7 +976,7 @@ test("commands are one word, and anything else shows the usage", function()
     for _, text in ipairs({"nope", "unlock now", "debug_reminders"}) do
         state.clear()
         state.slash(text)
-        equal(state.last(), "DBR: Use /dbr (settings: Reminders, Consumables, Chimes, Proc Chimes), "
+        equal(state.last(), "DBR: Use /dbr (settings: Reminders, Consumables, Chimes, Proc Chimes, Cast Chimes), "
             .. "/dbr unlock, /dbr lock, /dbr reset, /dbr debug, or /dbr probe on|off.")
     end
     state.slash("")
@@ -3272,6 +3283,117 @@ test("chimes: casting again replaces the earlier chime; other casts are ignored"
     state.advance(60)
     equal(#state.played, 1)
 end)
+local TRAVEL_FORM, AQUATIC_FORM, CHEETAH = 783, 1066, 5118
+test("cast chimes: shifting into Travel Form says \"Meep meep\" 0.75 s later, also in combat; leaving it says nothing", function()
+    local state = fixture({class = "DRUID", known = {[TRAVEL_FORM] = true}})
+    state.voice = true
+    local function shift(index, settle)
+        state.form = index
+        state.emit("UPDATE_SHAPESHIFT_FORM")
+        if settle ~= false then state.advance(0.75) end
+    end
+    shift(4, false)
+    equal(#state.played, 0, "not at once")
+    state.advance(0.7)
+    equal(#state.played, 0)
+    state.advance(0.05)
+    equal(#state.played, 1, "0.75 s after the shift")
+    equal(state.played[1].key, "voice", "Text to Speech at first")
+    equal(state.played[1].speech, "Meep meep")
+    state.emit("UPDATE_SHAPESHIFT_FORM")
+    state.advance(1)
+    equal(#state.played, 1, "the same form again (the event repeats): nothing")
+    state.cast(TRAVEL_FORM)
+    equal(#state.played, 1, "the cast itself (also leaving it) does not chime: the form change does")
+    shift(nil)
+    equal(#state.played, 1, "leaving it: nothing")
+    state.combat = true
+    shift(4)
+    equal(#state.played, 2, "also in combat")
+    shift(1)
+    equal(state.played[3].speech, "Rawr", "Bear Form, straight from Travel Form")
+    shift(5)
+    equal(state.played[4].speech, "Rawr", "Dire Bear counts as Bear Form")
+    shift(2)
+    equal(state.played[5].speech, "Meow", "Cat Form")
+    shift(3)
+    equal(state.played[6].speech, "Splash", "Aquatic Form")
+    state.cast(1850)
+    equal(#state.played, 6, "Dash: off at first")
+    state.settings.DBR_CAST_CATFORM:SetValue(false)
+    shift(2)
+    equal(#state.played, 6, "Cat Form switched off")
+    state.settings.DBR_CASTS_ENABLED:SetValue(false)
+    shift(4)
+    equal(#state.played, 6, "the section's switch off: silent")
+    state.settings.DBR_CASTS_ENABLED:SetValue(true)
+    state.settings.DBR_CAST_TRAVELFORM_SOUND:SetValue("magical")
+    equal(state.played[#state.played].key, "magical", "choosing a sound plays it")
+    shift(1)
+    shift(4)
+    equal(state.played[#state.played].key, "magical")
+    state.voice = false
+    shift(1)
+    equal(state.played[#state.played].key, "talent", "no voice installed: the chimes' default")
+    contains(state.row("DBR_CAST_BEARFORM").data.cbTooltip, "not when you leave it")
+end)
+
+test("cast chimes: powershifting chimes once, for the form you settle in", function()
+    local state = fixture({class = "DRUID"})
+    state.voice = true
+    local function shift(index, wait)
+        state.form = index
+        state.emit("UPDATE_SHAPESHIFT_FORM")
+        state.advance(wait)
+    end
+    shift(2, 0.3)
+    shift(1, 0.3)
+    shift(nil, 0)
+    state.advance(2)
+    equal(#state.played, 0, "Cat, Bear, then out, all within 0.75 s: nothing")
+    shift(2, 0.3)
+    shift(1, 0.75)
+    equal(#state.played, 1, "two shifts within 0.75 s: one chime")
+    equal(state.played[1].speech, "Rawr", "for the last form")
+    shift(2, 0.2)
+    shift(nil, 0.2)
+    shift(2, 0.75)
+    equal(#state.played, 2, "Cat, caster, Cat within the window: one Cat chime")
+    equal(state.played[2].speech, "Meow")
+    state.advance(5)
+    equal(#state.played, 2, "the cancelled timers do nothing")
+    shift(4, 0)
+    state.form = nil
+    state.advance(0.75)
+    equal(#state.played, 2, "left without the event yet: the re-read finds no form, nothing")
+end)
+
+test("cast chimes: a Hunter's Cheetah, a Rogue's Sprint at every rank; none for a Priest", function()
+    local hunter = fixture({class = "HUNTER"})
+    hunter.voice = true
+    hunter.cast(CHEETAH)
+    equal(hunter.played[1].speech, "Meep meep", "Aspect of the Cheetah")
+    hunter.cast(13159)
+    equal(#hunter.played, 1, "the Pack: off at first")
+    local rogue = fixture({class = "ROGUE"})
+    rogue.voice = true
+    rogue.cast(11305)
+    equal(#rogue.played, 1, "Sprint's highest rank, by name")
+    rogue.cast(1767)
+    equal(#rogue.played, 1, "other spells: nothing")
+    rogue.slash("debug")
+    contains(rogue.find("debug casts enabled="), "sprint=on:voice")
+    contains(rogue.find("debug casts enabled="), "last=Sprint")
+    local priest = fixture({class = "PRIEST"})
+    equal(priest.row("DBR_CASTS_ENABLED"), nil, "no Cast Chimes section")
+    local db = fixture({db = {casts = {enabled = "x", spells = {travelform = 1, sprint = false},
+        sounds = {travelform = "nope"}}}}).dbr.db.casts
+    equal(db.enabled, true, "repaired")
+    equal(db.spells.travelform, true)
+    equal(db.spells.sprint, false)
+    equal(db.sounds.travelform, "voice", "an unknown sound: the default")
+end)
+
 test("chimes: Cold Snap cancels the Frost chimes; Preparation the Rogue's", function()
     local state = fixture()
     state.combat = true
@@ -3283,6 +3405,7 @@ test("chimes: Cold Snap cancels the Frost chimes; Preparation the Rogue's", func
     equal(#state.played, 1, "Blink chimes; Frost Nova was reset")
     equal(state.played[1].speech, "Blink ready")
     local rogue = fixture({class = "ROGUE"})
+    rogue.dbr.db.casts.enabled = false -- Sprint's cast chime is tested on its own
     rogue.combat = true
     rogue.cast(KICK_2)
     rogue.cast(SPRINT)
@@ -3670,7 +3793,8 @@ test("procs: the settings page has a Procs section, one row per proc, aura sound
     local state = fixture({class = "DRUID"})
     local headings = {}
     for _, heading in ipairs(state.headings) do headings[#headings + 1] = heading.heading end
-    equal(table.concat(headings, "|"), "Reminders|Chimes|Proc Chimes", "no Consumables before Rebirth")
+    equal(table.concat(headings, "|"), "Reminders|Chimes|Proc Chimes|Cast Chimes",
+        "no Consumables before Rebirth; Cast Chimes last")
     equal(state.settings.DBR_PROCS_ENABLED.name, "Enable")
     local switch, switchAt = state.row("DBR_PROCS_ENABLED")
     local _, chimesAt = state.row("DBR_CHIMES_ENABLED")

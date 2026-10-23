@@ -5,6 +5,12 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.4.0
+
+### Features
+
+- Cast Chimes: a sound the moment you cast a travel spell or shift into a Druid form, also in combat. Druid: shifting into Travel Form ("Meep meep"), Bear or Dire Bear Form ("Rawr"), Cat Form ("Meow"), Aquatic Form ("Splash"), or Moonkin Form ("Hoot hoot"), 0.75 seconds after you shift and only if you are still in that form, so powershifting chimes once and never when you leave a form; Dash (off at first). Hunter: Aspect of the Cheetah (on) and Aspect of the Pack (off at first). Rogue: Sprint (on). At first Text to Speech says the words above ("Meep meep" for the travel spells); each has its own switch and sound under the new "Cast Chimes" section in `/dbr`. Every rank counts.
+
 ## 1.3.0
 
 ### Features

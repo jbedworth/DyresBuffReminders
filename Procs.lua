@@ -337,3 +337,154 @@ function DBR.ReportProcsDebug(classFile)
         end
     end
 end
+
+-- Cast chimes ------------------------------------------------------------------
+
+-- The cast chimes' settings, repaired; Core calls this from SanitizeDB. Every
+-- class's spells keep a setting. DBR plays them, so any sound.
+function DBR.SanitizeCasts(saved)
+    saved = type(saved) == "table" and saved or {}
+    local spells = type(saved.spells) == "table" and saved.spells or {}
+    local sounds = type(saved.sounds) == "table" and saved.sounds or {}
+    local clean = {enabled = saved.enabled ~= false, spells = {}, sounds = {}}
+    for _, list in pairs(DBR.CAST_SOUNDS) do
+        for _, cast in ipairs(list) do
+            if type(spells[cast.key]) == "boolean" then
+                clean.spells[cast.key] = spells[cast.key]
+            else
+                clean.spells[cast.key] = cast.on
+            end
+            clean.sounds[cast.key] = DBR.SanitizeChimeSound and DBR.SanitizeChimeSound(sounds[cast.key],
+                DBR.DEFAULT_CAST_SOUND) or (type(sounds[cast.key]) == "string" and sounds[cast.key])
+                or DBR.DEFAULT_CAST_SOUND
+        end
+    end
+    return clean
+end
+
+function DBR.ClassCasts(classFile)
+    return classFile and DBR.CAST_SOUNDS[classFile] or {}
+end
+
+local casts = {names = {}, byKey = {}}
+
+-- Its own sound; one the client cannot play (no voice installed) falls back
+-- to the chimes' default. Without Dyre's Sounds nothing plays.
+local function PlayCast(cast)
+    local library = DBR.SoundLibrary()
+    if not library then
+        return false
+    end
+    local speech = cast.speech or DBR.CAST_SPEECH
+    if library.Play(DBR.db.casts.sounds[cast.key], speech) then
+        return true
+    end
+    return library.Play(DBR.DEFAULT_CHIME_SOUND, speech)
+end
+
+function DBR.PreviewCast(key)
+    local cast = casts.byKey[key]
+    if cast then
+        PlayCast(cast)
+    end
+end
+
+local function CastFor(spellID)
+    if DBR.IsSecret(spellID) or type(spellID) ~= "number" then
+        return nil
+    end
+    local name = C_Spell.GetSpellName(spellID)
+    return name and not DBR.IsSecret(name) and casts.names[name] or nil
+end
+
+local function Chime(cast)
+    if cast and DBR.db.casts.enabled and DBR.db.casts.spells[cast.key] then
+        casts.last = cast.label
+        PlayCast(cast)
+    end
+end
+
+-- The active form's spell ID, or nil (none, or unreadable). The pinned
+-- StanceBar.lua reads the spell as GetShapeshiftFormInfo's fourth value.
+local function ActiveForm()
+    if type(GetNumShapeshiftForms) ~= "function" or type(GetShapeshiftFormInfo) ~= "function" then
+        return nil
+    end
+    local count = GetNumShapeshiftForms()
+    if DBR.IsSecret(count) or type(count) ~= "number" then
+        return nil
+    end
+    for index = 1, count do
+        local _, active, _, spellID = GetShapeshiftFormInfo(index)
+        if not DBR.IsSecret(active) and active == true then
+            return not DBR.IsSecret(spellID) and spellID or nil
+        end
+    end
+end
+
+local castEvents = CreateFrame("Frame")
+castEvents:SetScript("OnEvent", function(_, event, _, _, spellID)
+    if event == "UPDATE_SHAPESHIFT_FORM" then
+        -- Into a form only, once things settle: each change (also leaving a
+        -- form) cancels a pending chime; a new form waits FORM_CHIME_DELAY and
+        -- chimes only if you are still in it, so a powershift (Cat, caster,
+        -- Cat) chimes once and in-and-out none. The same form again (the
+        -- event also fires on loading) changes nothing.
+        local form = ActiveForm()
+        if form == casts.form then
+            return
+        end
+        casts.form = form
+        casts.formToken = (casts.formToken or 0) + 1
+        local cast = form and CastFor(form)
+        if cast and cast.form then
+            local token = casts.formToken
+            C_Timer.After(DBR.FORM_CHIME_DELAY, function()
+                if casts.formToken == token and ActiveForm() == form then
+                    Chime(cast)
+                end
+            end)
+        end
+        return
+    end
+    local cast = CastFor(spellID)
+    -- A form chimes from the form change, so leaving it (a cast too) does not.
+    if cast and not cast.form then
+        Chime(cast)
+    end
+end)
+
+-- Your class's cast chimes, by every rank's name; the player's casts only,
+-- readable also in combat (UNIT_SPELLCAST_SUCCEEDED).
+function DBR.InitializeCasts(classFile)
+    for _, cast in ipairs(DBR.ClassCasts(classFile)) do
+        casts.byKey[cast.key] = cast
+        for _, id in ipairs(cast.spells) do
+            local name = C_Spell.GetSpellName(id)
+            if name then
+                casts.names[name] = cast
+            end
+        end
+    end
+    if next(casts.names) then
+        castEvents:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    end
+    for _, cast in pairs(casts.byKey) do
+        if cast.form then
+            -- No chime for the form you log in in.
+            casts.form = ActiveForm()
+            castEvents:RegisterEvent("UPDATE_SHAPESHIFT_FORM")
+            break
+        end
+    end
+end
+
+function DBR.ReportCastsDebug(classFile)
+    local parts = {}
+    for _, cast in ipairs(DBR.ClassCasts(classFile)) do
+        parts[#parts + 1] = string.format("%s=%s:%s", cast.key, DBR.db.casts.spells[cast.key] and "on" or "off",
+            tostring(DBR.db.casts.sounds[cast.key]))
+    end
+    DBR.Report(string.format("debug casts enabled=%s %s last=%s", tostring(DBR.db.casts.enabled),
+        #parts > 0 and table.concat(parts, " ") or "none", tostring(casts.last)))
+end
