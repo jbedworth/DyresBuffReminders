@@ -24,7 +24,7 @@ tested.
 
 ## Summary
 
-Your class buffs, always in view and one click to cast, with a red border when one drops, also in combat. Reagent and ammo counts, a seal timer, cooldown chimes, and proc chimes, for World of Warcraft: Forever.
+Your class buffs, always in view and one click to cast, with a red border when one drops, also in combat. Reagent and ammo counts, a seal timer, cooldown chimes, and proc chimes.
 
 ## Description
 
