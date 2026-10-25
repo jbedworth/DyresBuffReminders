@@ -58,12 +58,12 @@ your own below.
 | Class | Buffs |
 |---|---|
 | Mage | **Arcane Intellect** (also for group members who use mana), **Armor** (Frost, Ice, or Mage Armor), **Dampen or Amplify Magic** (off at first; either counts, a click recasts the last one) |
-| Warlock | **Demon Armor** (Demon Skin counts before you learn it) |
+| Warlock | In a group where you aren't the tank, a message on screen while the Voidwalker's Torment or Suffering is on autocast; **Demon Armor** (Demon Skin counts before you learn it); **Pet (your demon)**: red while you have no demon, also in combat, and a click summons the last demon you summoned, else the Imp (not after a Demonic Sacrifice, nor while mounted) |
 | Warrior | **Battle Shout** (it reaches your party; watched on you). Unlike long buffs it shows only when needed: missing, or in its last 60 seconds (its own **Remind before it runs out**, 5-120 s), out of combat and in it (in combat timed from your own casts); it needs rage, which runs out soon after a fight |
-| Hunter | **Aspect**: any aspect counts; a click recasts the last combat aspect you cast (Hawk, Monkey, Wild, or Beast), never Cheetah or Pack, else Hawk, else Monkey |
+| Hunter | In a group where you aren't the tank, a message on screen while your pet's Growl is on autocast. **Aspect**: any aspect counts; a click recasts the last combat aspect you cast (Hawk, Monkey, Wild, or Beast), never Cheetah or Pack, else Hawk, else Monkey; **Pet**: red while you have no pet or it is dead, also in combat (not while mounted); a click calls it, or revives it when it is dead, and a right-click revives it |
 | Druid | **Mark of the Wild** (also for your group), **Thorns** (on your group's tank, else on you) |
 | Priest | **Power Word: Fortitude** (also for your group), **Inner Fire**, and as options **Divine Spirit** (group members who use mana) and **Shadow Protection** (your group) |
-| Paladin | **Righteous Fury** (on you; only for a tank: with the Tank role in your group, with Improved Righteous Fury, or with **Always show Righteous Fury** switched on; blessings are left to AddOns such as PallyPower), and the seal timer below |
+| Paladin | **Righteous Fury** (on you; solo, or as your group's tank: the Tank role, or a raid's main tank; or with **Always show Righteous Fury** switched on; blessings are left to AddOns such as PallyPower). In a group where you aren't the tank, a message on screen while it is on. And the seal timer below |
 
 Coming from Mage Tools Forever or Warlock Tools Forever? On DBR's first run
 on a character it copies that AddOn's reminder settings (which are on, the
@@ -229,14 +229,23 @@ A sound the moment a proc appears on you, so you can use it, also in combat:
 
 ## Cast chimes
 
-A sound the moment you cast a travel spell or shift into a Druid form, also
-in combat. Druid: shifting into **Travel Form** ("Meep meep"), **Bear** or
+A sound just after you cast a travel spell or shift into a Druid form, also
+in combat: every cast chime waits 0.75 seconds, so it follows the game's own
+spell sound instead of playing over it. Druid: shifting into **Travel Form** ("Meep meep"), **Bear** or
 **Dire Bear Form** ("Rawr"), **Cat Form** ("Meow"), **Aquatic Form**
 ("Splash"), or **Moonkin Form** ("Hoot hoot"), 0.75 seconds after you shift
 and only if you are still in that form (powershifting chimes once), never
 when you leave a form;
 **Dash** (off at first). Hunter: **Aspect of the Cheetah** (on) and **Aspect
-of the Pack** (off at first). Rogue: **Sprint** (on). Every rank counts. At
+of the Pack** (off at first). Rogue: **Sprint** (on). Warrior: **Charge**, **Intercept**, and **Execute** (on);
+**Whirlwind**, **Battle Shout**, **Demoralizing**, **Challenging**, and
+**Intimidating Shout**, **Taunt**, and **Rend** (off at first); on
+Anniversary also **Intervene**, **Commanding Shout**, and **Victory Rush**,
+once known. Druid, in Bear Form: **Feral Charge** (once you have the
+talent) and **Enrage** (on), **Demoralizing** and **Challenging Roar**,
+**Bash**, and **Frenzied Regeneration** (off at first). The Warrior's and
+these play Dyre's Sounds 1.2.0's "Dyre's Aggression"
+sounds at first (an older Dyre's Sounds plays its default chime). Every rank counts. At
 first Text to Speech says those words ("Meep meep" for the travel spells)
 (set up a voice under the game's Text to Speech options; without one, the
 chimes' default sound plays); choose any Dyre's Sounds sound per spell under

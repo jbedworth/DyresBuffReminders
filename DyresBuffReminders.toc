@@ -1,8 +1,8 @@
-## Interface: 16001
+## Interface: 16001, 11509
 ## Title: Dyre's Buff Reminders
 ## Notes: Reminds you of your class buffs, chimes before your cooldowns are ready, and sounds your procs, in WoW Forever
 ## Author: Dyre
-## Version: 1.4.0
+## Version: 1.5.0
 ## IconTexture: Interface\Icons\Spell_Holy_WordFortitude
 ## Category: Buffs & Debuffs
 ## Dependencies: DyresToolkit
@@ -14,6 +14,7 @@ Commands.lua
 Core.lua
 Buffs.lua
 Reminders.lua
+AuraEngine.lua
 Seals.lua
 Consumables.lua
 ChimeSpells.lua

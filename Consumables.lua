@@ -474,9 +474,11 @@ function DBR.InitializeConsumables(class)
         sizes = DBR.WIDGET_SIZES,
     })
     -- The icons cover the bar: a drag that starts on one moves the bar.
+    -- Locked they let clicks through, so the bar itself takes a Ctrl-drag.
     for _, icon in ipairs(ammo.icons) do
         frame:AddDragHandle(icon)
     end
+    DBR.AddCtrlMove(frame)
     -- SPELLS_CHANGED: a new rank of a reagent's spell uses another item.
     for _, event in ipairs({"BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED", "PLAYER_ENTERING_WORLD",
         "SPELLS_CHANGED"}) do

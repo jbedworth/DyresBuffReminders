@@ -52,11 +52,27 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   (author: self buffs; blessings are per member and situational, and
   PallyPower exists).
 - Mage: Arcane Intellect (group, mana users; Arcane Brilliance 23028, Arcane
-  Powder 17020), Armor (Frost, Ice, Mage; recasts the last used, else Mage,
-  Ice, Frost). Dampen or Amplify Magic (author, 1.3.0: "add to DBR, off by
+  Powder 17020), Armor (Frost, Ice, Mage, Molten (TBC); recasts the last
+  up, else Mage, Ice, Frost; author: "it should default to recasting
+  whatever was up last"). Dampen or Amplify Magic (author, 1.3.0: "add to DBR, off by
   default"; left out in 1.2.0): one reminder, as MTF's, key `dampen` (the two
   cannot be on you together), every rank of both, `prefer` Dampen then
   Amplify, recasting the last one cast; on you only.
+- Pet reminders (author, 1.5.0: "a 'no pet up' warning ... for warlocks
+  and hunters"): Buffs.lua `pet` entries, `hunterPet` (Call Pet 883,
+  `revive` Revive Pet 982) and `warlockPet` (Summon Imp 688, Voidwalker
+  697, Succubus 712, Felhunter 691, Felguard 30146; `prefer` Imp first, so
+  the last summoned is remembered in `db.last`). No aura and no slot: the
+  icon's state driver `[mounted] hide; [nopet] show; [@pet,dead] show; hide`
+  shows it, also in combat, with no reads (nothing secret). Out of combat
+  the refresh hides it dead, on a taxi, without the spell, and for a
+  Warlock after a Demonic Sacrifice (Burning Wish 18789, Fel Stamina 18790,
+  Touch of Shadow 18791/35701, Fel Energy 18792; a secret read counts as
+  sacrificed, no warning), and re-reads on `UNIT_PET`. Hunter click: macro
+  `/use [@pet,dead] Revive Pet; Call Pet`, right-click Revive Pet; Warlock:
+  the last demon (`SingleSpell`), its click set after combat. A dismissed
+  Hunter pet looks like no pet: it shows (a reminder). No sound. The
+  conditionals are C-side: confirm [nopet] and [@pet,dead] in client.
 - Imports (author, 1.3.0): on DBR's first run on a character (no
   `db.spells` saved yet; an existing DBR setting wins), `ImportReminders`
   reads `MageToolsForeverDB.reminders` for a Mage (enabled, group →
@@ -138,17 +154,32 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   (group, everyone; Prayer of Fortitude ranks with Holy or Sacred Candles),
   Inner Fire (self), Divine Spirit (off; group, mana users; Prayer of Spirit),
   Shadow Protection (off; group, everyone; Prayer of Shadow Protection).
-  Paladin: Righteous Fury (25780, self; author, 1.2.0: a long buff shown only for
-  a tank, `tankOnly`: the Tank role via `UnitGroupRolesAssigned` (secret or
-  missing counts as no), Improved Righteous Fury (`IsSpellKnown` on Classic
-  20468-20470, or a point in a talent whose spell name holds the buff's
-  name, from the active C_Traits config: node `activeRank`, entry,
-  definition `spellID`, so a renumbered ID or another language still finds
-  it; confirmed in client on a prot Paladin), or the per-character "Always
-  show Righteous Fury" (`db.alwaysShow`, off); re-checked on roles, roster,
-  `PLAYER_TALENT_UPDATE`, `TRAIT_CONFIG_UPDATED`, and `SPELLS_CHANGED`, out of
-  combat; the talent names are read again only after those events or
-  `PLAYER_ENTERING_WORLD`). Ask the author before changing
+  Paladin: Righteous Fury (25780, self; `tankOnly`; author, 1.5.0, replacing
+  1.2.0's talent rule: "the reminder should only come up if I'm a designated
+  Tank in Group/Raid, or, if solo. We can remove the check for Improved
+  Righteous Fury"): solo, or the group's designated tank (the Tank role via
+  `UnitGroupRolesAssigned`, or a raid's main tank via
+  `GetPartyAssignment("MAINTANK", "player")`, as the secure group headers
+  read it; a secret or missing answer is not a tank), or the per-character
+  "Always show Righteous Fury" (`db.alwaysShow`, off), re-checked on roles,
+  roster, and `SPELLS_CHANGED`, out of combat. The talent scan (C_Traits)
+  is gone. Warnings (Buffs.lua `DBR.WARNINGS`, author, 1.5.0: first amber
+  icons, then "use the same mechanism (Message Box on-screen, like DCM) for
+  the taunting-warnings ... instead of using icons"): in a group or raid
+  where you are not the designated tank, `furyOff` (Righteous Fury on, and
+  not "Always show") and `hunterPetTaunt` / `warlockPetTaunt` (Growl;
+  Torment, Suffering, TBC's Anguish; with the Voidwalker or Felguard summon
+  known; `GetPetActionInfo` over the pet bar, `PET_BAR_UPDATE`, `UNIT_PET`;
+  a secret answer warns nothing). Each is a message, not an icon and no
+  click: a toolkit widget (`warnings`, `db.warningPop`, "Warning messages:
+  size") near the top center, a gold title over a line that fades (hold 4
+  s, fade 1.5 s), as Dyre's Crit Mayhem's record pop (Records.lua; copied as
+  a pattern, no dependency), no mouse, so no popup; plus one chat line.
+  Shown when the condition becomes true or its text changes (checked with
+  each out-of-combat refresh), again once at `PLAYER_REGEN_DISABLED` while
+  still true, at most once per 30 s each, never while nothing changes. Each
+  its own switch (`db.warnings`, `DBR_WARN_<KEY>`), on. `knownBy`: the
+spells that make a warning apply. Ask the author before changing
   defaults.
 - Running out (author, 1.2.0: "For a buff that lasts 30-60 min, a 0-60
   second reminder might need a bigger window"; for every buff, also group
@@ -204,7 +235,7 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   group version you know and carry the reagent for, by ID, since each rank
   has its own reagent (`SECURE_ACTIONS.spell` casts a number with
   `CastSpellByID`). Buffs with `prefer` remember the last one you cast
-  (`db.last`). Unlocked icons cast nothing, so dragging is safe. An icon's
+  or, out of combat, the one read up on you (`db.last`). Unlocked icons cast nothing, so dragging is safe. An icon's
   picture is always the spell its click casts (author), also unlocked: the
   action's spell, else the spell a click would cast now.
 - Aura APIs refuse AddOn code in combat, so DBR reads auras only out of
@@ -268,6 +299,19 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   spellbook spell named "Seal of ..." (a new one gets a new container out of
   combat, since a slot's IDs are fixed). The last seal cast is remembered by
   name.
+- Classic Era and Anniversary (author, 1.5.0: "paladin seals aren't showing
+  up in era"; how seals work must not change): no engine, so AuraEngine.lua
+  (copied from WTF with a provenance header, as DSU and MTF) gives the same
+  container in plain Lua from `C_UnitAuras.GetAuraDataByIndex` on
+  `UNIT_AURA`, also in combat (nothing is secret there); its bar and time
+  redraw on a 0.1 s OnUpdate only while a timed seal shows. Forever keeps the
+  engine (`DBR.CreateAuraContainer` picks). The buff widgets use it too
+  (author: "battle shout reminder doesn't drop when bs is applied in combat
+  in classic era"), so Era has Forever's layering: the slot, read in
+  combat, covers the armed icon and goes when the buff does. The slot
+  matches by spell ID (`includeSpellIDs`), so a rank missing from Buffs.lua
+  (TBC's new ranks, on Anniversary) is not drawn: add those IDs with the
+  Anniversary data.
 - Aura APIs refuse AddOn code in combat, so Blizzard's AuraContainer
   (`CustomAuraContainerTemplate`, `includeSpellIDs` as a set) draws the seal:
   one slot with every seal ID shows the seal's icon, a cooldown sweep with
@@ -311,6 +355,12 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
 - No ammo equipped: missing, with "Equip your arrows/bullets." when a bag
   holds that kind (Classic projectile subclasses Arrow 2, Bullet 3; the
   generated docs list none), else "No arrows/bullets in your bags."
+- Ctrl-drag while locked (toolkit free move): the Consumables bar and the
+  seal timer are click-through while locked, so `DBR.AddCtrlMove` (Core.lua)
+  has each take the mouse while Ctrl is held, out of combat
+  (`MODIFIER_STATE_CHANGED`; off at `PLAYER_REGEN_DISABLED`; kept during a
+  drag; player report, 1.4.1, WTF's fix). The seal button is also a drag
+  handle. Buff icons are secure buttons that always take the mouse.
 - The Consumables bar (`DyresBuffRemindersConsumables`, widget
   `consumables`, store `db.consumables`, default 150 right of My buffs'
   place): a plain frame, mouse "unlocked" (click-through while locked); the
@@ -450,17 +500,31 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   783, Bear 5487 and Dire Bear 9634 ("Rawr"), Cat 768 ("Meow"), Aquatic 1066
   ("Splash"), Moonkin 24858 ("Hoot hoot"); Dash 1850/9821/9823 (off); Hunter Aspect of the Cheetah 5118
   ("Pact of Cheeta", author's name; on) and Aspect of the Pack 13159 (off);
-  Rogue Sprint 2983/8696/11305 (on). Travel Form and the aspects have no
+  Rogue Sprint 2983/8696/11305 (on). Warrior (author, 1.5.0, from a look
+  at Full Steel, read only): Charge, Intercept, Execute on; Whirlwind, Battle
+  Shout, Demoralizing, Challenging, and Intimidating Shout, Taunt, Rend off;
+  TBC's Intervene, Commanding Shout, and Victory Rush `whenKnown` (listed
+  only when known at login). Each has its own default `sound` from Dyre's
+  Sounds 1.2.0's "Dyre's Aggression" (an older Dyre's Sounds: the chimes'
+  default plays; DBR's release follows Sounds 1.2.0), and speech its name.
+  Druid (author: "druid has some warrior-like abilities/talents"): Feral
+  Charge 16979 (talent, `whenKnown`, on, orccharge), Enrage 5229 (on,
+  rageattack), Demoralizing Roar (off, orcangry), Challenging Roar (off,
+  crowdcharge), Bash and Frenzied Regeneration (off, orcfury and
+  raspyshout). Casts: each waits the same 0.75 s, undebounced. Travel Form and the aspects have no
   cooldown in Classic; Sprint and Dash are also cooldown chimes.
 - A form chimes on `UPDATE_SHAPESHIFT_FORM` when the active form (the
   `GetShapeshiftFormInfo` entry that is active; its fourth value is the
   spell, as the pinned Blizzard_ActionBar/Shared/StanceBar.lua:70 reads it)
-  changes to a new one, `FORM_CHIME_DELAY` (0.75 s, ProcSpells.lua) later
+  changes to a new one, `CAST_CHIME_DELAY` (0.75 s, ProcSpells.lua) later
   and only if that form is still active then (author: "add a .75 second
   delay ... and debounce it (powershifting)"): every change, leaving too,
   bumps a token that cancels the pending chime, so Cat, caster, Cat chimes
-  once and in-and-out none. Non-form cast chimes (Sprint, the aspects) stay
-  immediate. Leaving a form (no form) and the same form again
+  once and in-and-out none. Non-form cast chimes (Sprint, the aspects, the
+  Warrior's) wait the same `CAST_CHIME_DELAY`, each cast its own timer, no
+  debounce (author, 1.5.0: "the half-second delay on cast chimes means we do
+  NOT have to disable the built-in sounds ... Make sure all cast chimes have
+  the same delay"). Leaving a form (no form) and the same form again
   (the event repeats, also on loading) never chime, nor the form you log
   in in; a form's cast event is ignored, since leaving a form is a cast too.
 - Other spells: on the player's `UNIT_SPELLCAST_SUCCEEDED` (readable in combat; a secret
@@ -551,7 +615,7 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
 ## Project structure
 
 - Runtime files: DyresBuffReminders.toc, Commands.lua, Core.lua,
-  Buffs.lua, Reminders.lua, Seals.lua, Consumables.lua, ChimeSpells.lua, Chimes.lua,
+  Buffs.lua, Reminders.lua, AuraEngine.lua, Seals.lua, Consumables.lua, ChimeSpells.lua, Chimes.lua,
   ProcSpells.lua, Procs.lua, Probe.lua, Options.lua, loaded in that order. Commands
   parses `/dbr`; Core owns saved
   settings and their repair, the login banner, install and API checks, slash
@@ -644,10 +708,10 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   player-facing changes; the builder puts it at the top of release-notes.md
   and fails without it.
 - Package only DyresBuffReminders.toc, Commands.lua, Core.lua,
-  Buffs.lua, Reminders.lua, Seals.lua, Consumables.lua, ChimeSpells.lua, Chimes.lua,
+  Buffs.lua, Reminders.lua, AuraEngine.lua, Seals.lua, Consumables.lua, ChimeSpells.lua, Chimes.lua,
   ProcSpells.lua, Procs.lua, Probe.lua, Options.lua, and LICENSE under the top-level
   `DyresBuffReminders/` folder, named `DyresBuffReminders-<version>-forever.zip`,
-  with the builder's BigWigs-format `release.json` (flavor `forever`) attached
+  with the builder's BigWigs-format `release.json` (flavors `forever` and `classic`; the TOC lists Interface `16001, 11509`, and each CurseForge upload names Forever 1.60.1 and Classic Era 1.15.9, `CURSEFORGE_CLASSIC_GAME_VERSION_ID`) attached
   for WowUp.
 - Publishing requires repository variables `ENABLE_GITHUB_RELEASES='true'`
   and, for CurseForge, `ENABLE_CURSEFORGE_UPLOADS='true'`, plus

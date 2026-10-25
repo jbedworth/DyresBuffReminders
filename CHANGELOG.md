@@ -5,6 +5,25 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.5.0
+
+### Features
+
+- Warnings on screen: in a group or raid where you aren't the tank, a short message near the top of the screen (and in chat) when Righteous Fury is on (Paladin), or when your pet's taunt is on autocast (Hunter: Growl; Warlock: the Voidwalker's Torment and Suffering). It shows when that starts and once more as combat starts, at most every 30 seconds, and fades on its own. Each has its own switch under Reminders, on at first; "Warning messages: size" there sizes it, and it moves with the other frames.
+- Warrior Cast Chimes: a sound when you cast Charge, Intercept, or Execute (on at first), and, once you switch them on, Whirlwind, Battle Shout, Demoralizing Shout, Challenging Shout, Intimidating Shout, Taunt, or Rend, also in combat. Each has its own switch and sound under "Cast Chimes" in `/dbr`; at first they use the new "Dyre's Aggression" sounds from Dyre's Sounds 1.2.0 (update it; with an older Dyre's Sounds they play its default chime). Every rank counts.
+- Hunter and Warlock: a Pet reminder, on at first. It shows with a red border while you have no pet (or, for a Hunter, a dead one), also in combat, and hides while you are mounted, dead, or on a flight path. A Hunter's click calls the pet, or revives it when it is dead (a right-click always revives); a Warlock's summons the last demon you summoned, else the Imp. It stays away after a Demonic Sacrifice, and before you can have a pet. Turn it off under Reminders in `/dbr`.
+- Druid Cast Chimes in the same style: Feral Charge (once you have the talent) and Enrage (on at first), and Demoralizing Roar, Challenging Roar, Bash, and Frenzied Regeneration (off at first), with Dyre's Aggression sounds. Your form chimes still come after you shift.
+
+### Fixes
+
+- On WoW Classic Era (and Anniversary), buff reminders now work in combat as on Forever: a buff cast in combat (such as Battle Shout) covers its reminder at once, and one that runs out or is dispelled shows its red reminder at once, with a click that recasts it. Before, they changed only after the fight.
+- Paladin: Righteous Fury now reminds you solo, or in a group or raid when you are the tank (the Tank role, or the raid's main tank). Improved Righteous Fury no longer matters, which also fixes the reminder not showing solo with that talent.
+- On WoW Classic Era (and Anniversary), the Paladin seal timer now shows: the seal with its time left, in and out of combat, and in combat with no seal up, your last seal to click. It works as on Forever.
+- Your armor's click recasts the armor that was up on you last (for a Mage, Frost, Ice, Mage, or Molten Armor; for a Warlock, Demon Skin or Demon Armor), also one you cast before DBR saw it; before that, your best. Any of them counts as up.
+
+- Every cast chime now plays 0.75 seconds after the cast, as the Druid form chimes already did, so it follows the game's own spell sound instead of playing over it. There is no need to turn the game's sounds off.
+- While frames are locked, a Ctrl-drag now moves the Consumables bar and the seal timer, as it does every other Dyre's frame. Before, they let every click through, so the drag never started.
+
 ## 1.4.0
 
 ### Features

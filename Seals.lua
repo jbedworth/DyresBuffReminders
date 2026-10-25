@@ -6,6 +6,10 @@ local addonName, DBR = ...
 -- used shows with the pulsing gold border, and a click casts it. Out of
 -- combat with no seal up, nothing shows.
 --
+-- On Classic Era and Anniversary (no engine, nothing secret) AuraEngine.lua's
+-- plain-Lua container draws the same slot from aura reads (author: "paladin
+-- seals aren't showing up in era"; how the seals work does not change).
+--
 -- AddOn code cannot read auras in combat, so Blizzard's AuraContainer draws
 -- the seal: the engine shows its slot while a seal is up and hides it the
 -- moment the seal goes, also in combat (as Dyre's Shields Up's icon row). The
@@ -49,7 +53,6 @@ local PULSE_LOW_ALPHA = 0.15
 -- Above the buff bars' default places.
 local DEFAULT_POINT = {point = "CENTER", relativePoint = "CENTER", x = 0, y = 240}
 local AURA_FILTER = "HELPFUL"
-local CONTAINER_TEMPLATE = "CustomAuraContainerTemplate"
 local COMBAT_ONLY = "[combat] show; hide"
 local NEVER = "hide"
 -- The slot sits above the button, so a seal's icon covers the missing picture.
@@ -143,15 +146,9 @@ local function ClickSeal(list)
     end
 end
 
+-- The engine's container (Forever), else AuraEngine.lua's plain-Lua one.
 local function HasAuraContainer()
-    if type(C_XMLUtil) ~= "table" or type(C_XMLUtil.GetTemplateInfo) ~= "function"
-        or type(C_AddOns) ~= "table" or type(C_AddOns.LoadAddOn) ~= "function" then
-        return false
-    end
-    if not C_AddOns.IsAddOnLoaded("Blizzard_AuraContainer") then
-        C_AddOns.LoadAddOn("Blizzard_AuraContainer")
-    end
-    return C_XMLUtil.GetTemplateInfo(CONTAINER_TEMPLATE) ~= nil
+    return type(DBR.AuraEngineKind) == "function" and DBR.AuraEngineKind() ~= nil
 end
 
 local function NoMouse(region)
@@ -195,7 +192,7 @@ local function CreateContainer()
     if seal.container then
         seal.container:Hide()
     end
-    local container = CreateFrame("AuraContainer", nil, seal.display, CONTAINER_TEMPLATE)
+    local container = DBR.CreateAuraContainer(seal.display)
     container:SetPoint("CENTER", seal.display, "CENTER")
     container:SetSize(1, 1)
     container:SetFrameLevel(seal.button:GetFrameLevel() + SLOT_LEVELS_ABOVE)
@@ -375,6 +372,10 @@ function SetUp()
     CreateButton()
     CreateContainer()
     CreateWidget()
+    -- The seal button (shown in combat with no seal, and unlocked) is a drag
+    -- handle; locked, the timer itself takes a Ctrl-drag.
+    seal.display:AddDragHandle(seal.button)
+    DBR.AddCtrlMove(seal.display)
     seal.ready = true
     events:RegisterEvent("SPELLS_CHANGED")
     events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
@@ -386,7 +387,7 @@ function DBR.InitializeSeal(class)
         return
     end
     if not HasAuraContainer() then
-        DBR.Report("The seal timer stays off: this client lacks Blizzard's aura container.")
+        DBR.Report("The seal timer stays off: this client lacks Blizzard's aura container and aura reads.")
         return
     end
     events:RegisterEvent("PLAYER_REGEN_ENABLED")

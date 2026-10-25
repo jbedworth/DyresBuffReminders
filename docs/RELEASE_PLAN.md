@@ -39,6 +39,7 @@ DyresBuffReminders/
     Core.lua
     Buffs.lua
     Reminders.lua
+    AuraEngine.lua
     Seals.lua
     Consumables.lua
     ChimeSpells.lua
@@ -63,7 +64,7 @@ Validate the actual archive, not only the staging folder:
 
 1. Check CRC/integrity, non-empty files, and the exact file list.
 2. Reject absolute paths, traversal paths, symlinks, and extra root folders.
-3. Verify the TOC name, Interface `16001`, and Commands/Core/Buffs/Reminders/Seals/Consumables/ChimeSpells/Chimes/ProcSpells/Procs/Probe/Options load order. Every listed runtime file must exist inside the archive.
+3. Verify the TOC name, Interface `16001, 11509` (Forever and Classic Era), and Commands/Core/Buffs/Reminders/Seals/Consumables/ChimeSpells/Chimes/ProcSpells/Procs/Probe/Options load order. Every listed runtime file must exist inside the archive.
 4. Verify the packaged version matches the selected tag, with one leading `v`
    removed. Verify the packaged MIT copyright/permission notice is intact.
 5. Check the packaged Lua files with Lua 5.1 syntax validation.
@@ -97,7 +98,8 @@ TOC/version/license and actual archive, and writes to `dist/`:
 - `release-notes.md`: the `CHANGELOG.md` section for the version, then the
   standing beta notes;
 - `release.json`, BigWigs-format WowUp metadata naming the ZIP with flavor
-  `forever` and Interface `16001`.
+  `forever` and Interface `16001`, and flavor `classic` and Interface `11509`
+  (one package serves both clients).
 
 The GitHub release attaches the ZIP, checksum, manifest, and `release.json`.
 WowUp 2.24.0 reads `release.json` first and maps its `forever` flavor to Forever
@@ -190,9 +192,12 @@ provided by these rechecks.
    https://authors.curseforge.com/#/settings/api-tokens, then find the version
    ID locally with `python3 scripts/curseforge_versions.py`; it reads the token
    from `CF_API_TOKEN` or a hidden prompt, sends one read-only GET, and marks
-   the `1.60.1` entry. In repository Actions variables,
-   set `CURSEFORGE_PROJECT_ID` and `CURSEFORGE_GAME_VERSION_ID` to the verified
-   positive decimal IDs, not example values. In **Settings → Environments →
+   the `1.60.1` entry; `--classic` lists the Classic Era (1.15.x) versions
+   instead (1.15.9 is ID 16630, type 67408). In repository Actions variables,
+   set `CURSEFORGE_PROJECT_ID`, `CURSEFORGE_GAME_VERSION_ID`, and
+   `CURSEFORGE_CLASSIC_GAME_VERSION_ID` to the verified positive decimal IDs,
+   not example values. Every upload lists both versions; the publisher checks
+   Forever `1.60.1` (type 88568) and Classic Era `1.15.9` (type 67408). In **Settings → Environments →
    release → Environment secrets**, add author upload token `CF_API_TOKEN`.
    Never put it in source, chat, a URL, or build-job configuration. GitHub
    publishing needs no separate personal token: `GITHUB_TOKEN` is built in.

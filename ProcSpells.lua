@@ -55,17 +55,22 @@ DBR.PROC_SOUNDS = {
 
 -- Cast chimes (author, 1.4.0: "a sound when Travel Form, Pact of Cheeta and
 -- Sprint fire off ... the road-runner meep meep or something fun"): a sound
--- the moment you cast one of these, also in combat, every rank by name. The
--- Road Runner's own sound is copyrighted, so the default is Text to Speech
+-- just after you cast one of these (CAST_CHIME_DELAY), also in combat, every
+-- rank by name. The Road Runner's own sound is copyrighted, so the default is Text to Speech
 -- saying the spell's speech (else DBR.CAST_SPEECH); each spell has its own
 -- switch and sound. Classic IDs; Travel Form and the aspects have no
 -- cooldown, Sprint and Dash chime under Chimes too. form: a Druid form
 -- (author: "Shifting INTO form only, not out"), which chimes when you enter
--- it, from the form change, never when you leave it.
+-- it, from the form change, never when you leave it. sound: the spell's own
+-- default (a Dyre's Sounds key; one an older Dyre's Sounds lacks plays the
+-- chimes' default). whenKnown: listed only once you know it (later clients'
+-- spells, such as TBC's Intervene).
 DBR.DEFAULT_CAST_SOUND = "voice"
--- Seconds after a form change before its chime (author: "add a .75 second
--- delay ... and debounce it (powershifting)").
-DBR.FORM_CHIME_DELAY = 0.75
+-- Seconds before every cast chime (author: "add a .75 second delay ... and
+-- debounce it (powershifting)"; 1.5.0: "the half-second delay on cast chimes
+-- means we do NOT have to disable the built-in sounds ... Make sure all cast
+-- chimes have the same delay"). Forms are also debounced; casts are not.
+DBR.CAST_CHIME_DELAY = 0.75
 DBR.CAST_SPEECH = "Meep meep"
 DBR.CAST_SOUNDS = {
     DRUID = {
@@ -76,6 +81,21 @@ DBR.CAST_SOUNDS = {
         {key = "aquaticform", label = "Aquatic Form", spells = {1066}, on = true, form = true, speech = "Splash"},
         {key = "moonkinform", label = "Moonkin Form", spells = {24858}, on = true, form = true, speech = "Hoot hoot"},
         {key = "dash", label = "Dash", spells = {1850, 9821, 9823}, on = false},
+        -- A Druid's Warrior-like abilities (author, 1.5.0: "druid has some
+        -- warrior-like abilities/talents (Feral Charge, Enrage) - make sure
+        -- they work too"), with Dyre's Aggression sounds. Casts, not forms:
+        -- they chime on the cast, after the same wait. Feral Charge is a
+        -- talent, so it is listed once known.
+        {key = "feralcharge", label = "Feral Charge", spells = {16979}, on = true, sound = "orccharge",
+            speech = "Feral Charge", whenKnown = true},
+        {key = "enrage", label = "Enrage", spells = {5229}, on = true, sound = "rageattack", speech = "Enrage"},
+        {key = "demoroar", label = "Demoralizing Roar", spells = {99, 1735, 9490, 9747, 9898, 26998}, on = false,
+            sound = "orcangry", speech = "Demoralizing Roar"},
+        {key = "challengingroar", label = "Challenging Roar", spells = {5209}, on = false, sound = "crowdcharge",
+            speech = "Challenging Roar"},
+        {key = "bash", label = "Bash", spells = {5211, 6798, 8983}, on = false, sound = "orcfury", speech = "Bash"},
+        {key = "frenziedregen", label = "Frenzied Regeneration", spells = {22842, 22895, 22896, 26999}, on = false,
+            sound = "raspyshout", speech = "Frenzied Regeneration"},
     },
     HUNTER = {
         {key = "cheetah", label = "Aspect of the Cheetah", spells = {5118}, on = true},
@@ -83,5 +103,35 @@ DBR.CAST_SOUNDS = {
     },
     ROGUE = {
         {key = "sprint", label = "Sprint", spells = {2983, 8696, 11305}, on = true},
+    },
+    -- Author, 1.5.0 (from a look at Full Steel, which plays sounds on these
+    -- casts): Dyre's Sounds 1.2.0's "Dyre's Aggression" sounds; Charge,
+    -- Intercept, and Execute on, the rest off. Text to Speech says the name.
+    WARRIOR = {
+        {key = "charge", label = "Charge", spells = {100, 6178, 11578}, on = true, sound = "militarycharge",
+            speech = "Charge"},
+        {key = "intercept", label = "Intercept", spells = {20252, 20616, 20617, 25272, 25275}, on = true,
+            sound = "orccharge", speech = "Intercept"},
+        {key = "execute", label = "Execute", spells = {5308, 20658, 20660, 20661, 20662, 25234, 25236}, on = true,
+            sound = "angryscream", speech = "Execute"},
+        {key = "whirlwind", label = "Whirlwind", spells = {1680}, on = false, sound = "rageattack",
+            speech = "Whirlwind"},
+        {key = "battleshoutcast", label = "Battle Shout", spells = {6673, 5242, 6192, 11549, 11550, 11551, 25289, 2048},
+            on = false, sound = "raspyshout", speech = "Battle Shout"},
+        {key = "demoshout", label = "Demoralizing Shout", spells = {1160, 6190, 11554, 11555, 11556, 25202, 25203},
+            on = false, sound = "orcangry", speech = "Demoralizing Shout"},
+        {key = "challengingshout", label = "Challenging Shout", spells = {1161}, on = false, sound = "crowdcharge",
+            speech = "Challenging Shout"},
+        {key = "intimidatingshout", label = "Intimidating Shout", spells = {5246}, on = false, sound = "orcfury",
+            speech = "Intimidating Shout"},
+        {key = "taunt", label = "Taunt", spells = {355}, on = false, sound = "piratecharge", speech = "Taunt"},
+        {key = "rend", label = "Rend", spells = {772, 6546, 6547, 6548, 11572, 11573, 11574, 25208}, on = false,
+            sound = "rageattack", speech = "Rend"},
+        {key = "intervene", label = "Intervene", spells = {3411}, on = false, sound = "whistlecharge",
+            speech = "Intervene", whenKnown = true},
+        {key = "commandingshout", label = "Commanding Shout", spells = {469}, on = false, sound = "raspyshout",
+            speech = "Commanding Shout", whenKnown = true},
+        {key = "victoryrush", label = "Victory Rush", spells = {34428}, on = false, sound = "childrencharge",
+            speech = "Victory Rush", whenKnown = true},
     },
 }

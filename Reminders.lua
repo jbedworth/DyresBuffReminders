@@ -76,7 +76,9 @@ local ROWS = {
 local HIDDEN_DRIVER = "hide"
 local SHOWN_DRIVER = "show"
 local COMBAT_ONLY_DRIVER = "[combat] show; hide"
-local CONTAINER_TEMPLATE = "CustomAuraContainerTemplate"
+-- A pet reminder: the game decides, also in combat (no reads, so nothing
+-- secret): shown with no pet or a dead one, hidden while mounted.
+local PET_DRIVER = "[mounted] hide; [nopet] show; [@pet,dead] show; hide"
 -- The aura slot sits above the icon, so a buff that is up covers it.
 local SLOT_LEVELS_ABOVE = 5
 -- Unlocked, a buff that is on shows this solid, so the missing ones stand out.
@@ -214,6 +216,15 @@ function DBR.SanitizeReminders(db, sanitizePosition)
     db.leads = {}
     local alwaysShow = type(db.alwaysShow) == "table" and db.alwaysShow or {}
     db.alwaysShow = {}
+    local warned = type(db.warnings) == "table" and db.warnings or {}
+    db.warnings = {}
+    for _, list in pairs(DBR.WARNINGS or {}) do
+        for _, warning in ipairs(list) do
+            db.warnings[warning.key] = warned[warning.key] ~= false
+        end
+    end
+    local pop = type(db.warningPop) == "table" and db.warningPop or {}
+    db.warningPop = {position = sanitizePosition(pop.position), scale = pop.scale}
     local aspect = type(db.combatAspect) == "table" and db.combatAspect or {}
     -- Its place, size, and opacity are My buffs' (a pre-release had its own).
     db.combatAspect = {enabled = aspect.enabled ~= false, soundOn = aspect.soundOn ~= false,
@@ -250,7 +261,7 @@ local function Knows(id)
 end
 
 local function Known(reminder)
-    for _, id in ipairs(reminder.spells) do
+    for _, id in ipairs(reminder.knownBy or reminder.spells) do
         if Knows(id) then
             return true
         end
@@ -311,6 +322,11 @@ local function BuffState(unit, reminder)
         end
         if aura ~= nil then
             found = true
+            -- The one up on you is what a click recasts (author: "recasting
+            -- whatever was up last"), also when it was cast before DBR saw it.
+            if unit == "player" and reminder.prefer and reminders.spellNames[name] == reminder.key then
+                DBR.db.last[reminder.key] = name
+            end
             local left = TimeLeft(aura)
             if not left then
                 return "on"
@@ -614,6 +630,17 @@ local function TankAction(reminder, unit)
 end
 
 local function ApplyClick(icon, reminder, action)
+    -- Right-click (a pet's Revive Pet), or nothing.
+    icon:SetAttribute("type2", action and action.right and "spell" or nil)
+    icon:SetAttribute("spell2", action and action.right or nil)
+    if action and action.macro then
+        icon.action = action
+        icon:SetAttribute("type1", "macro")
+        icon:SetAttribute("macrotext1", action.macro)
+        icon:SetAttribute("spell1", nil)
+        icon:SetAttribute("unit1", nil)
+        return
+    end
     if action and reminder.cancelForm and (action.armed or InForm()) then
         action.leavesForm = true
         icon.action = action
@@ -639,6 +666,41 @@ local function ApplyClick(icon, reminder, action)
     icon:SetAttribute("macrotext1", nil)
     icon:SetAttribute("spell1", action and action.cast or nil)
     icon:SetAttribute("unit1", action and action.unit or nil)
+end
+
+-- A pet reminder's click. A Hunter's calls the pet, or revives it when it is
+-- dead ("/use", author's rule, with [@pet,dead]); a right-click always
+-- revives. A Warlock's summons the last demon summoned, else the Imp.
+local function PetAction(reminder)
+    if reminder.pet == "hunter" then
+        local call = C_Spell.GetSpellName(reminder.spells[1])
+        local revive = reminder.revive and Knows(reminder.revive) and C_Spell.GetSpellName(reminder.revive) or nil
+        if not call then
+            return nil
+        end
+        local macro = revive and ("/use [@pet,dead] " .. revive .. "; " .. call) or ("/use " .. call)
+        return {macro = macro, cast = call, right = revive, noTarget = true,
+            spell = revive and (call .. " (" .. revive .. " if it is dead; right-click: " .. revive .. ")") or call}
+    end
+    local spell = SingleSpell(reminder)
+    if spell then
+        return {cast = spell, spell = spell, noTarget = true}
+    end
+end
+
+-- A Warlock's Demonic Sacrifice is on: no pet is wanted. A secret answer
+-- counts as on: DBR cannot tell, so no warning. Out of combat only.
+local function Sacrificed(reminder)
+    for _, id in ipairs(reminder.sacrifice or {}) do
+        local name = C_Spell.GetSpellName(id)
+        if name then
+            local aura = C_UnitAuras.GetAuraDataBySpellName("player", name, "HELPFUL")
+            if DBR.IsSecret(aura) or aura ~= nil then
+                return true
+            end
+        end
+    end
+    return false
 end
 
 -- Display ----------------------------------------------------------------------
@@ -763,78 +825,62 @@ local function ScheduleWarn(reminder, expires, duration)
 end
 
 -- Whether this character can show the reminder: known and switched on.
--- The names of the talents with a point in them, on the active talent
--- config. Forever's talents are a C_Traits tree (pinned Camelot
--- Blizzard_ClassTalentsFrame.lua): node rank, entry, definition, spell.
--- Kept until a talent or spell event (no rescan on every refresh).
-local function TalentNames()
-    if reminders.talents then
-        return reminders.talents
+-- Your group's designated tank: the Tank role, or a raid's main tank
+-- (GetPartyAssignment, as the secure group headers read it). A secret or
+-- missing answer is not a tank.
+local function DesignatedTank()
+    if type(UnitGroupRolesAssigned) == "function" and IsTank("player") then
+        return true
     end
-    local names = {}
-    reminders.talents = names
-    if type(C_ClassTalents) ~= "table" or type(C_ClassTalents.GetActiveConfigID) ~= "function"
-        or type(C_Traits) ~= "table" or type(C_Traits.GetConfigInfo) ~= "function" then
-        return names
-    end
-    local configID = C_ClassTalents.GetActiveConfigID()
-    local config = type(configID) == "number" and C_Traits.GetConfigInfo(configID)
-    if type(config) ~= "table" or type(config.treeIDs) ~= "table" then
-        return names
-    end
-    for _, treeID in ipairs(config.treeIDs) do
-        for _, nodeID in ipairs(C_Traits.GetTreeNodes(treeID) or {}) do
-            local node = C_Traits.GetNodeInfo(configID, nodeID)
-            local rank = type(node) == "table" and node.activeRank
-            if type(rank) == "number" and rank > 0 then
-                for _, entryID in ipairs(node.entryIDs or {}) do
-                    local entry = C_Traits.GetEntryInfo(configID, entryID)
-                    local definition = type(entry) == "table" and entry.definitionID
-                        and C_Traits.GetDefinitionInfo(entry.definitionID)
-                    local spellID = type(definition) == "table" and definition.spellID
-                    local name = type(spellID) == "number" and C_Spell.GetSpellName(spellID)
-                    if type(name) == "string" and not DBR.IsSecret(name) then
-                        names[#names + 1] = name
-                    end
-                end
-            end
-        end
-    end
-    return names
-end
-
--- A talent for the buff: one of its talent spells known, or a point in a
--- talent whose name holds the buff's own (Improved Righteous Fury), so a
--- renumbered ID or another language still finds it.
-local function HasTalent(reminder)
-    for _, id in ipairs(reminder.tankOnly.talent or {}) do
-        if Knows(id) then
-            return true
-        end
-    end
-    local buff = C_Spell.GetSpellName(reminder.spells[1])
-    if type(buff) ~= "string" or DBR.IsSecret(buff) then
-        return false
-    end
-    for _, name in ipairs(TalentNames()) do
-        if name ~= buff and name:find(buff, 1, true) then
-            return true
-        end
+    if IsInRaid() and type(GetPartyAssignment) == "function" then
+        local main = GetPartyAssignment("MAINTANK", "player")
+        return not DBR.IsSecret(main) and main == true
     end
     return false
 end
 
--- A tank-only buff (Buffs.lua's tankOnly, author: Righteous Fury): the Tank
--- role (a secret or missing answer is not a tank), its talent, or the
--- player's "Always show" switch.
+-- A tank-only buff (Buffs.lua's tankOnly, author, 1.5.0: Righteous Fury):
+-- solo, or your group's designated tank, or the player's "Always show".
 local function ForTank(reminder)
     if DBR.db.alwaysShow[reminder.key] then
         return true
     end
-    if type(UnitGroupRolesAssigned) == "function" and IsTank("player") then
-        return true
+    return not IsInGroup() or DesignatedTank()
+end
+
+-- A warning's spells, by name, on you (Righteous Fury) or on your pet's bar
+-- with autocast on (a taunt). A secret answer: cannot tell, so no warning.
+local function FuryUp(reminder)
+    for _, id in ipairs(reminder.spells) do
+        local name = C_Spell.GetSpellName(id)
+        local aura = name and C_UnitAuras.GetAuraDataBySpellName("player", name, "HELPFUL")
+        if aura ~= nil and not DBR.IsSecret(aura) then
+            return name
+        end
     end
-    return HasTalent(reminder)
+end
+
+local PET_ACTION_SLOTS = rawget(_G, "NUM_PET_ACTION_SLOTS") or 10
+
+local function TauntsOn(reminder)
+    local names, on = {}, {}
+    for _, id in ipairs(reminder.petTaunts or {}) do
+        local name = C_Spell.GetSpellName(id)
+        if name then
+            names[name] = true
+        end
+    end
+    if type(GetPetActionInfo) ~= "function" or not UnitExists("pet") then
+        return on
+    end
+    for slot = 1, PET_ACTION_SLOTS do
+        local name, _, isToken, _, _, autoCastEnabled = GetPetActionInfo(slot)
+        if not DBR.IsSecret(name) and not DBR.IsSecret(autoCastEnabled) and not isToken and names[name]
+            and autoCastEnabled == true then
+            on[#on + 1] = name
+        end
+    end
+    return on
 end
 
 local function Countable(reminder)
@@ -906,6 +952,20 @@ function DBR.RefreshReminders()
             icon.texture:SetAlpha((missing or not canCheck) and 1 or DIM_ALPHA)
             SetDriver(icon, countable and SHOWN_DRIVER or HIDDEN_DRIVER)
             Raise(icon, holder, true)
+        elseif reminder.pet and countable and canCheck then
+            if Sacrificed(reminder) then
+                ApplyClick(icon, reminder, nil)
+                ShowIcon(icon, false)
+                SetDriver(icon, HIDDEN_DRIVER)
+                SetBorder(icon, nil)
+            else
+                -- Red while there is no pet: the game shows and hides it.
+                ApplyClick(icon, reminder, PetAction(reminder))
+                ShowIcon(icon, true, nil)
+                SetBorder(icon, RED)
+                SetDriver(icon, PET_DRIVER)
+            end
+            StopWarn(reminder.key)
         elseif countable and canCheck then
             local missing = Missing(reminder)
             icon.missing, icon.soon = MissingNames(missing, false), MissingNames(missing, true)
@@ -984,6 +1044,7 @@ function DBR.RefreshReminders()
         icon.texture:SetTexture(ClickTexture(reminder, icon.action))
     end
     DBR.RefreshCombatAspect(canCheck)
+    DBR.CheckWarnings()
     -- One timer for the next buff to reach the lead time; a newer refresh
     -- makes older timers do nothing.
     reminders.expiryToken = (reminders.expiryToken or 0) + 1
@@ -1021,7 +1082,7 @@ local function ShowTooltip(icon)
         end
         local action = icon.action
         if action then
-            local whom = action.group and "" or (" on " .. action.name)
+            local whom = (action.group or action.noTarget) and "" or (" on " .. action.name)
             local form = action.leavesForm and " (leaves your form first)" or ""
             GameTooltip:AddLine("Click: " .. action.spell .. whom .. form .. ".", 0.7, 0.7, 0.7, true)
         end
@@ -1224,9 +1285,6 @@ end
 local events = CreateFrame("Frame")
 -- Events about one unit; only your own and your group's count.
 local UNIT_EVENTS = {UNIT_AURA = true, UNIT_IN_RANGE_UPDATE = true, UNIT_CONNECTION = true}
--- Events after which the talent names are read again (also in combat).
-local TALENT_EVENTS = {PLAYER_TALENT_UPDATE = true, TRAIT_CONFIG_UPDATED = true, SPELLS_CHANGED = true,
-    PLAYER_ENTERING_WORLD = true}
 -- For a tank buff (Thorns): the game says when a group member comes into or
 -- leaves its party range (UNIT_IN_RANGE_UPDATE, pinned
 -- UnitDocumentation.lua:4328; the group frames' range, not the spell's, so a
@@ -1235,15 +1293,13 @@ local TALENT_EVENTS = {PLAYER_TALENT_UPDATE = true, TRAIT_CONFIG_UPDATED = true,
 local TANK_EVENTS = {"UNIT_IN_RANGE_UPDATE", "UNIT_CONNECTION"}
 
 -- Whether the client has Blizzard's aura container (as the seal timer).
+-- The engine's container (Forever), else AuraEngine.lua's plain-Lua one
+-- (Classic Era and Anniversary, where AddOn code may read auras in combat;
+-- author: "battle shout reminder doesn't drop when bs is applied in combat in
+-- classic era"): the same slot over the same icon, so a buff cast or lost in
+-- combat shows at once there too.
 local function HasAuraContainer()
-    if type(C_XMLUtil) ~= "table" or type(C_XMLUtil.GetTemplateInfo) ~= "function"
-        or type(C_AddOns) ~= "table" or type(C_AddOns.LoadAddOn) ~= "function" then
-        return false
-    end
-    if not C_AddOns.IsAddOnLoaded("Blizzard_AuraContainer") then
-        C_AddOns.LoadAddOn("Blizzard_AuraContainer")
-    end
-    return C_XMLUtil.GetTemplateInfo(CONTAINER_TEMPLATE) ~= nil
+    return type(DBR.AuraEngineKind) == "function" and DBR.AuraEngineKind() ~= nil
 end
 
 local function NoMouse(region)
@@ -1281,7 +1337,7 @@ local function CreateSlot(reminder, holder, icon)
     if reminder.combatWindow then
         layer:SetAlpha(0)
     end
-    local container = CreateFrame("AuraContainer", nil, layer, CONTAINER_TEMPLATE)
+    local container = DBR.CreateAuraContainer(layer)
     container:SetPoint("CENTER", holder, "CENTER")
     container:SetSize(1, 1)
     container:AddAuraSlot(reminder.key, "HELPFUL", {
@@ -1357,7 +1413,8 @@ local function CreateBuffWidget(reminder, row, index, count)
     icon:SetAllPoints(holder)
     reminders.icons[reminder.key] = icon
     reminders.widgets[reminder.key] = holder
-    if reminders.container then
+    -- A pet has no aura for the slot to draw.
+    if reminders.container and not reminder.pet then
         holder.slot = CreateSlot(reminder, holder, icon)
         holder.warn = CreateWarn(holder, holder.slot)
     end
@@ -1542,15 +1599,15 @@ local function SetUp()
         end
     end
     reminders.ready = true
+    if DBR.SetUpWarnings() then
+        events:RegisterEvent("PLAYER_REGEN_DISABLED")
+    end
     if #WindowReminders() > 0 then
         events:RegisterEvent("PLAYER_REGEN_DISABLED")
     end
     for _, event in ipairs({"UNIT_AURA", "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "SPELLS_CHANGED",
         "PLAYER_REGEN_ENABLED", "PLAYER_DEAD", "PLAYER_ALIVE", "PLAYER_UNGHOST", "BAG_UPDATE_DELAYED",
         "UPDATE_SHAPESHIFT_FORM", "PLAYER_ROLES_ASSIGNED", "ROLE_CHANGED_INFORM",
-        -- Talent changes, for a tank-only buff's talent (pinned
-        -- SpecializationInfoDocumentation.lua:503, SharedTraitsDocumentation.lua:873).
-        "PLAYER_TALENT_UPDATE", "TRAIT_CONFIG_UPDATED",
         -- Taking off and landing on a flight path (pinned LossOfControlDocumentation.lua:133-139).
         "PLAYER_CONTROL_LOST", "PLAYER_CONTROL_GAINED"}) do
         events:RegisterEvent(event)
@@ -1563,6 +1620,12 @@ local function SetUp()
         end
     end
     events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    for _, reminder in ipairs(reminders.list) do
+        if reminder.pet then
+            -- The pet came or went: the click (Revive Pet) and the sacrifice.
+            events:RegisterUnitEvent("UNIT_PET", "player")
+        end
+    end
     DBR.RefreshReminders()
 end
 
@@ -1581,10 +1644,8 @@ events:SetScript("OnEvent", function(_, event, unit, _, spellID)
     if event == "PLAYER_REGEN_DISABLED" then
         StartWindows()
         CombatStarts()
+        DBR.WarningsAtCombat()
         return
-    end
-    if TALENT_EVENTS[event] then
-        reminders.talents = nil
     end
     if UNIT_EVENTS[event] and (DBR.IsSecret(unit) or not GroupUnit(unit)) then
         return
@@ -1604,6 +1665,166 @@ events:SetScript("OnEvent", function(_, event, unit, _, spellID)
     end
     ScheduleRefresh()
 end)
+
+-- Warnings, on screen ------------------------------------------------------------------
+
+-- A short message near the top of the screen that fades, as Dyre's Crit
+-- Mayhem's record pop does (its Records.lua: a gold title over a line, held,
+-- then faded by an Alpha animation; copied as a pattern, DBR does not need
+-- DCM). It takes no mouse, so it is no popup and fine in combat. A Dyre's
+-- Toolkit widget, so it can be moved and sized; unlocked, a sample shows.
+local WARNING_GAP = 30
+local POP_WIDTH, POP_HEIGHT = 420, 58
+local POP_PLACE = {point = "CENTER", relativePoint = "CENTER", x = 0, y = 300}
+local POP_HOLD, POP_FADE = 4, 1.5
+local warnings = {list = {}, state = {}}
+
+local function BuildPop()
+    local frame = CreateFrame("Frame", "DyresBuffRemindersWarning", UIParent)
+    frame:SetFrameStrata("HIGH")
+    local content = CreateFrame("Frame", nil, frame)
+    content:SetAllPoints(frame)
+    content:Hide()
+    local title = content:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
+    title:SetPoint("TOP", content, "TOP", 0, -2)
+    title:SetTextColor(GOLD[1], GOLD[2], GOLD[3])
+    local line = content:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+    line:SetPoint("TOP", title, "BOTTOM", 0, -4)
+    local fader = content:CreateAnimationGroup()
+    local fade = fader:CreateAnimation("Alpha")
+    fade:SetFromAlpha(1)
+    fade:SetToAlpha(0)
+    fade:SetStartDelay(POP_HOLD)
+    fade:SetDuration(POP_FADE)
+    fader:SetScript("OnFinished", function() content:Hide() end)
+    warnings.pop = {frame = frame, content = content, title = title, line = line, fader = fader}
+    local pop = warnings.pop
+    DBR.toolkit.CreateWidget({
+        addon = addonName, key = "warnings", title = "Warning messages", frame = frame, store = DBR.db.warningPop,
+        width = POP_WIDTH, height = POP_HEIGHT, point = POP_PLACE, sizes = {scale = true},
+        onUnlock = function(_, unlocked)
+            if unlocked then
+                pop.fader:Stop()
+                pop.title:SetText("Pet taunt on")
+                pop.line:SetText("Growl is on autocast in a group. Turn it off.")
+                pop.content:SetAlpha(1)
+                pop.content:Show()
+            elseif not pop.fader:IsPlaying() then
+                pop.content:Hide()
+            end
+        end,
+    })
+end
+
+local function ShowPop(title, line)
+    local pop = warnings.pop
+    pop.title:SetText(title)
+    pop.line:SetText(line)
+    pop.fader:Stop()
+    pop.content:SetAlpha(1)
+    pop.content:Show()
+    pop.fader:Play()
+end
+
+local function KnownBy(warning)
+    for _, id in ipairs(warning.knownBy) do
+        if Knows(id) then
+            return true
+        end
+    end
+    return false
+end
+
+-- A warning's message while it applies (in a group where you are not the
+-- designated tank), as a title and a line; else nil. Out of combat only.
+local function WarningText(warning)
+    if not DBR.db.enabled or not DBR.db.warnings[warning.key] or not KnownBy(warning) then
+        return nil
+    end
+    if not IsInGroup() or DesignatedTank() then
+        return nil
+    end
+    if warning.kind == "fury" then
+        local name = not DBR.db.alwaysShow.righteousFury and FuryUp(warning)
+        if name then
+            return name .. " is on", "You're not the tank. Turn it off."
+        end
+        return nil
+    end
+    local on = TauntsOn(warning)
+    if #on > 0 then
+        return "Pet taunt on", table.concat(on, " and ") .. (#on > 1 and " are" or " is")
+            .. " on autocast in a group. Turn it off."
+    end
+end
+
+-- On screen and in chat, at most once per WARNING_GAP seconds per warning.
+local function Announce(warning, state)
+    if GetTime() - (state.shown or -math.huge) < WARNING_GAP then
+        return
+    end
+    state.shown = GetTime()
+    ShowPop(state.title, state.line)
+    DBR.Report(state.title .. ": " .. state.line)
+end
+
+-- With each refresh (out of combat): a warning shows when it becomes true
+-- (joining a group, a role change, the buff gained, autocast turned on, the
+-- pet summoned) or its message changes; never again while nothing changes.
+function DBR.CheckWarnings()
+    for _, warning in ipairs(warnings.list) do
+        local state = warnings.state[warning.key]
+        local title, line = WarningText(warning)
+        local text = title and (title .. "\n" .. line) or nil
+        local changed = text ~= nil and text ~= state.text
+        state.title, state.line, state.text = title, line, text
+        if changed then
+            Announce(warning, state)
+        end
+    end
+end
+
+-- Combat starts: once more for each still true.
+function DBR.WarningsAtCombat()
+    for _, warning in ipairs(warnings.list) do
+        local state = warnings.state[warning.key]
+        if state.text then
+            Announce(warning, state)
+        end
+    end
+end
+
+-- Out of combat, at setup: the class's warnings and their message box.
+-- Returns whether there are any.
+function DBR.SetUpWarnings()
+    warnings.list = DBR.ClassWarnings()
+    if #warnings.list == 0 then
+        return false
+    end
+    for _, warning in ipairs(warnings.list) do
+        warnings.state[warning.key] = {}
+        if warning.kind == "petTaunt" then
+            -- The pet came or went, or a pet spell's autocast turned on or off.
+            events:RegisterUnitEvent("UNIT_PET", "player")
+            events:RegisterEvent("PET_BAR_UPDATE")
+        end
+    end
+    BuildPop()
+    return true
+end
+
+function DBR.ClassWarnings()
+    return DBR.WARNINGS[DBR.classFile] or {}
+end
+
+function DBR.ReportWarningsDebug()
+    for _, warning in ipairs(warnings.list) do
+        local state = warnings.state[warning.key]
+        DBR.Report(string.format("debug warning %s on=%s known=%s now=%s", warning.key,
+            tostring(DBR.db.warnings[warning.key]), tostring(KnownBy(warning)),
+            state.text and (state.title .. ": " .. state.line) or "none"))
+    end
+end
 
 function DBR.InitializeReminders(class)
     reminders.list = DBR.BUFFS[class] or {}
@@ -1683,6 +1904,27 @@ end
 
 -- /dbr debug: each reminder, whether you know it, who lacks it, and the click.
 -- IDs the client does not know (no name) are listed, to check Buffs.lua.
+-- /dbr debug: what each of the buff's names reads on you, so a client that
+-- fills an aura differently shows it (found, its spell ID, time left, length).
+local function ReportAuraReads(reminder)
+    local parts = {}
+    for _, name in ipairs(reminders.names[reminder.key] or {}) do
+        local aura = C_UnitAuras.GetAuraDataBySpellName("player", name, "HELPFUL")
+        local text = "none"
+        if DBR.IsSecret(aura) then
+            text = "secret"
+        elseif aura ~= nil then
+            local left = TimeLeft(aura)
+            text = string.format("found(id=%s left=%s dur=%s)", DBR.Describe(aura.spellId),
+                left and string.format("%d", left) or "none", DBR.Describe(aura.duration))
+        end
+        parts[#parts + 1] = name .. "=" .. text
+    end
+    local state, expires = BuffState("player", reminder)
+    DBR.Report(string.format("debug aura %s state=%s expires=%s %s", reminder.key, tostring(state),
+        expires and string.format("%d", expires - GetTime()) or "none", table.concat(parts, " ")))
+end
+
 function DBR.ReportRemindersDebug()
     if #reminders.list == 0 then
         DBR.Report("debug: no buff reminders for this class.")
@@ -1702,15 +1944,22 @@ function DBR.ReportRemindersDebug()
             end
         end
         local missing = "not checked in combat"
-        if not InCombatLockdown() then
+        if reminder.pet then
+            local exists = UnitExists("pet")
+            missing = "pet=" .. DBR.Describe(exists) .. " sacrificed=" .. tostring(Sacrificed(reminder))
+        elseif not InCombatLockdown() then
             missing = table.concat(MissingNames(Missing(reminder)), ",")
         end
         local action = icon and icon.action
         DBR.Report(string.format("debug %s row=%s on=%s group=%s known=%s shown=%s missing=%s click=%s "
             .. "unknownIDs=%s last=%s", reminder.key, BarKey(reminder), tostring(DBR.db.spells[reminder.key]), tostring(DBR.db.groups[reminder.key]),
             tostring(Known(reminder)), tostring(icon and icon:IsShown()), missing,
-            action and (tostring(action.cast) .. "@" .. action.unit) or "none",
+            action and (tostring(action.cast) .. "@" .. tostring(action.unit)) or "none",
             #unknown > 0 and table.concat(unknown, ",") or "none", tostring(DBR.db.last[reminder.key])))
+        if not reminder.pet and not InCombatLockdown() then
+            ReportAuraReads(reminder)
+        end
     end
     ReportCombatAspectDebug()
+    DBR.ReportWarningsDebug()
 end

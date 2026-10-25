@@ -354,9 +354,9 @@ function DBR.SanitizeCasts(saved)
             else
                 clean.spells[cast.key] = cast.on
             end
-            clean.sounds[cast.key] = DBR.SanitizeChimeSound and DBR.SanitizeChimeSound(sounds[cast.key],
-                DBR.DEFAULT_CAST_SOUND) or (type(sounds[cast.key]) == "string" and sounds[cast.key])
-                or DBR.DEFAULT_CAST_SOUND
+            local default = cast.sound or DBR.DEFAULT_CAST_SOUND
+            clean.sounds[cast.key] = DBR.SanitizeChimeSound and DBR.SanitizeChimeSound(sounds[cast.key], default)
+                or (type(sounds[cast.key]) == "string" and sounds[cast.key]) or default
         end
     end
     return clean
@@ -426,7 +426,7 @@ local castEvents = CreateFrame("Frame")
 castEvents:SetScript("OnEvent", function(_, event, _, _, spellID)
     if event == "UPDATE_SHAPESHIFT_FORM" then
         -- Into a form only, once things settle: each change (also leaving a
-        -- form) cancels a pending chime; a new form waits FORM_CHIME_DELAY and
+        -- form) cancels a pending chime; a new form waits CAST_CHIME_DELAY and
         -- chimes only if you are still in it, so a powershift (Cat, caster,
         -- Cat) chimes once and in-and-out none. The same form again (the
         -- event also fires on loading) changes nothing.
@@ -439,7 +439,7 @@ castEvents:SetScript("OnEvent", function(_, event, _, _, spellID)
         local cast = form and CastFor(form)
         if cast and cast.form then
             local token = casts.formToken
-            C_Timer.After(DBR.FORM_CHIME_DELAY, function()
+            C_Timer.After(DBR.CAST_CHIME_DELAY, function()
                 if casts.formToken == token and ActiveForm() == form then
                     Chime(cast)
                 end
@@ -449,8 +449,9 @@ castEvents:SetScript("OnEvent", function(_, event, _, _, spellID)
     end
     local cast = CastFor(spellID)
     -- A form chimes from the form change, so leaving it (a cast too) does not.
+    -- Every cast chimes, each after the same wait as a form.
     if cast and not cast.form then
-        Chime(cast)
+        C_Timer.After(DBR.CAST_CHIME_DELAY, function() Chime(cast) end)
     end
 end)
 

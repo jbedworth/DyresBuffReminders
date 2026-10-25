@@ -55,9 +55,6 @@ python.org 3.13.7 embeddable archive, and actionlint 1.7.12 under the ignored
 
 - Proc sounds and the Nightfall hand-over: the author's Warlock tests passed
   (0.3.0-beta with Warlock Tools Forever 0.3.3-beta).
-- Righteous Fury on a Protection Paladin with Improved Righteous Fury: the
-  reminder shows (1.2.0, which also reads the talent tree). A respec that
-  drops the talent hides it, as designed.
 - Reactive-ability probe on a Protection Warrior: `C_Spell.IsSpellUsable` for
   Revenge was readable in combat (`secret=no`), changing on
   `SPELL_UPDATE_USABLE`; no `SPELL_ACTIVATION_OVERLAY_GLOW_SHOW`/`_HIDE`
@@ -180,6 +177,9 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       Options > AddOns > Dyre's Buff Reminders; `/dbr debug` runs. A
       Rogue or Shaman gets one line saying there are no
       reminders for the class, and no icons.
+- [ ] With a buff up but its icon red, `/dbr debug` shows a `debug aura <key>
+      state=... <name>=found(id=... left=... dur=...)|none|secret` line per
+      reminder: what each of the buff's names reads on you.
 - [ ] Mage: Arcane Intellect and armor icons show a red border while missing
       and are covered by the game's icon when cast; Arcane Brilliance counts. A click casts Arcane Intellect on
       you, then on a party member; with Arcane Powder and two missing,
@@ -243,13 +243,28 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       count turns red and pulses. Unequip the arrows (keep them in a bag):
       missing, tooltip "Equip your arrows." A thrown weapon or wand: nothing
       shows. `/dbr debug` shows `debug ammo ... countAPI=ok`.
-- [ ] Paladin, Righteous Fury: with no Tank role, no Improved Righteous Fury,
-      and "Always show" off, nothing shows. Set yourself as Tank in a group
-      (or learn Improved Righteous Fury, or switch on "Always show"): it shows.
-      With only the talent (no group), it shows: found by the talent tree,
-      not the spell ID. Removing the point hides it.
+- [ ] Paladin, Righteous Fury, 1.5.0: solo with it down, it shows (with or
+      without Improved Righteous Fury). In a group without the Tank role,
+      nothing; set yourself as Tank (or be a raid's main tank): it shows.
+      "Always show" shows it anywhere. In a group, not the tank, with it up:
+      a message near the top of the screen ("Righteous Fury is on / You're
+      not the tank. Turn it off.") that fades, and one chat line; again when
+      combat starts (not more than every 30 s); as the tank, or with "Always
+      show", none. `/dbr unlock` shows a sample to move it.
+- [ ] Pet taunt, 1.5.0: a Hunter in a group (not the tank) with Growl on
+      autocast gets the message ("Pet taunt on / Growl is on autocast in a
+      group. Turn it off."); turn autocast off and on again (right-click on
+      the pet bar) after 30 s: it shows again. A Warlock with a Voidwalker:
+      Torment and Suffering the same. Solo, or as the tank: none.
 - [ ] Paladin: Righteous Fury shows red while off; a click casts it; no group
       count.
+- [ ] Classic Era, in combat: a Warrior casts Battle Shout mid-fight: its
+      reminder drops at once (and comes back at 60 s left, as on Forever).
+      A Mage's Arcane Intellect dispelled or cancelled mid-fight: its red
+      reminder at once, and a click recasts it; a recast covers it again.
+- [ ] Paladin seal timer on Classic Era: as below, the same behavior;
+      `/dbr debug` shows the seal line, and no "seal timer stays off" line at
+      login.
 - [ ] Paladin seal timer: out of combat, a seal shows its icon with the time
       counting down (numbers and a bar), and nothing shows with no seal. In
       combat with no seal, your last seal pulses with the gold border; a
@@ -320,6 +335,9 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       group member without Arcane Intellect, Mark of the Wild, or Fortitude
       brings the reminder with its count and click. Try a Druid in Bear Form
       (the click leaves the form).
+- [ ] Locked, Ctrl-drag the Consumables bar (on its icon) and the seal
+      timer: each moves freely; without Ctrl, clicks go through to the world;
+      in combat nothing moves.
 - [ ] Unlock: each buff icon is outlined and can be dragged on its own;
       Shift-drag moves a snapped row. "Reminder icons: size" and "opacity" (at
       the end of Reminders, then the seal timer's) change every buff icon; "Reset size" works; `/dbr reset` puts them back.
@@ -354,8 +372,8 @@ One class at a time. Reload after each copy (`/reload` loads new files).
 - [ ] With MTF on a Mage (or WTF on a Warlock) that still chimes: DBR says
       once at login to turn theirs off; with theirs off, it says nothing.
 - [ ] Cast Chimes, 1.4.0: with a Text to Speech voice set up, a Hunter's
-      Aspect of the Cheetah and a Rogue's Sprint say "Meep meep" the moment
-      they are cast, in and out of combat. A Druid shifting into Travel Form
+      Aspect of the Cheetah and a Rogue's Sprint say "Meep meep" about 0.75 s
+      after they are cast (1.5.0: after the game's own sound), in and out of combat. A Druid shifting into Travel Form
       says "Meep meep", Bear or Dire Bear "Rawr", Cat "Meow", Aquatic
       "Splash", Moonkin "Hoot hoot", about 0.75 s after the shift, also
       straight from one form to another; a powershift (Cat, caster, Cat
@@ -365,6 +383,20 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       Choosing another sound plays it once. Note whether recasting an aspect
       (taking it down) also chimes. `/dbr debug` shows `debug casts
       enabled=true ... last=<spell>`.
+- [ ] Pet reminders, 1.5.0 (Era): a Hunter with Call Pet and no pet out
+      sees the red Pet icon; a click calls the pet and the icon goes; let
+      the pet die mid-fight: the icon shows at once; a click (or a
+      right-click) revives it. Mount: hidden. A Warlock with no demon sees
+      it; a click summons the Imp; summon a Voidwalker, dismiss it: after
+      combat the click summons the Voidwalker. Demonic Sacrifice: hidden
+      until its buff ends. Before level 10 (no Call Pet) a Hunter sees none.
+- [ ] Warrior Cast Chimes, 1.5.0, with Dyre's Sounds 1.2.0: Charge,
+      Intercept, and Execute play their Dyre's Aggression sounds about 0.75 s
+      after they are cast, after the game's own sound, in and out of combat; Whirlwind, the shouts, Taunt, and
+      Rend only once switched on under "Cast Chimes". With an older Dyre's
+      Sounds, the default chime plays instead. A Druid's Feral Charge (with
+      the talent) and Enrage play 0.75 s after the cast, like the forms; the roars, Bash, and Frenzied Regeneration
+      only once switched on.
 - [ ] Proc sounds, one class at a time: `/dbr` shows a "Proc Chimes" section
       with one row per proc; the sound menu lists only file sounds; choosing
       one plays it. Switch the proc on, get the proc in combat: the sound

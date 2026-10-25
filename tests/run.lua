@@ -47,6 +47,7 @@ name("Arcane Brilliance", 23028)
 name("Frost Armor", 168, 7300, 7301)
 name("Ice Armor", 7302, 7320, 10219, 10220)
 name("Mage Armor", 6117, 22782, 22783)
+name("Molten Armor", 30482)
 name("Dampen Magic", 604, 8450, 8451, 10173, 10174)
 name("Amplify Magic", 1008, 8455, 10169, 10170)
 name("Demon Skin", 687, 696)
@@ -120,6 +121,27 @@ name("Overpower", 7384)
 name("Battle Shout", 6673, 5242, 6192, 11549, 11550, 11551, 25289)
 name("Revenge", 6572)
 name("Execute", 5308)
+name("Charge", 100, 6178, 11578)
+name("Growl", 2649, 14916)
+name("Torment", 3716)
+name("Suffering", 17735)
+name("Call Pet", 883)
+name("Revive Pet", 982)
+name("Summon Imp", 688)
+name("Summon Voidwalker", 697)
+name("Summon Succubus", 712)
+name("Summon Felhunter", 691)
+name("Burning Wish", 18789)
+name("Fel Stamina", 18790)
+name("Touch of Shadow", 18791, 35701)
+name("Fel Energy", 18792)
+name("Feral Charge", 16979)
+name("Enrage", 5229)
+name("Demoralizing Roar", 99, 1735)
+name("Challenging Roar", 5209)
+name("Intercept", 20252)
+name("Whirlwind", 1680)
+name("Intervene", 3411)
 name("Riposte", 14251)
 local BLINK, FROST_NOVA, FROST_NOVA_4, COLD_SNAP, FIREBALL = 1953, 122, 10230, 12472, 133
 local KICK_2, SPRINT, PREPARATION = 1767, 2983, 14185
@@ -154,6 +176,8 @@ local function fakeSounds(state, contract)
     local files = {magical = {soundFileName = "Interface\\AddOns\\DyresSounds\\Sounds\\MagicalDisappear.mp3"},
         impspell = {soundFileID = 639156}}
     local aliases = {effectmagical = "magical"}
+    -- Newer sounds (Dyre's Sounds 1.2.0's "Dyre's Aggression"), when the test installs them.
+    for _, key in ipairs(state.newerSounds or {}) do labels[key] = key end
     local library = {}
     function library.RequireContract(minimum)
         if type(minimum) == "number" and minimum <= contract then
@@ -313,6 +337,18 @@ local function fixture(options)
         end
     end
     env.IsInGroup = function() return state.group ~= nil end
+    env.GetPartyAssignment = function(kind, unit)
+        equal(kind, "MAINTANK")
+        if unit == "player" and state.secretMainTank then return state.secret() end
+        return unit == "player" and state.mainTank == true
+    end
+    -- The pet bar: state.petActions[slot] = {name, auto (autocast on), token, secret}.
+    env.GetPetActionInfo = function(slot)
+        local action = state.petActions and state.petActions[slot]
+        if not action then return nil end
+        local auto = action.secret and state.secret() or action.auto == true
+        return action.name, "", action.token == true, false, true, auto, nil
+    end
 
     env.C_Spell = {
         GetSpellName = function(id) if SPELLS[id] then return SPELLS[id] end end,
@@ -440,6 +476,21 @@ local function fixture(options)
             if buff then return {name = spell, duration = 0, expirationTime = 0} end
         end,
     }
+    -- Classic Era and Anniversary (options.classicAuras): aura reads by index,
+    -- also in combat, nothing secret. A buff is a table {spellId, expires, duration}.
+    if options.classicAuras then
+        env.C_UnitAuras.GetAuraDataByIndex = function(unit, index, filter)
+            local list = {}
+            for spell, value in pairs(state.units[unit] and state.units[unit].buffs or {}) do
+                if type(value) == "table" and value.spellId then
+                    list[#list + 1] = {name = spell, spellId = value.spellId, icon = 9000 + value.spellId,
+                        duration = value.duration or 0, expirationTime = value.expires or 0}
+                end
+            end
+            table.sort(list, function(a, b) return a.spellId < b.spellId end)
+            return list[index]
+        end
+    end
     -- By spell ID, as the client allows also in combat for never-secret auras;
     -- state.secretAuraIDs[id] makes one secret (it then returns no values in combat).
     env.C_UnitAuras.GetPlayerAuraBySpellID = function(id)
@@ -502,6 +553,10 @@ local function fixture(options)
                 frame.shown = state.combat
             elseif driver == "show" then
                 frame.shown = true
+            elseif driver == "[mounted] hide; [nopet] show; [@pet,dead] show; hide" then
+                -- The pet reminder: state.units.pet (dead or not), state.mounted.
+                local pet = state.units.pet
+                frame.shown = not state.mounted and (pet == nil or pet.dead == true)
             else
                 equal(driver, "hide", "a known driver")
                 frame.shown = false
@@ -554,6 +609,7 @@ local function fixture(options)
         end
     end
     state.soundsWithoutCheckboxMenu = options.soundsWithoutCheckboxMenu
+    state.newerSounds = options.newerSounds
     env.C_Secrets = {GetSpellCooldownSecrecy = function() return state.combat and state.secret() or 2 end,
         ShouldSpellAuraBeSecret = function(id) return state.secretAuraIDs ~= nil and state.secretAuraIDs[id] == true end}
     local sounds = options.sounds or "fake"
@@ -706,6 +762,13 @@ local function fixture(options)
         function object:RegisterUnitEvent(event, unit) self.unitEvents[event] = unit end
         function object:UnregisterEvent(event) self.events[event] = nil end
         function object:SetScript(script, callback) self.scripts[script] = callback end
+        function object:HookScript(script, callback)
+            local old = self.scripts[script]
+            self.scripts[script] = function(...)
+                if old then old(...) end
+                callback(...)
+            end
+        end
         function object:SetPoint(...)
             if state.combat and self.protected then error("SetPoint in combat") end
             self.points[#self.points + 1] = {...}
@@ -765,12 +828,15 @@ local function fixture(options)
                 function animation:SetFromAlpha(value) self.from = value end
                 function animation:SetToAlpha(value) self.to = value end
                 function animation:SetDuration(value) self.duration = value end
+                function animation:SetStartDelay(value) self.delay = value end
                 group.animation = animation
                 return animation
             end
             function group:Play() self.playing = true end
             function group:Stop() self.playing = false end
             function group:IsPlaying() return self.playing end
+            group.scripts = {}
+            function group:SetScript(script, callback) self.scripts[script] = callback end
             self.animation = group
             return group
         end
@@ -792,6 +858,7 @@ local function fixture(options)
     env.UIParent = widget("Frame", "UIParent")
     env.UIParent.width, env.UIParent.height = 1000, 800
     env.IsShiftKeyDown = function() return state.shift == true end
+    env.IsControlKeyDown = function() return state.ctrl == true end
     -- Screen position of a frame's center, from its last point.
     function state.absCenter(frame)
         if frame == env.UIParent or frame == nil then return 500, 400 end
@@ -874,6 +941,11 @@ local function fixture(options)
         if cooldown then state.cooldowns[id] = {start = state.now, duration = cooldown} end
         state.emit("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-guid", id)
     end
+    -- A cast, then the cast chimes' wait (DBR.CAST_CHIME_DELAY).
+    function state.castChime(id)
+        state.cast(id)
+        state.advance(0.75)
+    end
     -- Time passes; due timers run in time order, each at its own time.
     function state.advance(seconds)
         local target = state.now + seconds
@@ -934,7 +1006,8 @@ end
 
 test("the TOC loads every runtime file in order, with the release metadata", function()
     equal(table.concat(RUNTIME_FILES, ","),
-        "Commands.lua,Core.lua,Buffs.lua,Reminders.lua,Seals.lua,Consumables.lua,ChimeSpells.lua,Chimes.lua,"
+        "Commands.lua,Core.lua,Buffs.lua,Reminders.lua,AuraEngine.lua,Seals.lua,Consumables.lua,ChimeSpells.lua,"
+            .. "Chimes.lua,"
             .. "ProcSpells.lua,Procs.lua,Probe.lua,Options.lua")
     local state = fixture()
     equal(state.toc.Category, "Buffs & Debuffs")
@@ -2297,6 +2370,229 @@ test("first run: a Warlock's from Warlock Tools Forever; a Mage never reads WTF'
     equal(mage.dbr.db.enabled, true, "another class's AddOn is not read")
 end)
 
+test("locked, the Consumables bar and the seal timer take a Ctrl-drag; never in combat", function()
+    local state = fixture({class = "DRUID", known = {[REBIRTH_1] = true}})
+    state.carried[MAPLE] = 3
+    state.emit("BAG_UPDATE_DELAYED")
+    local frame, icon = state.env.DyresBuffRemindersConsumables, state.env.DyresBuffRemindersReagent_rebirth
+    equal(frame.mouse, false, "locked: click-through")
+    equal(icon.mouseClicks, false, "the icon takes hover only")
+    state.ctrl = true
+    state.emit("MODIFIER_STATE_CHANGED")
+    equal(frame.mouse, true, "Ctrl held: the bar takes the mouse")
+    frame.scripts.OnDragStart(frame)
+    state.ctrl = false
+    state.emit("MODIFIER_STATE_CHANGED")
+    equal(frame.mouse, true, "Ctrl let go mid-drag: kept until the drop")
+    frame.scripts.OnDragStop(frame)
+    equal(frame.mouse, false, "dropped with Ctrl up: click-through again")
+    state.ctrl = true
+    state.emit("MODIFIER_STATE_CHANGED")
+    equal(frame.mouse, true)
+    state.emit("PLAYER_REGEN_DISABLED")
+    equal(frame.mouse, false, "combat starts: off, Ctrl or not")
+    state.combat = true
+    state.emit("MODIFIER_STATE_CHANGED")
+    equal(frame.mouse, false, "nothing changes in combat")
+    state.combat = false
+    state.ctrl = false
+    state.slash("unlock")
+    equal(frame.mouse, true, "unlocked: the toolkit's")
+    local paladin = fixture({class = "PALADIN", known = {[21084] = true}})
+    local display = paladin.env.DyresBuffRemindersSeal
+    equal(display.mouse, false)
+    paladin.ctrl = true
+    paladin.emit("MODIFIER_STATE_CHANGED")
+    equal(display.mouse, true, "the seal timer too")
+    local button = paladin.env.DyresBuffRemindersSealButton
+    equal(type(button.scripts.OnDragStart), "function", "its button is a drag handle")
+end)
+
+local CALL_PET, REVIVE_PET, SUMMON_IMP, SUMMON_VOIDWALKER = 883, 982, 688, 697
+local PET_DRIVER = "[mounted] hide; [nopet] show; [@pet,dead] show; hide"
+test("Hunter: a Pet reminder the game shows with no pet or a dead one, also in combat; a click calls or revives", function()
+    local state = fixture({class = "HUNTER", known = {[CALL_PET] = true, [REVIVE_PET] = true}})
+    local icon = state.icon("hunterPet")
+    equal(state.dbr.db.spells.hunterPet, true, "on at first")
+    equal(state.drivers[icon], PET_DRIVER, "the game decides: no pet or a dead one, not mounted")
+    equal(icon.glow.backdropBorder[2], 0.2, "red")
+    equal(icon.attributes.type1, "macro")
+    equal(icon.attributes.macrotext1, "/use [@pet,dead] Revive Pet; Call Pet")
+    equal(icon.attributes.type2, "spell")
+    equal(icon.attributes.spell2, "Revive Pet", "a right-click always revives")
+    equal(icon.texture.texture, 2000 + CALL_PET)
+    contains(tooltip(state, icon), "Click: Call Pet (Revive Pet if it is dead")
+    equal(state.widget("hunterPet").slot, nil, "no aura slot for a pet")
+    equal(icon.shown, true, "no pet: shown")
+    state.combat = true
+    state.units.pet = {}
+    state.applyDrivers()
+    state.emit("UNIT_PET", "player")
+    equal(icon.shown, false, "the pet came, in combat: the game hides it")
+    state.units.pet.dead = true
+    state.applyDrivers()
+    equal(icon.shown, true, "it died mid-fight: shown")
+    state.mounted = true
+    state.applyDrivers()
+    equal(icon.shown, false, "mounted: hidden")
+    state.mounted = nil
+    state.units.pet = nil
+    state.combat = false
+    state.emit("PLAYER_REGEN_ENABLED")
+    local young = fixture({class = "HUNTER"})
+    equal(young.widget("hunterPet").shown, false, "no Call Pet yet (before 10): no reminder")
+    local early = fixture({class = "HUNTER", known = {[CALL_PET] = true}})
+    equal(early.icon("hunterPet").attributes.macrotext1, "/use Call Pet", "no Revive Pet yet")
+    equal(early.icon("hunterPet").attributes.type2, nil)
+    early.units.player.dead = true
+    early.update("PLAYER_DEAD")
+    equal(early.drivers[early.icon("hunterPet")], "hide", "dead: no reminder")
+    early.units.player.dead = false
+    early.update("PLAYER_ALIVE")
+    early.taxi = true
+    early.update("PLAYER_CONTROL_LOST")
+    equal(early.drivers[early.icon("hunterPet")], "hide", "on a taxi: no reminder")
+    early.taxi = false
+    early.settings.DBR_BUFF_HUNTERPET:SetValue(false)
+    equal(early.widget("hunterPet").shown, false, "switched off")
+end)
+
+test("Warlock: the Pet reminder summons your last demon, else the Imp; none after a Demonic Sacrifice", function()
+    local state = fixture({class = "WARLOCK", known = {[SUMMON_IMP] = true, [SUMMON_VOIDWALKER] = true}})
+    local icon = state.icon("warlockPet")
+    equal(state.drivers[icon], PET_DRIVER)
+    equal(icon.attributes.type1, "spell")
+    equal(icon.attributes.spell1, "Summon Imp", "at first: the Imp")
+    equal(icon.attributes.unit1, nil)
+    contains(tooltip(state, icon), "Click: Summon Imp.")
+    state.combat = true
+    state.cast(SUMMON_VOIDWALKER)
+    equal(icon.attributes.spell1, "Summon Imp", "in combat the click cannot change")
+    state.combat = false
+    state.emit("PLAYER_REGEN_ENABLED")
+    state.wait(1)
+    equal(icon.attributes.spell1, "Summon Voidwalker", "after combat: the last demon you summoned")
+    equal(state.dbr.db.last.warlockPet, "Summon Voidwalker", "remembered per character")
+    state.buff("player", "Fel Stamina", state.now + 1800)
+    state.update("UNIT_AURA", "player")
+    equal(state.drivers[icon], "hide", "Demonic Sacrifice (Fel Stamina): no pet wanted")
+    state.units.player.buffs["Fel Stamina"] = nil
+    state.update("UNIT_AURA", "player")
+    equal(state.drivers[icon], PET_DRIVER, "the sacrifice ran out: the reminder is back")
+    state.buff("player", "Touch of Shadow", "secret")
+    state.units.player.secretAuras = true
+    state.update("UNIT_AURA", "player")
+    equal(state.drivers[icon], "hide", "a secret answer: DBR cannot tell, so no warning")
+    state.units.player.secretAuras = nil
+    local none = fixture({class = "WARLOCK"})
+    equal(none.widget("warlockPet").shown, false, "no Summon spell yet: no reminder")
+    none.slash("debug")
+    contains(none.find("debug warlockPet"), "pet=")
+end)
+
+test("Mage on a client without the aura container (Era): every armor and Arcane Intellect rank counts as up", function()
+    for _, case in ipairs({
+        {known = 168, buff = "Frost Armor", key = "mageArmor", rank = "Frost Armor rank 1"},
+        {known = 7320, buff = "Ice Armor", key = "mageArmor", rank = "Ice Armor, a middle rank"},
+        {known = 10220, buff = "Ice Armor", key = "mageArmor", rank = "Ice Armor, the highest rank"},
+        {known = 22783, buff = "Mage Armor", key = "mageArmor", rank = "Mage Armor, the highest rank"},
+        {known = 1459, buff = "Arcane Intellect", key = "arcaneIntellect", rank = "Arcane Intellect rank 1"},
+        {known = 10157, buff = "Arcane Intellect", key = "arcaneIntellect", rank = "Arcane Intellect rank 5"},
+        {known = 1459, buff = "Arcane Brilliance", key = "arcaneIntellect", rank = "Arcane Brilliance counts"},
+    }) do
+        local state = fixture({noAuraContainer = true, known = {[case.known] = true, [1459] = true}})
+        local icon = state.icon(case.key)
+        equal(visible(icon), true, case.rank .. ": missing at first")
+        state.buff("player", case.buff, state.now + 1500)
+        state.update("UNIT_AURA", "player")
+        equal(visible(icon), false, case.rank .. ": up")
+        equal(state.drivers[icon], "hide", case.rank .. ": hidden while up (no slot to draw it)")
+    end
+end)
+
+test("the armor up on you is what a click recasts, also one cast before DBR saw it; else your best", function()
+    local state = fixture({known = {[FROST_ARMOR] = true, [6117] = true}})
+    local icon = state.icon("mageArmor")
+    equal(icon.attributes.spell1, "Mage Armor", "nothing remembered: the best known")
+    state.buff("player", "Frost Armor", state.now + 1500)
+    state.update("UNIT_AURA", "player")
+    equal(visible(icon), false, "Frost Armor counts as up")
+    equal(state.dbr.db.last.mageArmor, "Frost Armor", "seen up: remembered, with no cast")
+    state.units.player.buffs["Frost Armor"] = nil
+    state.update("UNIT_AURA", "player")
+    equal(icon.attributes.spell1, "Frost Armor", "it dropped: a click recasts Frost Armor, not Mage Armor")
+    equal(icon.texture.texture, 2000 + FROST_ARMOR, "and the icon shows it")
+    local tbc = fixture({known = {[30482] = true}})
+    tbc.buff("player", "Molten Armor", tbc.now + 1500)
+    tbc.update("UNIT_AURA", "player")
+    equal(visible(tbc.icon("mageArmor")), false, "Molten Armor (TBC) counts")
+    local lock = fixture({class = "WARLOCK", known = {[DEMON_SKIN] = true, [DEMON_ARMOR] = true}})
+    lock.buff("player", "Demon Skin", lock.now + 1500)
+    lock.update("UNIT_AURA", "player")
+    lock.units.player.buffs["Demon Skin"] = nil
+    lock.update("UNIT_AURA", "player")
+    equal(lock.icon("demonArmor").attributes.spell1, "Demon Skin", "a Warlock's the same: the one up last")
+end)
+
+-- On Classic Era: what the player sees of a reminder, its slot drawn by AuraEngine.lua from aura reads.
+local function eraSlot(state, key)
+    local layer = state.widget(key).slot
+    for _, child in ipairs(layer.children) do
+        if child.slots then return child.slots[1].button end
+    end
+end
+local function eraSeen(state, key)
+    local icon, slot = state.icon(key), eraSlot(state, key)
+    if not icon.shown or icon.alpha == 0 then return false end
+    return not slot.shown or icon:GetFrameLevel() > state.widget(key).slot:GetFrameLevel()
+end
+test("Classic Era: Battle Shout cast in combat drops its reminder; it comes back as it runs out, and a click casts it", function()
+    local state = fixture({class = "WARRIOR", known = {[6673] = true}, noAuraContainer = true,
+        classicAuras = true})
+    equal(state.widget("battleShout").slot ~= nil, true, "a slot, from AuraEngine.lua")
+    equal(eraSeen(state, "battleShout"), true, "missing out of combat: the reminder")
+    state.combat = true
+    state.applyDrivers()
+    state.emit("PLAYER_REGEN_DISABLED")
+    equal(eraSeen(state, "battleShout"), true, "missing at combat start: shown")
+    equal(state.icon("battleShout").attributes.spell1, "Battle Shout", "a click casts it")
+    state.buff("player", "Battle Shout", {spellId = 6673, expires = state.now + 120, duration = 120})
+    state.cast(6673)
+    state.emit("UNIT_AURA", "player")
+    equal(eraSeen(state, "battleShout"), false, "cast in combat: the reminder drops at once")
+    equal(eraSlot(state, "battleShout").shown, true, "the buff's slot, read in combat")
+    state.advance(60)
+    equal(state.icon("battleShout").alpha, 1, "60 s left: back, as on Forever")
+    state.units.player.buffs["Battle Shout"] = nil
+    state.advance(60)
+    state.emit("UNIT_AURA", "player")
+    equal(eraSlot(state, "battleShout").shown, false, "run out: the slot goes")
+    equal(eraSeen(state, "battleShout"), true, "the red reminder shows")
+    equal(state.icon("battleShout").attributes.spell1, "Battle Shout", "and a click casts it")
+end)
+
+test("Classic Era: a long buff dropped in combat shows its red reminder at once; a recast covers it again", function()
+    local state = fixture({known = {[INTELLECT] = true}, noAuraContainer = true, classicAuras = true})
+    state.buff("player", "Arcane Intellect", {spellId = 1459, expires = state.now + 1800, duration = 1800})
+    state.update("UNIT_AURA", "player")
+    equal(eraSeen(state, "arcaneIntellect"), false, "up: the slot draws it over the reminder")
+    equal(state.icon("arcaneIntellect").glow.shown, true, "the red reminder waits under it")
+    state.combat = true
+    state.applyDrivers()
+    state.emit("PLAYER_REGEN_DISABLED")
+    state.units.player.buffs["Arcane Intellect"] = nil
+    state.emit("UNIT_AURA", "player")
+    equal(eraSeen(state, "arcaneIntellect"), true, "dispelled in combat: the reminder at once")
+    equal(state.icon("arcaneIntellect").attributes.spell1, "Arcane Intellect", "a click recasts it")
+    equal(state.icon("arcaneIntellect").attributes.unit1, "player", "on you")
+    state.buff("player", "Arcane Intellect", {spellId = 1460, expires = state.now + 1800, duration = 1800})
+    state.emit("UNIT_AURA", "player")
+    equal(eraSeen(state, "arcaneIntellect"), false, "recast (rank 2): covered again")
+    local forever = fixture({known = {[INTELLECT] = true}})
+    equal(forever.widget("arcaneIntellect").slot.children[1].template, "CustomAuraContainerTemplate",
+        "Forever keeps the engine's container")
+end)
+
 test("on a flight path no buff reminders show; after landing they come back; unlocked, samples stay", function()
     local state = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true}})
     local intellect, armor = state.icon("arcaneIntellect"), state.icon("mageArmor")
@@ -2510,86 +2806,172 @@ test("Warrior: the reactive sounds are in Procs, each with its switch and any so
     equal(#state.played, before, "Procs off: silent")
     equal(state.soundIDs(), "", "no aura sound registered for a reactive ability")
 end)
-local IMPROVED_FURY = 20468
-test("Paladin: Righteous Fury shows only for a tank: the Tank role, the talent, or Always show", function()
-    local state = fixture({class = "PALADIN", known = {[25780] = true}})
+local FURY = 25780
+test("Paladin: Righteous Fury reminds solo, or as the group's designated tank; the talent no longer matters", function()
+    local state = fixture({class = "PALADIN", known = {[FURY] = true, [20468] = true}})
     local holder = state.widget("righteousFury")
-    equal(holder.shown, false, "no role, no talent, not switched on: not shown at all")
+    equal(holder.shown, true, "solo (with or without Improved Righteous Fury): shown while down")
+    equal(visible(state.icon("righteousFury")), true)
     state.party({{name = "Healy", class = "PRIEST"}})
+    equal(holder.shown, false, "in a group, not the tank: no reminder")
     state.units.player.role = "TANK"
     state.update("PLAYER_ROLES_ASSIGNED")
-    equal(holder.shown, true, "the Tank role: shown, as any long buff")
-    equal(visible(state.icon("righteousFury")), true, "missing: the reminder")
-    state.units.player.role = "DAMAGER"
-    state.update("ROLE_CHANGED_INFORM")
-    equal(holder.shown, false, "not the tank any more")
+    equal(holder.shown, true, "the Tank role")
     state.units.player.secretRole = true
-    state.units.player.role = "TANK"
     state.update("PLAYER_ROLES_ASSIGNED")
-    equal(holder.shown, false, "a secret role counts as not a tank")
+    equal(holder.shown, false, "a secret role: can't tell, so not the tank in a group")
     state.units.player.secretRole = nil
-    state.units.player.role = "DAMAGER"
-    state.known[IMPROVED_FURY] = true
-    state.update("PLAYER_TALENT_UPDATE")
-    equal(holder.shown, true, "Improved Righteous Fury: shown")
-    state.known[IMPROVED_FURY] = nil
-    state.update("TRAIT_CONFIG_UPDATED")
-    equal(holder.shown, false, "talent gone")
+    state.units.player.role = nil
+    state.group = "raid"
+    state.mainTank = true
+    state.update("GROUP_ROSTER_UPDATE")
+    equal(holder.shown, true, "a raid's main tank")
+    state.secretMainTank = true
+    state.update("GROUP_ROSTER_UPDATE")
+    equal(holder.shown, false, "a secret main-tank answer: not the tank")
+    state.secretMainTank, state.mainTank = nil, nil
+    state.update("GROUP_ROSTER_UPDATE")
+    equal(holder.shown, false, "a raid, not main tank")
     local row = state.row("DBR_ALWAYS_RIGHTEOUSFURY")
-    equal(row.setting.name, "Always show Righteous Fury")
-    equal(row.parentInitializer, state.row("DBR_BUFF_RIGHTEOUSFURY"), "under its switch")
+    equal(row.parentInitializer, state.row("DBR_BUFF_RIGHTEOUSFURY"), "Always show stays, under its switch")
     state.settings.DBR_ALWAYS_RIGHTEOUSFURY:SetValue(true)
     equal(holder.shown, true, "Always show: shown")
-    equal(state.dbr.db.alwaysShow.righteousFury, true, "saved per character")
     state.settings.DBR_ALWAYS_RIGHTEOUSFURY:SetValue(false)
+    state.group = nil
     state.combat = true
-    state.units.player.role = "TANK"
-    state.update("PLAYER_ROLES_ASSIGNED")
-    equal(holder.shown, false, "a role change in combat waits")
+    state.update("GROUP_ROSTER_UPDATE")
+    equal(holder.shown, false, "leaving the group in combat waits")
     state.combat = false
     state.emit("PLAYER_REGEN_ENABLED")
-    equal(holder.shown, true, "after combat")
+    equal(holder.shown, true, "solo again, after combat")
     local db = fixture({class = "PALADIN", db = {alwaysShow = {righteousFury = "yes", gone = true}}}).dbr.db
     equal(db.alwaysShow.righteousFury, false, "repaired")
     equal(db.alwaysShow.gone, nil)
-    local bare = fixture({class = "PALADIN", known = {[25780] = true}, remove = {"UnitGroupRolesAssigned"}})
-    equal(bare.widget("righteousFury").shown, false, "no role API: not a tank")
 end)
 
-test("Paladin: Improved Righteous Fury is found on the talent tree by its name, whatever its ID", function()
-    local state = fixture({class = "PALADIN", known = {[25780] = true},
-        talents = {{spellID = 99002, rank = 1}, {spellID = 99001, rank = 0}}})
-    local holder = state.widget("righteousFury")
-    equal(holder.shown, false, "no point in it: not a tank")
-    equal(state.known[99001], nil, "and the spellbook never knows it (John's prot Paladin)")
-    state.talents[2].rank = 2
+local function warningShown(state)
+    local frame = state.env.DyresBuffRemindersWarning
+    local content = frame and frame.children[1]
+    return content ~= nil and content.shown == true, content
+end
+test("Paladin: Righteous Fury on in a group where you aren't the tank: an on-screen message, not an icon", function()
+    local state = fixture({class = "PALADIN", known = {[FURY] = true}})
+    local MESSAGE = "Righteous Fury is on: You're not the tank. Turn it off."
+    equal(state.icon("furyOff"), nil, "no icon")
+    state.buff("player", "Righteous Fury")
     state.update("UNIT_AURA", "player")
-    equal(holder.shown, false, "the names are kept until a talent event")
-    local reads = state.talentReads
-    state.update("TRAIT_CONFIG_UPDATED")
-    equal(holder.shown, true, "a point in Improved Righteous Fury: shown, in and out of a group")
-    equal(state.talentReads, reads + 1, "read again once")
+    equal(state.count(MESSAGE), 0, "solo: nothing")
+    state.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
+    equal(state.count(MESSAGE), 1, "joining a group, not the tank: once in chat")
+    local shown, content = warningShown(state)
+    equal(shown, true, "and on screen")
+    equal(content.animation.playing, true, "fading")
+    equal(content.animation.animation.delay, 4, "after a few seconds")
     state.update("UNIT_AURA", "player")
-    equal(state.talentReads, reads + 1, "no rescan on other events")
-    state.talents[2].rank = 0
+    state.update("GROUP_ROSTER_UPDATE")
+    equal(state.count(MESSAGE), 1, "nothing changed: not again")
     state.combat = true
-    state.emit("PLAYER_TALENT_UPDATE")
+    state.emit("PLAYER_REGEN_DISABLED")
+    equal(state.count(MESSAGE), 1, "combat starts within 30 s: not again")
     state.combat = false
     state.emit("PLAYER_REGEN_ENABLED")
-    equal(holder.shown, false, "a talent change in combat counts after it")
-    local only = fixture({class = "PALADIN", known = {[25780] = true}, talents = {{spellID = 25780, rank = 1}}})
-    equal(only.widget("righteousFury").shown, false, "the buff itself on the tree is not its talent")
-    local noTraits = fixture({class = "PALADIN", known = {[25780] = true}, remove = {"C_Traits"},
-        talents = {{spellID = 99001, rank = 1}}})
-    equal(noTraits.widget("righteousFury").shown, false, "no talent API: the IDs and the role only")
+    state.advance(31)
+    state.combat = true
+    state.emit("PLAYER_REGEN_DISABLED")
+    equal(state.count(MESSAGE), 2, "combat starts later, still on: once more")
+    state.combat = false
+    state.emit("PLAYER_REGEN_ENABLED")
+    state.advance(31)
+    state.update("UNIT_AURA", "player")
+    equal(state.count(MESSAGE), 2, "still nothing changed, past 30 s: not again")
+    state.units.player.buffs["Righteous Fury"] = nil
+    state.update("UNIT_AURA", "player")
+    state.advance(31)
+    state.buff("player", "Righteous Fury")
+    state.update("UNIT_AURA", "player")
+    equal(state.count(MESSAGE), 3, "off, then on again: again")
+    state.units.player.buffs["Righteous Fury"] = nil
+    state.update("UNIT_AURA", "player")
+    state.advance(31)
+    state.units.player.role = "TANK"
+    state.buff("player", "Righteous Fury")
+    state.update("PLAYER_ROLES_ASSIGNED")
+    equal(state.count(MESSAGE), 3, "the tank: no message")
+    state.units.player.role = nil
+    state.settings.DBR_ALWAYS_RIGHTEOUSFURY:SetValue(true)
+    equal(state.count(MESSAGE), 3, "Always show Righteous Fury: no message")
+    state.settings.DBR_ALWAYS_RIGHTEOUSFURY:SetValue(false)
+    equal(state.count(MESSAGE), 4)
+    state.units.player.buffs["Righteous Fury"] = nil
+    state.update("UNIT_AURA", "player")
+    state.advance(31)
+    state.settings.DBR_WARN_FURYOFF:SetValue(false)
+    state.buff("player", "Righteous Fury")
+    state.update("UNIT_AURA", "player")
+    equal(state.count(MESSAGE), 4, "its own switch off")
+    equal(state.row("DBR_WARN_FURYOFF").setting.name, "Warn: Righteous Fury on when not tanking")
+    equal(state.row("DYRE_DYRESBUFFREMINDERS_WARNINGS_SCALE").setting.name, "Warning messages: size")
+    local secret = fixture({class = "PALADIN", known = {[FURY] = true}})
+    secret.units.player.secretAuras = true
+    secret.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
+    equal(secret.count("Righteous Fury is on"), 0, "a secret read: can't tell, no message")
 end)
+
+test("Hunter and Warlock: a pet taunt on autocast in a group where you aren't the tank: an on-screen message", function()
+    local state = fixture({class = "HUNTER", known = {[883] = true}})
+    local MESSAGE = "Pet taunt on: Growl is on autocast in a group. Turn it off."
+    equal(state.icon("hunterPetTaunt"), nil, "no icon")
+    state.units.pet = {}
+    state.petActions = {[1] = {name = "Attack", token = true, auto = true}, [4] = {name = "Growl", auto = true}}
+    state.update("PET_BAR_UPDATE")
+    equal(state.count(MESSAGE), 0, "solo: nothing")
+    state.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
+    equal(state.count(MESSAGE), 1, "in a group, not the tank, Growl on autocast")
+    equal(warningShown(state), true)
+    state.petActions[4].auto = false
+    state.update("PET_BAR_UPDATE")
+    state.advance(31)
+    state.petActions[4].auto = true
+    state.update("PET_BAR_UPDATE")
+    equal(state.count(MESSAGE), 2, "turned on again: again")
+    state.petActions[4].auto = false
+    state.update("PET_BAR_UPDATE")
+    state.advance(31)
+    state.petActions[4].secret = true
+    state.petActions[4].auto = true
+    state.update("PET_BAR_UPDATE")
+    equal(state.count(MESSAGE), 2, "a secret answer: no message")
+    state.petActions[4].secret = nil
+    state.units.pet = nil
+    state.update("UNIT_PET", "player")
+    equal(state.count(MESSAGE), 2, "no pet: no message")
+    state.units.player.role = "TANK"
+    state.units.pet = {}
+    state.update("UNIT_PET", "player")
+    equal(state.count(MESSAGE), 2, "the tank: no message")
+    local lock = fixture({class = "WARLOCK", known = {[697] = true}})
+    lock.units.pet = {}
+    lock.petActions = {[5] = {name = "Torment", auto = true}, [6] = {name = "Suffering", auto = true}}
+    lock.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
+    equal(lock.count("Pet taunt on: Torment and Suffering are on autocast in a group. Turn it off."), 1,
+        "the Voidwalker's taunts")
+    local imp = fixture({class = "WARLOCK", known = {[688] = true}})
+    imp.units.pet = {}
+    imp.petActions = {[5] = {name = "Torment", auto = true}}
+    imp.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
+    equal(imp.count("Pet taunt on"), 0, "no Voidwalker or Felguard summon: no warning")
+    local priest = fixture({class = "PRIEST"})
+    equal(priest.env.DyresBuffRemindersWarning, nil, "a class without warnings: no message box")
+end)
+
 test("Paladin: Righteous Fury, on you only", function()
-    local state = fixture({class = "PALADIN", known = {[25780] = true, [IMPROVED_FURY] = true}})
+    local state = fixture({class = "PALADIN", known = {[25780] = true}})
     local fury = state.icon("righteousFury")
     equal(visible(fury), true)
     equal(fury.attributes.spell1, "Righteous Fury")
     equal(fury.attributes.unit1, "player")
-    state.party({{name = "Tanky", class = "WARRIOR"}})
+    state.units.player.role = "TANK"
+    state.party({{name = "Healy", class = "PRIEST"}})
     equal(table.concat(fury.missing, ","), "you", "a self buff")
     equal(state.settings.DBR_GROUP_RIGHTEOUSFURY, nil, "no group switch")
     state.buff("player", "Righteous Fury")
@@ -2759,6 +3141,38 @@ test("the seal timer waits for the end of combat after a reload, and needs the a
     equal(visible(bare.icon("righteousFury")), true, "Righteous Fury still reminds")
     equal(bare.settings.DBR_SEAL, nil, "no switch without the timer")
 end)
+test("Classic Era: the seal timer shows from plain aura reads, also in combat; nothing else changes", function()
+    local state = sealFixture({noAuraContainer = true, classicAuras = true})
+    equal(state.said("The seal timer stays off"), false, "it starts on Era")
+    local display = state.env.DyresBuffRemindersSeal
+    equal(display ~= nil, true)
+    local container
+    for _, child in ipairs(display.children) do
+        if child.slots then container = child end
+    end
+    equal(container ~= nil and container.unit, "player", "AuraEngine's plain container, on you")
+    local slot = container.slots[1].button
+    equal(slot.shown, false, "no seal: nothing")
+    state.buff("player", "Seal of Righteousness", {spellId = 20154, expires = state.now + 30, duration = 30})
+    state.emit("UNIT_AURA", "player")
+    equal(slot.shown, true, "a seal (rank 2, by its ID): its icon")
+    equal(slot.display.icon.texture, 9000 + 20154)
+    equal(slot.display.cooldown.cooldown[2], 30, "and its time left")
+    state.combat = true
+    state.units.player.buffs["Seal of Righteousness"] = nil
+    state.emit("UNIT_AURA", "player")
+    equal(slot.shown, false, "Judgement in combat: the slot goes, the missing seal shows through")
+    equal(state.drivers[state.env.DyresBuffRemindersSealButton], "[combat] show; hide", "as on Forever")
+    state.buff("player", "Seal of Command", {spellId = 20375, expires = state.now + 30, duration = 30})
+    state.emit("UNIT_AURA", "player")
+    equal(slot.shown, true, "another seal in combat, read at once")
+    state.combat = false
+    local forever = sealFixture()
+    for _, child in ipairs(forever.env.DyresBuffRemindersSeal.children) do
+        equal(child.slots ~= nil and child.template == nil, false, "Forever keeps the engine's container")
+    end
+end)
+
 test("damaged seal settings are repaired", function()
     local state = sealFixture({db = {seal = {enabled = "no", scale = 999, position = "x"}}})
     equal(state.dbr.db.seal.enabled, true)
@@ -3015,7 +3429,8 @@ test("each reminder's bar: Group buffs for what can go on another player, My buf
     local function bar(reminder) return (reminder.group or reminder.others) and "group" or "my" end
     local wanted = {arcaneIntellect = "group", mageArmor = "my", demonArmor = "my",
         markOfTheWild = "group", thorns = "group", righteousFury = "my", fortitude = "group", innerFire = "my",
-        divineSpirit = "group", shadowProtection = "group", aspect = "my", battleShout = "group", dampen = "my"}
+        divineSpirit = "group", shadowProtection = "group", aspect = "my", battleShout = "group", dampen = "my",
+        hunterPet = "my", warlockPet = "my"}
     local count = 0
     for _, list in pairs(state.dbr.BUFFS) do
         for _, reminder in ipairs(list) do
@@ -3023,7 +3438,7 @@ test("each reminder's bar: Group buffs for what can go on another player, My buf
             count = count + 1
         end
     end
-    equal(count, 13, "every reminder is listed here")
+    equal(count, 15, "every reminder is listed here")
 end)
 test("always shown: the slot draws a buff that is up, in and out of combat; ours under it, armed", function()
     local state = fixture({known = {[INTELLECT] = true}})
@@ -3180,7 +3595,14 @@ test("the unlocked tooltip says how to move; /dbr debug lists each reminder", fu
     contains(state.messages[2], "debug arcaneIntellect row=groupbuffs on=true group=true known=true shown=true "
         .. "missing=you "
         .. "click=Arcane Intellect@player unknownIDs=none")
-    contains(state.messages[3], "debug mageArmor row=mybuffs on=true group=nil known=false")
+    contains(state.messages[3], "debug aura arcaneIntellect state=missing expires=none Arcane Intellect=none "
+        .. "Arcane Brilliance=none", "what each name reads on you")
+    contains(state.messages[4], "debug mageArmor row=mybuffs on=true group=nil known=false")
+    state.buff("player", "Arcane Intellect", state.now + 600)
+    state.clear()
+    state.slash("debug")
+    contains(state.find("debug aura arcaneIntellect"), "state=on expires=600 Arcane Intellect=found(id=nil left=600 "
+        .. "dur=1800)")
     state.combat = true
     state.clear()
     state.slash("debug")
@@ -3371,15 +3793,15 @@ end)
 test("cast chimes: a Hunter's Cheetah, a Rogue's Sprint at every rank; none for a Priest", function()
     local hunter = fixture({class = "HUNTER"})
     hunter.voice = true
-    hunter.cast(CHEETAH)
+    hunter.castChime(CHEETAH)
     equal(hunter.played[1].speech, "Meep meep", "Aspect of the Cheetah")
-    hunter.cast(13159)
+    hunter.castChime(13159)
     equal(#hunter.played, 1, "the Pack: off at first")
     local rogue = fixture({class = "ROGUE"})
     rogue.voice = true
-    rogue.cast(11305)
+    rogue.castChime(11305)
     equal(#rogue.played, 1, "Sprint's highest rank, by name")
-    rogue.cast(1767)
+    rogue.castChime(1767)
     equal(#rogue.played, 1, "other spells: nothing")
     rogue.slash("debug")
     contains(rogue.find("debug casts enabled="), "sprint=on:voice")
@@ -3392,6 +3814,68 @@ test("cast chimes: a Hunter's Cheetah, a Rogue's Sprint at every rank; none for 
     equal(db.spells.travelform, true)
     equal(db.spells.sprint, false)
     equal(db.sounds.travelform, "voice", "an unknown sound: the default")
+end)
+
+test("cast chimes: a Warrior's Charge, Intercept, and Execute, with Dyre's Aggression sounds", function()
+    local state = fixture({class = "WARRIOR", newerSounds = {"militarycharge", "orccharge", "angryscream",
+        "rageattack"}})
+    state.castChime(11578)
+    equal(#state.played, 1, "Charge, its highest rank")
+    equal(state.played[1].key, "militarycharge", "Dyre's Aggression at first")
+    state.combat = true
+    state.castChime(20252)
+    equal(state.played[2].key, "orccharge", "Intercept, also in combat")
+    state.castChime(5308)
+    equal(state.played[3].key, "angryscream", "Execute")
+    state.castChime(1680)
+    equal(#state.played, 3, "Whirlwind: off at first")
+    state.settings.DBR_CAST_WHIRLWIND:SetValue(true)
+    state.castChime(1680)
+    equal(state.played[4].key, "rageattack")
+    state.castChime(6673)
+    equal(#state.played, 4, "Battle Shout's cast chime: off at first")
+    equal(state.row("DBR_CAST_INTERVENE"), nil, "Intervene (TBC): listed only once known")
+    equal(state.row("DBR_CAST_TAUNT") ~= nil, true)
+    local tbc = fixture({class = "WARRIOR", known = {[3411] = true}})
+    equal(tbc.row("DBR_CAST_INTERVENE") ~= nil, true, "known: listed")
+    local older = fixture({class = "WARRIOR"})
+    older.castChime(100)
+    equal(older.played[1].key, "talent", "an older Dyre's Sounds without the key: the chimes' default")
+    equal(older.dbr.db.casts.sounds.charge, "militarycharge", "the saved default waits for the newer sounds")
+    local mage = fixture()
+    equal(mage.row("DBR_CAST_CHARGE"), nil, "a Warrior's only")
+end)
+
+test("cast chimes: a Druid's Feral Charge and Enrage, also in combat; the roars off; no clash with forms", function()
+    local state = fixture({class = "DRUID", known = {[16979] = true}, newerSounds = {"orccharge", "rageattack",
+        "orcangry"}})
+    state.voice = true
+    equal(state.row("DBR_CAST_FERALCHARGE") ~= nil, true, "Feral Charge (talent): listed once known")
+    state.form = 1
+    state.emit("UPDATE_SHAPESHIFT_FORM")
+    state.cast(16979)
+    state.advance(0.5)
+    equal(#state.played, 0, "Feral Charge waits like the form (the game's own sound plays first)")
+    state.advance(0.25)
+    equal(#state.played, 2, "both 0.75 s later: the form's chime and Feral Charge's")
+    local keys = {state.played[1].speech or state.played[1].key, state.played[2].speech or state.played[2].key}
+    table.sort(keys)
+    equal(table.concat(keys, ","), "Feral Charge,Rawr")
+    state.combat = true
+    state.castChime(5229)
+    equal(state.played[3].key, "rageattack", "Enrage, in combat")
+    state.castChime(99)
+    state.castChime(5209)
+    equal(#state.played, 3, "the roars: off at first")
+    state.settings.DBR_CAST_DEMOROAR:SetValue(true)
+    state.castChime(1735)
+    equal(state.played[4].key, "orcangry", "Demoralizing Roar, any rank")
+    state.castChime(1850)
+    equal(#state.played, 4, "Dash keeps its own switch (off)")
+    local untalented = fixture({class = "DRUID"})
+    equal(untalented.row("DBR_CAST_FERALCHARGE"), nil, "without the talent: not listed")
+    equal(untalented.row("DBR_CAST_ENRAGE") ~= nil, true)
+    equal(untalented.row("DBR_CAST_BASH") ~= nil, true, "Bash and Frenzied Regeneration: off, listed")
 end)
 
 test("chimes: Cold Snap cancels the Frost chimes; Preparation the Rogue's", function()
@@ -4064,11 +4548,12 @@ test("toolkit: every DBR frame is a widget; DBR never moves, scales, or saves on
     local widgets = state.toolkit.Widgets(ADDON)
     local keys = {}
     for _, widget in ipairs(widgets) do keys[#keys + 1] = widget.dyre.widgetKey end
-    equal(table.concat(keys, ","), "buff_righteousFury,seal", "a Paladin has no consumables")
+    equal(table.concat(keys, ","), "buff_righteousFury,warnings,seal",
+        "a Paladin has no consumables; its warnings' message box is a widget")
     local fury, seal = state.icon("righteousFury"), state.env.DyresBuffRemindersSeal
     equal(fury.scripts.OnMouseWheel, nil, "no wheel resize of DBR's own")
     equal(seal.scripts.OnMouseWheel, nil)
-    equal(seal.scripts.OnDragStart, state.toolkit.BeginDrag)
+    equal(type(seal.scripts.OnDragStart), "function", "the toolkit's drag (hooked only to keep a Ctrl move's mouse)")
     equal(seal.dyre.store, state.dbr.db.seal, "saved under the keys it had")
     equal(state.widget("righteousFury").dyre.store, state.dbr.db.buffs.righteousFury)
 end)

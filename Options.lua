@@ -201,9 +201,9 @@ end
 -- row, or two with an older Dyre's Sounds or client (as a chime).
 local function AddCast(cast, library, castsSwitch)
     local variable = "DBR_CAST_" .. cast.key:upper()
-    local tooltip = "Play a sound the moment you cast " .. cast.label .. ", also in combat."
+    local tooltip = "Play a sound just after you cast " .. cast.label .. ", also in combat."
     if cast.form then
-        tooltip = "Play a sound the moment you shift into " .. cast.label .. ", also in combat; not when you "
+        tooltip = "Play a sound just after you shift into " .. cast.label .. ", also in combat; not when you "
             .. "leave it."
     end
     local setting = Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, cast.label, cast.on,
@@ -215,7 +215,7 @@ local function AddCast(cast, library, castsSwitch)
         return
     end
     local sound = Settings.RegisterProxySetting(category, variable .. "_SOUND", Settings.VarType.String, "Sound",
-        DBR.DEFAULT_CAST_SOUND,
+        cast.sound or DBR.DEFAULT_CAST_SOUND,
         function() return DBR.db.casts.sounds[cast.key] end,
         function(value)
             local key = library.Resolve(value)
@@ -249,15 +249,21 @@ local function AddCastsSection()
     end
     local library = DBR.SoundLibrary()
     Heading("Cast Chimes")
-    local tooltip = "A sound the moment you cast a travel spell (Travel Form, Aspect of the Cheetah, Sprint, "
-        .. "and so on) or shift into a Druid form, also in combat. Text to Speech speaks at first (\""
+    local tooltip = "A sound just after you cast one of these spells (a travel spell, a Warrior's Charge, "
+        .. "and so on) or shift into a Druid form (0.75 seconds later, after the game's own sound), also in combat. Text to Speech speaks at first (\""
         .. DBR.CAST_SPEECH .. "\" for the travel spells)."
     if not library then
         tooltip = tooltip .. " Install Dyre's Sounds to hear them and to choose each one's sound."
     end
     local castsSwitch = Flag("DBR_CASTS_ENABLED", "Enable", "casts", "enabled", true, tooltip, function() end)
     for _, cast in ipairs(spells) do
-        AddCast(cast, library, castsSwitch)
+        local known = not cast.whenKnown
+        for _, id in ipairs(cast.whenKnown and cast.spells or {}) do
+            known = known or C_SpellBook.IsSpellKnown(id) == true
+        end
+        if known then
+            AddCast(cast, library, castsSwitch)
+        end
     end
 end
 
@@ -343,6 +349,12 @@ local function AddReminderSizes()
     if sealWidget then
         DBR.toolkit.AddWidgetSettings(category, layout, sealWidget, {
             labels = {scale = "Seal timer: size", opacity = "Seal timer: opacity"},
+        })
+    end
+    local warningWidget = _G.DyresBuffRemindersWarning
+    if warningWidget and #DBR.ClassWarnings() > 0 then
+        DBR.toolkit.AddWidgetSettings(category, layout, warningWidget, {
+            labels = {scale = "Warning messages: size"},
         })
     end
 end
@@ -578,8 +590,9 @@ function DBR.InitializeOptions()
         end
         if reminder.tankOnly then
             local always = Flag("DBR_ALWAYS_" .. key:upper(), "Always show " .. reminder.label, "alwaysShow", key,
-                false, "Show " .. reminder.label .. " even when you are not tanking. Without this it shows only "
-                    .. "with the Tank role in your group, or with its improved talent.", DBR.RefreshReminders)
+                false, "Show " .. reminder.label .. " even when you are not tanking, and no \"off when not "
+                    .. "tanking\" warning. Without this it shows only solo, or as your group's tank (the Tank role, "
+                    .. "or a raid's main tank).", DBR.RefreshReminders)
             Nest(always, buff, function() return DBR.db.enabled and DBR.db.spells[key] end)
         end
         if reminder.combatAspect and DBR.CombatAspectWidget() then
@@ -592,6 +605,16 @@ function DBR.InitializeOptions()
                 .. "pulses; click it to cast that seal. Out of combat with no seal up, nothing shows.",
             DBR.RefreshSeal)
         Nest(sealSwitch, master, Enabled)
+    end
+    -- The warnings (on-screen messages), each its own switch.
+    for _, warning in ipairs(DBR.ClassWarnings()) do
+        local text = warning.kind == "fury"
+            and "In a group or raid where you aren't the tank, a message on screen (and in chat) while Righteous "
+                .. "Fury is on: when it starts, and once as combat starts, at most every 30 seconds."
+            or "In a group or raid where you aren't the tank, a message on screen (and in chat) while your pet's "
+                .. "taunt is on autocast: when it starts, and once as combat starts, at most every 30 seconds."
+        Nest(Flag("DBR_WARN_" .. warning.key:upper(), warning.label, "warnings", warning.key, true, text,
+            DBR.RefreshReminders), master, Enabled)
     end
     -- The shared lead only where a buff uses it (author: a Warrior's Battle
     -- Shout has its own, so a second slider would do nothing); db.leadPercent stays.

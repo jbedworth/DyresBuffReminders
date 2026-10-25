@@ -90,7 +90,8 @@ end
 -- files otherwise fails silently, because the client hides Lua errors by default.
 local REQUIRED_NAMESPACE = {
     "ParseCommand", "HandleCommand",
-    "ClassReminders", "SanitizeReminders", "SanitizeLead", "InitializeReminders", "ImportReminders",
+    "ClassReminders", "SanitizeReminders", "SanitizeLead", "InitializeReminders", "ImportReminders", "AddCtrlMove", "CheckWarnings", "WarningsAtCombat",
+    "SetUpWarnings", "ClassWarnings", "ReportWarningsDebug",
     "RefreshReminders", "ReportRemindersDebug", "SanitizeSeal", "InitializeSeal",
     "RefreshSeal", "ReportSealDebug", "HasSealTimer", "SealWidget", "BuffWidgets", "HasBuffSlots", "CombatAspectWidget", "RefreshCombatAspect",
     "SanitizeConsumables", "SanitizeAmmoWarn", "InitializeConsumables", "RefreshConsumables", "ConsumablesWidget",
@@ -194,8 +195,50 @@ end
 
 -- The toolkit's lock changed: DBR's samples show or hide, quietly (the
 -- toolkit draws the outlines and says one line for all).
+-- Ctrl-drag while locked (Dyre's Toolkit's free move, family-wide) can start
+-- only on a part that takes the mouse; a widget that is click-through while
+-- locked (the Consumables bar, the seal timer) takes the mouse while Ctrl is
+-- held, out of combat (player report: the Consumables bar did not move; WTF's
+-- fix). Event driven (MODIFIER_STATE_CHANGED), never changed during a drag so
+-- its drop arrives, and off as combat starts (PLAYER_REGEN_DISABLED comes
+-- before the lockdown). Unlocked, the toolkit owns the mouse.
+local ctrlMove = {frames = {}, on = false, events = CreateFrame("Frame")}
+
+local function ApplyCtrlMove(entering)
+    if ctrlMove.dragging or InCombatLockdown() then
+        return
+    end
+    local on = not entering and DBR.db ~= nil and DBR.db.locked == true
+        and type(IsControlKeyDown) == "function" and IsControlKeyDown() == true
+    if on == ctrlMove.on then
+        return
+    end
+    ctrlMove.on = on
+    if DBR.db.locked then
+        for _, frame in ipairs(ctrlMove.frames) do
+            frame:EnableMouse(on)
+        end
+    end
+end
+
+ctrlMove.events:SetScript("OnEvent", function(_, event)
+    ApplyCtrlMove(event == "PLAYER_REGEN_DISABLED")
+end)
+
+function DBR.AddCtrlMove(frame)
+    ctrlMove.frames[#ctrlMove.frames + 1] = frame
+    frame:HookScript("OnDragStart", function() ctrlMove.dragging = true end)
+    frame:HookScript("OnDragStop", function()
+        ctrlMove.dragging = nil
+        ApplyCtrlMove()
+    end)
+    ctrlMove.events:RegisterEvent("MODIFIER_STATE_CHANGED")
+    ctrlMove.events:RegisterEvent("PLAYER_REGEN_DISABLED")
+end
+
 function DBR.ApplyLocked(locked)
     DBR.db.locked = locked == true
+    ctrlMove.on = false
     DBR.RefreshReminders()
     DBR.RefreshSeal()
     DBR.RefreshConsumables()

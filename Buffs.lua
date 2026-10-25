@@ -32,16 +32,22 @@ local _, DBR = ...
 -- always shown. duration is its length when no out-of-combat read gave one.
 -- castOnYou: its cast always lands on you too (Battle Shout), so any cast of
 -- it in combat restarts its time.
--- tankOnly: shown only for a tank (the Tank role, one of its talent spells
--- known, a point in a talent whose name holds the buff's name, or the
--- player's "Always show" switch); otherwise not at all.
+-- pet: "hunter" or "warlock" (author, 1.5.0: "a 'no pet up' warning"): not
+-- an aura; shown, also in combat, while you have no living pet (the game's
+-- own [nopet] and [@pet,dead], so no reads), hidden while mounted, and, for a
+-- Warlock, after a Demonic Sacrifice (sacrifice: its buffs). revive: the
+-- Hunter's Revive Pet, for a dead pet.
+-- tankOnly: shown only solo, or as your group's designated tank (the Tank
+-- role, or a raid's main tank), or with the player's "Always show" switch.
+-- knownBy: the spells that make it apply, instead of spells.
 DBR.BUFFS = {
     MAGE = {
         {key = "arcaneIntellect", label = "Arcane Intellect", on = true,
             spells = {1459, 1460, 1461, 10156, 10157},
             group = {mana = true, spells = {{spell = 23028, reagent = 17020}}}},
         {key = "mageArmor", label = "Armor (Frost, Ice, or Mage Armor)", on = true,
-            spells = {168, 7300, 7301, 7302, 7320, 10219, 10220, 6117, 22782, 22783}, prefer = {6117, 7302, 168}},
+            spells = {168, 7300, 7301, 7302, 7320, 10219, 10220, 6117, 22782, 22783, 27124, 27125, 30482},
+            prefer = {6117, 7302, 168}},
         -- Off at first (author, 1.3.0: "add to DBR, off by default"). One
         -- reminder, as MTF's: the two cannot be on you together, so either
         -- counts; a click recasts the one you cast last, else Dampen.
@@ -54,6 +60,10 @@ DBR.BUFFS = {
         {key = "aspect", label = "Aspect", on = true,
             spells = {13165, 14318, 14319, 14320, 14321, 14322, 25296, 13163, 20043, 20190, 13161, 5118, 13159},
             prefer = {13165, 13163}, forget = {5118, 13159}, bang = true, combatAspect = true},
+        -- Call Pet; a click calls it, or revives it when it is dead (a
+        -- right-click always revives).
+        {key = "hunterPet", label = "Pet", on = true, pet = "hunter", spells = {883}, revive = 982},
+
     },
     -- Battle Shout reaches your party, so it sits in Group buffs (author: a
     -- buff that can go on another player); DBR watches it on you. It needs
@@ -68,6 +78,14 @@ DBR.BUFFS = {
         -- Demon Skin counts as Demon Armor before you learn it.
         {key = "demonArmor", label = "Demon Armor", on = true,
             spells = {687, 696, 706, 1086, 11733, 11734, 11735}, prefer = {706, 687}},
+        -- Summon Imp, Voidwalker, Succubus, Felhunter, Felguard (TBC); a click
+        -- summons the last one you summoned, else the Imp. Demonic Sacrifice:
+        -- Burning Wish (Imp), Fel Stamina (Voidwalker), Touch of Shadow
+        -- (Succubus; 35701, TBC's Felguard), Fel Energy (Felhunter).
+        {key = "warlockPet", label = "Pet (your demon)", on = true, pet = "warlock",
+            spells = {688, 697, 712, 691, 30146}, prefer = {688, 697, 712, 691, 30146},
+            sacrifice = {18789, 18790, 18791, 18792, 35701}},
+
     },
     DRUID = {
         {key = "markOfTheWild", label = "Mark of the Wild", on = true, cancelForm = true,
@@ -80,12 +98,10 @@ DBR.BUFFS = {
     -- Self buffs only (author-approved): blessings are per member and
     -- situational, and PallyPower covers them.
     PALADIN = {
-        -- Only for a tank (author): the Tank role, or Improved Righteous
-        -- Fury (any rank: these Classic IDs, or a talent point in a talent
-        -- named after the buff, found on Forever's talent tree), or the
-        -- player's "Always show" switch.
-        {key = "righteousFury", label = "Righteous Fury", on = true, spells = {25780},
-            tankOnly = {talent = {20468, 20469, 20470}}},
+        -- Only when you may tank (author, 1.5.0: "only come up if I'm a
+        -- designated Tank in Group/Raid, or, if solo"), or with the player's
+        -- "Always show" switch.
+        {key = "righteousFury", label = "Righteous Fury", on = true, spells = {25780}, tankOnly = true},
     },
     PRIEST = {
         {key = "fortitude", label = "Power Word: Fortitude", on = true,
@@ -99,5 +115,28 @@ DBR.BUFFS = {
         {key = "shadowProtection", label = "Shadow Protection", on = false,
             spells = {976, 10957, 10958},
             group = {spells = {{spell = 27683, reagent = 17029}}}},
+    },
+}
+
+-- Warnings, on-screen messages rather than icons (author, 1.5.0: "use the
+-- same mechanism (Message Box on-screen, like DCM) for the taunting-warnings
+-- ... instead of using icons"), for a group or raid where you are not the
+-- designated tank. kind: "fury" (Righteous Fury up; spells) or "petTaunt"
+-- (your pet's taunt on autocast; petTaunts, every rank, by name). knownBy:
+-- the spells that make it apply (a pet's spells are not yours). Each has its
+-- own switch under Reminders, on at first.
+DBR.WARNINGS = {
+    PALADIN = {
+        {key = "furyOff", label = "Warn: Righteous Fury on when not tanking", kind = "fury", spells = {25780},
+            knownBy = {25780}},
+    },
+    HUNTER = {
+        {key = "hunterPetTaunt", label = "Warn: pet taunt on in a group", kind = "petTaunt",
+            petTaunts = {2649, 14916, 14917, 14918, 14919, 14920, 14921, 27047}, knownBy = {883}},
+    },
+    -- The Voidwalker's Torment and Suffering; the Felguard's Anguish (TBC).
+    WARLOCK = {
+        {key = "warlockPetTaunt", label = "Warn: pet taunt on in a group", kind = "petTaunt",
+            petTaunts = {3716, 7809, 7810, 7811, 11774, 11775, 27270, 17735, 17750, 17751, 17752, 27271, 33701, 33698, 33699, 33700}, knownBy = {697, 30146}},
     },
 }

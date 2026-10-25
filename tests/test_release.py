@@ -87,7 +87,7 @@ class ReleaseTests(unittest.TestCase):
         checked = builder.validate_archive(path, self.version)
         self.assertEqual(checked, dict(manifest, tag=""))
         notes = " ".join((self.output / "release-notes.md").read_text().split())
-        for text in ("Forever beta 1.60.1", "70450", "the APIs it needs", "Mages, Warlocks, Druids, Priests, and Paladins", "Cooldown chimes",
+        for text in ("Forever beta 1.60.1", "70450", "Classic Era 1.15.9", "70003", "the APIs it needs", "Mages, Warlocks, Druids, Priests, and Paladins", "Cooldown chimes",
                      "`/dbr unlock`"):
             self.assertIn(text, notes)
         with zipfile.ZipFile(path) as archive:
@@ -245,7 +245,7 @@ class ReleaseTests(unittest.TestCase):
         notes = (self.output / "release-notes.md").read_text(encoding="utf-8")
         self.assertTrue(notes.startswith(
             f"# Dyre's Buff Reminders {self.version}\n\n## Changes\n\n"
-            "- Fixed the thing.\n- Added the other.\n\n## Notes\n\n- For WoW: Forever."))
+            "- Fixed the thing.\n- Added the other.\n\n## Notes\n\n- For WoW: Forever and WoW Classic Era."))
         self.assertNotIn("Older entry", notes)
 
     def test_build_refuses_missing_empty_or_duplicate_changelog_section(self):
