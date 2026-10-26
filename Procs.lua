@@ -489,3 +489,333 @@ function DBR.ReportCastsDebug(classFile)
     DBR.Report(string.format("debug casts enabled=%s %s last=%s", tostring(DBR.db.casts.enabled),
         #parts > 0 and table.concat(parts, " ") or "none", tostring(casts.last)))
 end
+
+-- Combo point chimes ----------------------------------------------------------------
+
+-- The settings, repaired; Core calls this from SanitizeDB.
+function DBR.SanitizeCombo(saved)
+    saved = type(saved) == "table" and saved or {}
+    local function Sound(key, default)
+        return DBR.SanitizeChimeSound and DBR.SanitizeChimeSound(key, default)
+            or (type(key) == "string" and key) or default
+    end
+    return {enabled = saved.enabled ~= false, full = saved.full ~= false, spend = saved.spend ~= false,
+        onlyFull = saved.onlyFull == true, scale = saved.scale ~= false,
+        fullSound = Sound(saved.fullSound, DBR.COMBO_FULL_SOUND),
+        spendSound = Sound(saved.spendSound, DBR.COMBO_SPEND_SOUND)}
+end
+
+function DBR.HasComboChimes()
+    return DBR.COMBO_CLASSES[DBR.classFile or ""] == true
+end
+
+-- Last count, the notes waiting to play, and the finishers' names.
+local combo = {queue = {}, finishers = {}, history = {}}
+local COMBO_POWER = "COMBO_POINTS"
+local CAT_FORM_ID = 1
+-- The last actions (counts read, notes queued and played) for /dbr debug.
+local COMBO_HISTORY = 8
+
+local function Log(text)
+    local history = combo.history
+    history[#history + 1] = string.format("%.2f %s", GetTime(), text)
+    if #history > COMBO_HISTORY then
+        table.remove(history, 1)
+    end
+end
+
+-- One sound; one an older Dyre's Sounds lacks plays the chimes' default.
+local function PlayCombo(key, speech)
+    local library = DBR.SoundLibrary()
+    if not library then
+        Log("play " .. tostring(key) .. " no-library")
+        return
+    end
+    if library.Play(key, speech) then
+        Log("play " .. tostring(key))
+    else
+        Log("play " .. tostring(key) .. " fallback=" .. tostring(library.Play(DBR.DEFAULT_CHIME_SOUND, speech)))
+    end
+end
+
+-- Notes play in order, one gap apart, by C_Timer (no OnUpdate).
+local function PlayNext()
+    local note = table.remove(combo.queue, 1)
+    if not note then
+        combo.playing = false
+        return
+    end
+    combo.playing = true
+    -- The next one is set first, so a failing Play cannot stop the queue.
+    C_Timer.After(DBR.COMBO_NOTE_GAP, PlayNext)
+    PlayCombo(note.key, note.speech)
+end
+
+-- hold: queue only; the caller starts the queue once all its notes are in,
+-- so a failing first note cannot lose the rest.
+local function Enqueue(key, speech, hold)
+    combo.queue[#combo.queue + 1] = {key = key, speech = speech}
+    Log("queue " .. tostring(key) .. (#combo.queue > 1 and " behind " .. (#combo.queue - 1) or ""))
+    if not hold and not combo.playing then
+        PlayNext()
+    end
+end
+
+function DBR.PreviewCombo(which)
+    local saved = DBR.db.combo
+    PlayCombo(which == "spend" and saved.spendSound or saved.fullSound, which == "spend" and "Spent" or "Full")
+end
+
+-- A Druid counts only in Cat Form: GetShapeshiftFormID 1 (Classic's
+-- CAT_FORM, Era's Constants.lua) or the active form being Cat Form by its
+-- spell's name; either is enough (player report: "Not working on the druid").
+local function CatByID()
+    if type(GetShapeshiftFormID) ~= "function" then
+        return false
+    end
+    local id = GetShapeshiftFormID()
+    return not DBR.IsSecret(id) and id == (rawget(_G, "CAT_FORM") or CAT_FORM_ID)
+end
+
+local function CatBySpell()
+    local cat = C_Spell.GetSpellName(768)
+    if not cat or type(GetNumShapeshiftForms) ~= "function" or type(GetShapeshiftFormInfo) ~= "function" then
+        return false
+    end
+    local count = GetNumShapeshiftForms()
+    for index = 1, (not DBR.IsSecret(count) and type(count) == "number" and count or 0) do
+        local _, active, _, spellID = GetShapeshiftFormInfo(index)
+        if active == true and not DBR.IsSecret(spellID) and spellID and C_Spell.GetSpellName(spellID) == cat then
+            return true
+        end
+    end
+    return false
+end
+
+local function InCatForm()
+    return CatByID() or CatBySpell()
+end
+
+local function Counts()
+    return DBR.classFile ~= "DRUID" or InCatForm()
+end
+
+-- The count and the most: the higher of UnitPower and Classic's
+-- GetComboPoints on the target (a Druid's may read on only one of them); a
+-- readable one wins over a secret one. Both secret or missing: "secret" or nil.
+local function ReadCount()
+    local power = type(Enum) == "table" and Enum.PowerType and Enum.PowerType.ComboPoints
+    local count, most
+    if power and type(UnitPower) == "function" then
+        count = UnitPower("player", power)
+        most = type(UnitPowerMax) == "function" and UnitPowerMax("player", power) or nil
+    end
+    if type(GetComboPoints) == "function" then
+        local onTarget = GetComboPoints("player", "target")
+        if not DBR.IsSecret(onTarget) and type(onTarget) == "number"
+            and (DBR.IsSecret(count) or type(count) ~= "number" or onTarget > count) then
+            count = onTarget
+        end
+    end
+    if DBR.IsSecret(count) then
+        return "secret"
+    end
+    if DBR.IsSecret(most) or type(most) ~= "number" or most < 1 then
+        most = rawget(_G, "MAX_COMBO_POINTS") or 5
+    end
+    return type(count) == "number" and count or nil, most
+end
+
+-- The note for reaching count of most: the most plays Full's sound; below
+-- it, a rising note (or Full's sound, without "Rising notes").
+local function NoteFor(count, most)
+    local saved = DBR.db.combo
+    if count >= most then
+        return saved.full and saved.fullSound or nil, "Full"
+    end
+    if saved.onlyFull then
+        return nil
+    end
+    if not saved.scale then
+        return saved.fullSound, tostring(count)
+    end
+    return DBR.COMBO_NOTES[math.min(count, #DBR.COMBO_NOTES)], tostring(count)
+end
+
+-- otherPower: the event named another power (a Druid's Energy); then only a
+-- readable count is read, so a secret one plays no note per Energy tick.
+-- Fewer points: a spend, unless a target change is as close (Era loses
+-- the points on a switch; Forever shows the new mob's). Your own finisher
+-- that close makes it a spend after all. With neither yet, wait the window.
+local function Dropped()
+    local saved = DBR.db.combo
+    local window = DBR.COMBO_TARGET_WINDOW
+    local now = GetTime()
+    combo.pending = nil
+    if combo.finisherAt and now - combo.finisherAt <= window then
+        Enqueue(saved.spendSound, "Spent")
+        return
+    end
+    if combo.targetAt and now - combo.targetAt <= window then
+        Log("drop after a target change: silent")
+        return
+    end
+    local token = (combo.dropToken or 0) + 1
+    combo.dropToken, combo.pending = token, now
+    C_Timer.After(window, function()
+        if combo.dropToken ~= token or not combo.pending then
+            return
+        end
+        local at = combo.pending
+        combo.pending = nil
+        if not (combo.targetAt and combo.targetAt >= at) then
+            Enqueue(DBR.db.combo.spendSound, "Spent")
+        else
+            Log("drop before a target change: silent")
+        end
+    end)
+end
+
+local function Changed(otherPower)
+    local saved = DBR.db.combo
+    if not saved.enabled or not DBR.db.enabled or not Counts() then
+        combo.last = nil
+        return
+    end
+    local count, most = ReadCount()
+    if count == "secret" and otherPower then
+        return
+    end
+    if count == "secret" then
+        -- Forever: the count is secret; one mid note per change, and the
+        -- spend sound from your own finisher (UNIT_SPELLCAST_SUCCEEDED).
+        combo.secret, combo.last = true, nil
+        if not saved.onlyFull then
+            Enqueue(DBR.COMBO_SECRET_NOTE, "Point")
+        end
+        return
+    end
+    combo.secret = false
+    if not count then
+        return
+    end
+    -- No count taken yet (a Druid just shifted into Cat Form, or its form
+    -- read late): from none, so the first point plays.
+    local last = combo.last or 0
+    combo.last = count
+    if count == last then
+        return
+    end
+    Log(string.format("%s %d>%d of %d", tostring(combo.event or "?"), last, count, most))
+    if count > last then
+        for point = last + 1, count do
+            local key, speech = NoteFor(point, most)
+            if key then
+                Enqueue(key, speech, true)
+            end
+        end
+        if not combo.playing then
+            PlayNext()
+        end
+        return
+    end
+    -- Fewer: spent, but one point lost out of combat is decay, silent.
+    if last - count == 1 and not InCombatLockdown() then
+        Log("decay: silent")
+        return
+    end
+    if saved.spend then
+        Dropped()
+    end
+end
+
+-- Quietly take the count as it is now (a new target, a new form, login).
+local function Baseline(event)
+    local count = ReadCount()
+    local taken = Counts() and type(count) == "number" and count or nil
+    if taken ~= combo.last then
+        Log(string.format("%s takes %s>%s", tostring(event or "login"), tostring(combo.last), tostring(taken)))
+    end
+    combo.last = taken
+end
+
+local comboEvents = CreateFrame("Frame")
+comboEvents:SetScript("OnEvent", function(_, event, unit, powerType, spellID)
+    if event == "UNIT_POWER_UPDATE" or event == "UNIT_POWER_FREQUENT" then
+        -- Era's ComboFrame re-reads on every player power event, whatever its
+        -- power; a Druid's points may come with another one (player report:
+        -- the Rogue chimes on Era, the Druid in Cat Form does not).
+        local combos = not DBR.IsSecret(powerType) and powerType == COMBO_POWER
+        combo.event = event .. " " .. DBR.Describe(powerType)
+        Changed(not combos)
+    elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+        local saved = DBR.db.combo
+        local name = not DBR.IsSecret(spellID) and C_Spell.GetSpellName(spellID) or nil
+        if not (name and combo.finishers[name]) then
+            return
+        end
+        combo.finisherAt = GetTime()
+        if saved.enabled and saved.spend and Counts() and (combo.secret or combo.pending) then
+            -- A secret count's spend, or a drop waiting on a target change.
+            combo.pending = nil
+            Enqueue(saved.spendSound, "Spent")
+        end
+    else
+        if event == "PLAYER_TARGET_CHANGED" or event == "COMBO_TARGET_CHANGED" then
+            combo.targetAt = GetTime()
+        end
+        Baseline(event)
+    end
+end)
+
+-- Rogues and Druids: the player's combo points, on the events only.
+function DBR.InitializeCombo(classFile)
+    if not DBR.COMBO_CLASSES[classFile or ""] then
+        return
+    end
+    for _, id in ipairs(DBR.COMBO_FINISHERS[classFile] or {}) do
+        local name = C_Spell.GetSpellName(id)
+        if name then
+            combo.finishers[name] = true
+        end
+    end
+    comboEvents:RegisterUnitEvent("UNIT_POWER_UPDATE", "player")
+    -- Era's own combo frame follows UNIT_POWER_FREQUENT; a repeat changes nothing.
+    comboEvents:RegisterUnitEvent("UNIT_POWER_FREQUENT", "player")
+    comboEvents:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    -- Forever keeps the points on the mob, Era on the caster (author): a new
+    -- target is no spend, and with the points on the caster it changes nothing.
+    for _, event in ipairs({"PLAYER_TARGET_CHANGED", "UPDATE_SHAPESHIFT_FORM", "PLAYER_ENTERING_WORLD"}) do
+        comboEvents:RegisterEvent(event)
+    end
+    -- Era's ComboFrame also follows COMBO_TARGET_CHANGED; registered only
+    -- where the client knows it (an unknown event is an error).
+    local events = rawget(_G, "C_EventUtils")
+    if type(events) == "table" and type(events.IsEventValid) == "function"
+        and events.IsEventValid("COMBO_TARGET_CHANGED") == true then
+        comboEvents:RegisterEvent("COMBO_TARGET_CHANGED")
+    end
+    Baseline()
+end
+
+function DBR.ReportComboDebug()
+    if not DBR.HasComboChimes() then
+        return
+    end
+    local count, most = ReadCount()
+    local power = type(Enum) == "table" and Enum.PowerType and Enum.PowerType.ComboPoints
+    local unitPower = power and type(UnitPower) == "function" and UnitPower("player", power) or nil
+    local onTarget = type(GetComboPoints) == "function" and GetComboPoints("player", "target") or nil
+    local formID = type(GetShapeshiftFormID) == "function" and GetShapeshiftFormID() or nil
+    DBR.Report(string.format("debug combo enabled=%s count=%s most=%s counts=%s last=%s secret=%s unitPower=%s "
+        .. "getComboPoints=%s formID=%s catByID=%s catBySpell=%s lastPowerEvent=%s", tostring(DBR.db.combo.enabled),
+        tostring(count), tostring(most), tostring(Counts()), tostring(combo.last), tostring(combo.secret),
+        DBR.Describe(unitPower), DBR.Describe(onTarget), DBR.Describe(formID), tostring(CatByID()),
+        tostring(CatBySpell()), tostring(combo.event or "none")))
+    local saved = DBR.db.combo
+    DBR.Report(string.format("debug combo settings full=%s spend=%s onlyFull=%s scale=%s fullSound=%s spendSound=%s "
+        .. "playing=%s queued=%d", tostring(saved.full), tostring(saved.spend), tostring(saved.onlyFull),
+        tostring(saved.scale), tostring(saved.fullSound), tostring(saved.spendSound), tostring(combo.playing == true),
+        #combo.queue))
+    DBR.Report("debug combo history " .. (#combo.history > 0 and table.concat(combo.history, " | ") or "none"))
+end

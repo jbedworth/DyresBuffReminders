@@ -253,6 +253,17 @@ chimes' default sound plays); choose any Dyre's Sounds sound per spell under
 Dash also have a cooldown chime under **Chimes**; Travel Form and the
 aspects have no cooldown.
 
+## Combo point chimes
+
+Rogues, and Druids in Cat Form: a note as you earn each combo point, rising
+from low Bb (Dyre's Sounds 1.3.0's "Dyre's Sax"), the held high Bb when you
+reach the most, and low Bb again when you spend them, also in combat. Several
+points at once play in order. One point fading out of combat, a new target,
+and leaving Cat Form are silent. Under **Combo Point Chimes** in `/dbr`:
+**Enable**, **Full** and **Spend** (each with its own sound), **Only when
+full**, and **Point notes: Dyre's Sax scale** (off: each point plays Full's
+sound). With an older Dyre's Sounds, its default chime plays.
+
 ## With Mage Tools Forever or Warlock Tools Forever
 
 Mage Tools Forever (from 1.2.0) and Warlock Tools Forever (from 1.3.0) rely

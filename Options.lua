@@ -241,6 +241,69 @@ local function AddCast(cast, library, castsSwitch)
     Nest(dropdown, switch, function() return DBR.db.casts.enabled and DBR.db.casts.spells[cast.key] end)
 end
 
+-- A combo point sound: its switch and its sound on one row, or two with an
+-- older Dyre's Sounds or client (as a chime).
+local function AddComboSound(which, label, tooltip, default, comboSwitch)
+    local saved = DBR.db.combo
+    local soundKey = which .. "Sound"
+    local variable = "DBR_COMBO_" .. which:upper()
+    local library = DBR.SoundLibrary()
+    local setting = Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, label, true,
+        function() return saved[which] end,
+        function(value) saved[which] = value == true end)
+    local function ComboOn() return saved.enabled end
+    if not library or (type(Settings.CreateDropdown) ~= "function" and not HasCheckboxDropdown(library)) then
+        Nest(Settings.CreateCheckbox(category, setting, tooltip), comboSwitch, ComboOn)
+        return
+    end
+    local sound = Settings.RegisterProxySetting(category, variable .. "_SOUND", Settings.VarType.String, "Sound",
+        default, function() return saved[soundKey] end,
+        function(value)
+            local key = library.Resolve(value)
+            if key then
+                saved[soundKey] = key
+                DBR.PreviewCombo(which)
+            end
+        end)
+    local soundTooltip = "The sound for " .. label:lower() .. ". Choosing one plays it once."
+    if HasCheckboxDropdown(library) then
+        local row = CreateSettingsCheckboxDropdownInitializer(setting, label, tooltip, sound, library.Choices(),
+            "Sound", soundTooltip)
+        layout:AddInitializer(row)
+        library.SetupCheckboxMenu(row)
+        Nest(row, comboSwitch, ComboOn)
+        return
+    end
+    local switch = Settings.CreateCheckbox(category, setting, tooltip)
+    Nest(switch, comboSwitch, ComboOn)
+    local dropdown = Settings.CreateDropdown(category, sound, library.Choices(), soundTooltip)
+    library.SetupMenu(dropdown)
+    Nest(dropdown, switch, function() return saved.enabled and saved[which] end)
+end
+
+-- The combo point chimes section (author, 1.6.0), for Rogues and Druids.
+local function AddComboSection()
+    if not DBR.HasComboChimes() then
+        return
+    end
+    Heading("Combo Point Chimes")
+    local tooltip = "A note as you earn each combo point (a Druid in Cat Form), the held high note at the most, and "
+        .. "a sound as you spend them, also in combat."
+    if not DBR.SoundLibrary() then
+        tooltip = tooltip .. " Install Dyre's Sounds to hear them."
+    end
+    local comboSwitch = Flag("DBR_COMBO_ENABLED", "Enable", "combo", "enabled", true, tooltip, function() end)
+    local function ComboOn() return DBR.db.combo.enabled end
+    AddComboSound("full", "Full", "Play a sound when you reach the most combo points.", DBR.COMBO_FULL_SOUND,
+        comboSwitch)
+    AddComboSound("spend", "Spend", "Play a sound when you spend your combo points (one lost out of combat, as "
+        .. "they fade, is silent).", DBR.COMBO_SPEND_SOUND, comboSwitch)
+    Nest(Flag("DBR_COMBO_ONLYFULL", "Only when full", "combo", "onlyFull", false, "Play only Full's sound (and "
+        .. "Spend's), not a note for each point.", function() end), comboSwitch, ComboOn)
+    Nest(Flag("DBR_COMBO_SCALE", "Point notes: Dyre's Sax scale", "combo", "scale", true, "A rising note for each "
+        .. "point (Dyre's Sax). Off: each point plays Full's sound.", function() end), comboSwitch, ComboOn)
+end
+
 -- The cast chimes section (author, 1.4.0), for a class with any.
 local function AddCastsSection()
     local spells = DBR.ClassCasts(DBR.classFile)
@@ -630,6 +693,7 @@ function DBR.InitializeOptions()
     AddChimesSection()
     AddProcsSection()
     AddCastsSection()
+    AddComboSection()
 end
 
 function DBR.OpenSettings()

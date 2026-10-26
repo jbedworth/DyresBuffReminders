@@ -371,6 +371,22 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       with the same settings.
 - [ ] With MTF on a Mage (or WTF on a Warlock) that still chimes: DBR says
       once at login to turn theirs off; with theirs off, it says nothing.
+- [ ] Combo Point Chimes, 1.6.0, with Dyre's Sounds 1.3.0 (Era): a Rogue's
+      Sinister Strikes play sax notes rising 1 to 4, then the held high note
+      at 5; Eviscerate plays low Bb. A two-point builder plays two notes in
+      order. Let one point fade out of combat: silent. Change target: no
+      spend sound (Era: the points are lost and the next one plays the
+      first note again; Forever: the new mob's count, silently, and back
+      to the first mob silently too). Eviscerate, then a quick target
+      change: the spend sound once. A Druid: only in Cat Form; shifting out is silent.
+      "Only when full" plays just the high note. If a Druid hears nothing,
+      `/dbr debug`'s `debug combo` line shows unitPower, getComboPoints,
+      formID, catByID, catBySpell, and lastPowerEvent (the last power event
+      and its power type); the next lines show the settings and the last 8
+      combo actions, so take it right after the points that did not sound. On Forever, `/dbr debug`'s
+      `debug combo` line shows whether the count reads as secret; if so,
+      each point plays one mid note and a finisher plays the spend sound
+      (`/dbr probe` to confirm the events).
 - [ ] Cast Chimes, 1.4.0: with a Text to Speech voice set up, a Hunter's
       Aspect of the Cheetah and a Rogue's Sprint say "Meep meep" about 0.75 s
       after they are cast (1.5.0: after the game's own sound), in and out of combat. A Druid shifting into Travel Form

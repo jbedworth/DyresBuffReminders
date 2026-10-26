@@ -492,6 +492,64 @@ spells that make a warning apply. Ask the author before changing
   procs: Enable, then one row per proc (switch and sound, aura filter),
   with the same two-row fallback as the chimes.
 
+### Combo point chimes (built 1.6.0; author: "mimic the Hear Kitty addon in DBR")
+
+- Rogues and Druids (`DBR.COMBO_CLASSES`), a Druid only in Cat Form
+  (`GetShapeshiftFormID` 1, Classic's `CAT_FORM`, or the active form being
+  Cat Form by its spell's name; either is enough). Where the points are
+  (author: "in classic (era) combo points are on the caster (Rogue, Druid
+  Cat), in Forever, the points reside on the mob"): picked by what the
+  client returns, never by version. The count is the higher of
+  `UnitPower("player", Enum.PowerType.ComboPoints)` and
+  `GetComboPoints("player", "target")`, a readable one over a secret one
+  (player report: "Not working on the druid"). Read on the player's
+  `UNIT_POWER_UPDATE` and `UNIT_POWER_FREQUENT` of any power, as Era's
+  ComboFrame (which never checks the power type; a Druid's points may come
+  with Energy); a repeat count changes nothing, and an event of another
+  power is read only when the count is readable, so a secret count plays no
+  note per Energy tick. `/dbr debug`'s `lastPowerEvent` names the last
+  one. The most from `UnitPowerMax` (else
+  `MAX_COMBO_POINTS`, else 5). With no count taken yet (just shifted, or
+  the form read late) the count starts from none, so the first point plays.
+  Hear Kitty was read, not copied.
+- `/dbr debug` prints three `debug combo` lines: the reads, the settings
+  (with whether the queue is playing and how many notes wait), and the
+  last 8 actions (counts read with their event, baselines, notes queued
+  and played, silent drops), for a player report such as "I only hear
+  tone 5".
+- Rising: one note per point gained, queued `COMBO_NOTE_GAP` (0.13 s) apart
+  by `C_Timer` (no OnUpdate); a change queues all its notes before the
+  first plays, and the next note's timer is set before each plays, so a
+  failing Play loses no other note: sax1 upward for the points below the most
+  (`COMBO_NOTES`), Full's sound (sax8, the held high Bb) at the most.
+  Falling: Spend's sound (sax1); one point lost out of combat is decay,
+  silent. A target switch is no spend (author: "on era, it's the worst of
+  both worlds, the points are on you, and if you switch targets, you lose
+  them and have to start over. In forever, switching targets maintains the
+  points, because they live on the mob being targeted"):
+  `PLAYER_TARGET_CHANGED` and Era's `COMBO_TARGET_CHANGED` (registered only
+  when `C_EventUtils.IsEventValid` knows it) take the count silently (the
+  new mob's on Forever, higher or lower; 0 on Era, so the next point plays
+  the first note), and a drop within `COMBO_TARGET_WINDOW` (0.3 s) of one,
+  before or after, is silent too. So a spend with no finisher seen waits
+  that window. Your own finisher (`UNIT_SPELLCAST_SUCCEEDED`, by name, also
+  readable counts) within the window makes the drop a spend after all: at
+  once when the cast came first, on the cast when the drop came first.
+  `UPDATE_SHAPESHIFT_FORM` and `PLAYER_ENTERING_WORLD` take the count
+  silently. A gain is never held back, so one reported before its target
+  event would play (not seen; Forever's count follows the target).
+- A secret count (Forever: UnitPower is SecretWhenUnitPowerRestricted):
+  one mid note (sax3) per change, and Spend's sound from your own finisher
+  (`UNIT_SPELLCAST_SUCCEEDED`, `COMBO_FINISHERS` by name: Eviscerate, Slice
+  and Dice, Kidney Shot, Rupture, Expose Armor, TBC's Deadly Throw and
+  Envenom; Ferocious Bite, Rip, TBC's Maim). To confirm on Forever.
+- Settings `db.combo` = {enabled, full, spend, onlyFull, scale, fullSound,
+  spendSound}: a "Combo Point Chimes" section (Rogues and Druids): Enable,
+  Full and Spend (switch and sound, the chimes' two-row fallback), "Only
+  when full" (off), "Point notes: Dyre's Sax scale" (on; off plays Full's
+  sound per point). An older Dyre's Sounds without the sax keys plays the
+  chimes' default. DBR's release follows Dyre's Sounds 1.3.0.
+
 ### Cast chimes (built 1.4.0; author: "a sound when Travel Form, Pact of Cheeta and Sprint fire off")
 
 - Data in ProcSpells.lua `CAST_SOUNDS`, per class: key, label, spells

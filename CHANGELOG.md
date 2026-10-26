@@ -5,6 +5,12 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.6.0
+
+### Features
+
+- Combo Point Chimes for Rogues and Druids in Cat Form: a rising note as you earn each combo point, the held high note when you reach the most, and a sound when you spend them, also in combat. The notes are Dyre's Sounds 1.3.0's "Dyre's Sax" (update Dyre's Sounds; an older one plays its default chime). One point fading out of combat is silent, and so is a new target. Under the new "Combo Point Chimes" section in `/dbr`: Enable, Full and Spend (each with its sound), "Only when full", and "Point notes: Dyre's Sax scale".
+
 ## 1.5.0
 
 ### Features

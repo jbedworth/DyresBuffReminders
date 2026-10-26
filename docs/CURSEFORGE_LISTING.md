@@ -84,6 +84,9 @@ A sound just before your chosen spells are ready again, also in combat, for ever
 ### Proc chimes
 A sound the moment a proc appears on you, also in combat: Nightfall, Clearcasting, Nature's Grace, and Flurry, plus a Warrior's Overpower and Revenge the moment they become usable. Each has its own switch and sound.
 
+### Combo point chimes
+Rogues, and Druids in Cat Form: a rising sax note as you earn each combo point, the held high note at the most, and a sound when you spend them, also in combat. Choose the Full and Spend sounds, or play only the full chime.
+
 ### Cast chimes
 A sound just after you cast a travel spell or shift into a Druid form (0.75 seconds later, after the game's own sound), also in combat: shifting into Travel, Bear or Dire Bear, Cat, Aquatic, or Moonkin Form (never out of one), and Dash; Hunter Aspect of the Cheetah and Aspect of the Pack; Rogue Sprint; Warrior Charge, Intercept, and Execute (on), and Whirlwind, the shouts, Taunt, and Rend (off at first), with Dyre's Sounds' "Dyre's Aggression" sounds. At first, Text to Speech says "Meep meep" (or "Rawr", "Meow", and so on for the forms); each has its own switch and sound under **Cast Chimes**.
 

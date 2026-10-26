@@ -135,3 +135,26 @@ DBR.CAST_SOUNDS = {
             speech = "Victory Rush", whenKnown = true},
     },
 }
+
+-- Combo point chimes (author, 1.6.0: "when combo points are earned in Druid
+-- Cat Form or Rogue's, we need to play a chime", as the Hear Kitty AddOn
+-- does): a note per point gained, the held high note at the most, and a
+-- sound when they are spent. Dyre's Sounds 1.3.0's "Dyre's Sax": sax1 Bb up
+-- to sax8, the high Bb held. finishers: the casts that spend them, every
+-- rank by name, for a client whose count is secret (Forever).
+DBR.COMBO_CLASSES = {ROGUE = true, DRUID = true}
+DBR.COMBO_NOTES = {"sax1", "sax2", "sax3", "sax4", "sax5", "sax6", "sax7"}
+DBR.COMBO_FULL_SOUND = "sax8"
+DBR.COMBO_SPEND_SOUND = "sax1"
+-- A mid note for each change when the count cannot be read.
+DBR.COMBO_SECRET_NOTE = "sax3"
+-- Between queued notes (the cuts run 0.22-0.3 s).
+DBR.COMBO_NOTE_GAP = 0.13
+-- A drop this close to a target change (either side) is the switch, not a
+-- spend, unless your own finisher came as close.
+DBR.COMBO_TARGET_WINDOW = 0.3
+DBR.COMBO_FINISHERS = {
+    ROGUE = {2098, 6760, 6761, 6762, 8623, 8624, 11299, 11300, 31016, 26865, 5171, 6774, 408, 8643, 1943, 8639,
+        8640, 11273, 11274, 11275, 26867, 8647, 8649, 8650, 11197, 11198, 26866, 26679, 32645, 32684},
+    DRUID = {22568, 22827, 22828, 22829, 31018, 24248, 1079, 9492, 9493, 9752, 9894, 9896, 27008, 22570},
+}

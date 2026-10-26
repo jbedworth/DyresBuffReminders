@@ -1,6 +1,6 @@
 local _, DBR = ...
 
-local USAGE = "Use /dbr (settings: Reminders, Consumables, Chimes, Proc Chimes, Cast Chimes), /dbr unlock, "
+local USAGE = "Use /dbr (settings: Reminders, Consumables, Chimes, Proc Chimes, Cast Chimes, Combo Point Chimes), /dbr unlock, "
     .. "/dbr lock, /dbr reset, /dbr debug, or /dbr probe on|off."
 local UNAVAILABLE = "Dyre's Buff Reminders is unavailable. Check the DBR login message."
 

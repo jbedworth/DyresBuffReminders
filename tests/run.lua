@@ -122,6 +122,9 @@ name("Battle Shout", 6673, 5242, 6192, 11549, 11550, 11551, 25289)
 name("Revenge", 6572)
 name("Execute", 5308)
 name("Charge", 100, 6178, 11578)
+name("Eviscerate", 2098, 6760)
+name("Sinister Strike", 1752)
+name("Ferocious Bite", 22568)
 name("Growl", 2649, 14916)
 name("Torment", 3716)
 name("Suffering", 17735)
@@ -197,6 +200,10 @@ local function fakeSounds(state, contract)
         key = library.Resolve(key)
         if not key or (key == "voice" and not state.voice) then
             return false
+        end
+        -- A sound whose play errors (state.playFails[key]).
+        if state.playFails and state.playFails[key] then
+            error("Play failed: " .. key)
         end
         state.played[#state.played + 1] = {key = key, speech = speech, at = state.now}
         return true
@@ -293,7 +300,26 @@ local function fixture(options)
     env.Enum = {StatusBarTimerDirection = {ElapsedTime = 0, RemainingTime = 1},
         SpellBookSpellBank = {Player = 0}, SpellBookItemType = {None = 0, Spell = 1, FutureSpell = 2},
         UnitAuraSoundTrigger = {Added = 0, ApplicationsIncreased = 1, Removed = 2},
-        AddOnRestrictionType = {Combat = 0, Encounter = 1, Chat = 5}}
+        AddOnRestrictionType = {Combat = 0, Encounter = 1, Chat = 5}, PowerType = {ComboPoints = 4}}
+    -- Combo points: state.comboPoints (or secret with state.comboSecret), state.comboMax;
+    -- a Druid's form ID in state.formID (1 Cat Form).
+    env.UnitPower = function(unit, power)
+        if power ~= 4 then return 0 end
+        if state.comboSecret then return state.secret() end
+        return state.comboPoints or 0
+    end
+    env.UnitPowerMax = function(unit, power) return power == 4 and (state.comboMax or 5) or 0 end
+    env.GetShapeshiftFormID = function() return state.formID end
+    -- Era knows COMBO_TARGET_CHANGED (options.comboTargetEvent); registering
+    -- an event the client does not know is an error.
+    if options.comboTargetEvent then
+        env.C_EventUtils = {IsEventValid = function(event) return event == "COMBO_TARGET_CHANGED" end}
+    end
+    -- Classic's combo points on the target: state.targetCombo (else none).
+    env.GetComboPoints = function(unit, target)
+        equal(unit, "player")
+        return state.targetCombo or 0
+    end
     env.GetTime = function() return state.now end
     env.InCombatLockdown = function() return state.combat end
     env.issecretvalue = function(value) return state.secrets[value] == true end
@@ -757,6 +783,9 @@ local function fixture(options)
             if event == "COMBAT_LOG_EVENT_UNFILTERED" then
                 error("COMBAT_LOG_EVENT_UNFILTERED is restricted")
             end
+            if event == "COMBO_TARGET_CHANGED" and not options.comboTargetEvent then
+                error("unknown event COMBO_TARGET_CHANGED")
+            end
             self.events[event] = true
         end
         function object:RegisterUnitEvent(event, unit) self.unitEvents[event] = unit end
@@ -1049,7 +1078,7 @@ test("commands are one word, and anything else shows the usage", function()
     for _, text in ipairs({"nope", "unlock now", "debug_reminders"}) do
         state.clear()
         state.slash(text)
-        equal(state.last(), "DBR: Use /dbr (settings: Reminders, Consumables, Chimes, Proc Chimes, Cast Chimes), "
+        equal(state.last(), "DBR: Use /dbr (settings: Reminders, Consumables, Chimes, Proc Chimes, Cast Chimes, Combo Point Chimes), "
             .. "/dbr unlock, /dbr lock, /dbr reset, /dbr debug, or /dbr probe on|off.")
     end
     state.slash("")
@@ -3878,6 +3907,309 @@ test("cast chimes: a Druid's Feral Charge and Enrage, also in combat; the roars 
     equal(untalented.row("DBR_CAST_BASH") ~= nil, true, "Bash and Frenzied Regeneration: off, listed")
 end)
 
+local SAX = {"sax1", "sax2", "sax3", "sax4", "sax5", "sax6", "sax7", "sax8"}
+local function points(state, count)
+    state.comboPoints = count
+    state.emit("UNIT_POWER_UPDATE", "player", "COMBO_POINTS")
+end
+local function played(state, from)
+    local keys = {}
+    for index = from or 1, #state.played do keys[#keys + 1] = state.played[index].key end
+    return table.concat(keys, ",")
+end
+test("combo point chimes: a rising note per point, the held high note at five, in order; a spend sound", function()
+    local state = fixture({class = "ROGUE", newerSounds = SAX})
+    for count = 1, 5 do
+        points(state, count)
+        state.advance(0.2)
+    end
+    equal(played(state), "sax1,sax2,sax3,sax4,sax8", "points 1-4, then full")
+    local before = #state.played
+    points(state, 0)
+    equal(played(state, before + 1), "", "spent with no finisher seen: it waits the target-change window")
+    state.advance(0.3)
+    equal(played(state, before + 1), "sax1", "spent: low Bb")
+    state.advance(0.2)
+    before = #state.played
+    points(state, 2)
+    equal(played(state, before + 1), "sax1", "a jump of two: the first note at once")
+    state.advance(0.13)
+    equal(played(state, before + 1), "sax1,sax2", "the second one gap later, queued")
+    state.advance(0.2)
+    before = #state.played
+    points(state, 1)
+    equal(#state.played, before, "one point fading out of combat: silent")
+    state.combat = true
+    points(state, 0)
+    state.advance(0.3)
+    equal(played(state, before + 1), "sax1", "one point spent in combat: the spend sound")
+    state.combat = false
+    state.comboMax = 6
+    before = #state.played
+    points(state, 5)
+    state.advance(1)
+    points(state, 6)
+    state.advance(1)
+    equal(played(state, before + 1), "sax1,sax2,sax3,sax4,sax5,sax8", "a most of six: the most plays the held note")
+    state.comboMax = nil
+    points(state, 0)
+    state.advance(0.3)
+    state.settings.DBR_COMBO_ONLYFULL:SetValue(true)
+    before = #state.played
+    for count = 1, 5 do
+        points(state, count)
+        state.advance(0.2)
+    end
+    equal(played(state, before + 1), "sax8", "only when full")
+    state.settings.DBR_COMBO_ONLYFULL:SetValue(false)
+    state.settings.DBR_COMBO_SCALE:SetValue(false)
+    points(state, 0)
+    state.advance(0.5)
+    before = #state.played
+    points(state, 1)
+    equal(played(state, before + 1), "sax8", "without the scale: Full's sound for each point")
+    state.advance(0.2)
+    state.settings.DBR_COMBO_SPEND:SetValue(false)
+    before = #state.played
+    points(state, 0)
+    state.advance(1)
+    points(state, 3)
+    state.advance(1)
+    points(state, 0)
+    equal(played(state, before + 1):find("sax1") == nil, true, "Spend off: no spend sound")
+    state.settings.DBR_COMBO_ENABLED:SetValue(false)
+    before = #state.played
+    points(state, 2)
+    equal(#state.played, before, "the section's switch off: silent")
+    equal(state.row("DBR_COMBO_FULL").data.cbLabel, "Full")
+    equal(state.row("DBR_COMBO_SPEND").data.cbLabel, "Spend")
+end)
+
+test("combo point chimes, a Druid on Era: Cat Form by ID or by spell, the first point after shifting, either count", function()
+    local byID = fixture({class = "DRUID", newerSounds = SAX})
+    byID.formID = 1
+    points(byID, 1)
+    equal(played(byID), "sax1", "Cat Form by its ID (1), with no shift event first: the first point plays")
+    local bySpell = fixture({class = "DRUID", newerSounds = SAX})
+    bySpell.formID = 0
+    bySpell.form = 2
+    bySpell.emit("UPDATE_SHAPESHIFT_FORM")
+    points(bySpell, 1)
+    equal(played(bySpell), "sax1", "Cat Form by its spell, though the ID reads otherwise")
+    local late = fixture({class = "DRUID", newerSounds = SAX})
+    late.emit("UPDATE_SHAPESHIFT_FORM")
+    late.formID = 1
+    points(late, 1)
+    equal(played(late), "sax1", "the shift event came before the form read as Cat: the first point still plays")
+    late.advance(0.2)
+    points(late, 2)
+    equal(played(late), "sax1,sax2")
+    local target = fixture({class = "DRUID", newerSounds = SAX})
+    target.formID = 1
+    target.emit("UPDATE_SHAPESHIFT_FORM")
+    target.targetCombo = 1
+    points(target, 0)
+    equal(played(target), "sax1", "UnitPower reads 0, GetComboPoints on the target 1: the target's counts")
+    local frequent = fixture({class = "ROGUE", newerSounds = SAX})
+    frequent.comboPoints = 1
+    frequent.emit("UNIT_POWER_FREQUENT", "player", "COMBO_POINTS")
+    frequent.emit("UNIT_POWER_UPDATE", "player", "COMBO_POINTS")
+    equal(played(frequent), "sax1", "UNIT_POWER_FREQUENT counts; the matching UPDATE adds nothing")
+    frequent.slash("debug")
+    contains(frequent.find("debug combo"), "unitPower=1 getComboPoints=0")
+    contains(frequent.find("debug combo"), "lastPowerEvent=UNIT_POWER_UPDATE COMBO_POINTS")
+end)
+
+test("combo point chimes, a Druid on Era: points that come with an Energy event; Energy ticks alone change nothing", function()
+    local druid = fixture({class = "DRUID", newerSounds = SAX, comboTargetEvent = true})
+    druid.formID = 1
+    druid.emit("UPDATE_SHAPESHIFT_FORM")
+    druid.emit("UNIT_POWER_FREQUENT", "player", "ENERGY")
+    equal(#druid.played, 0, "an Energy tick, no points: silent")
+    druid.comboPoints = 1
+    druid.emit("UNIT_POWER_FREQUENT", "player", "ENERGY")
+    equal(played(druid), "sax1", "Claw: the point came with the Energy event")
+    druid.emit("UNIT_POWER_FREQUENT", "player", "ENERGY")
+    druid.emit("UNIT_POWER_UPDATE", "player", "COMBO_POINTS")
+    equal(played(druid), "sax1", "more Energy ticks and the matching combo event: nothing more")
+    druid.advance(0.2)
+    druid.comboPoints = 2
+    druid.emit("PLAYER_TARGET_CHANGED")
+    druid.emit("COMBO_TARGET_CHANGED")
+    equal(played(druid), "sax1", "a target event takes the count quietly")
+    druid.slash("debug")
+    contains(druid.find("debug combo"), "lastPowerEvent=UNIT_POWER_UPDATE COMBO_POINTS")
+    local forever = fixture({class = "ROGUE", newerSounds = SAX, remove = {"GetComboPoints"}})
+    forever.comboSecret = true
+    forever.combat = true
+    forever.emit("UNIT_POWER_FREQUENT", "player", "ENERGY")
+    equal(#forever.played, 0, "a secret count: an Energy tick plays no note")
+    points(forever, 1)
+    equal(played(forever), "sax3", "the combo event still plays the mid note")
+end)
+
+test("combo point chimes, an Era Druid in combat: every point's note with Energy events between; jumps queue all; the queue drains", function()
+    local druid = fixture({class = "DRUID", newerSounds = SAX, comboTargetEvent = true})
+    druid.formID = 1
+    druid.emit("UPDATE_SHAPESHIFT_FORM")
+    druid.combat = true
+    druid.slash("debug")
+    contains(druid.find("debug combo settings"), "full=true spend=true onlyFull=false scale=true fullSound=sax8")
+    for count = 1, 5 do
+        druid.emit("UNIT_POWER_FREQUENT", "player", "ENERGY")
+        druid.comboPoints = count
+        druid.emit("UNIT_POWER_FREQUENT", "player", "ENERGY")
+        druid.emit("UNIT_POWER_FREQUENT", "player", "COMBO_POINTS")
+        druid.emit("UNIT_POWER_UPDATE", "player", "COMBO_POINTS")
+        druid.advance(1.5)
+        druid.emit("UNIT_POWER_FREQUENT", "player", "ENERGY")
+    end
+    equal(played(druid), "sax1,sax2,sax3,sax4,sax8", "Claw by Claw: points 1-4 rise, 5 is the held high note")
+    druid.cast(22568)
+    druid.comboPoints = 0
+    druid.emit("UNIT_POWER_FREQUENT", "player", "ENERGY")
+    druid.advance(1)
+    local before = #druid.played
+    druid.comboPoints = 3
+    druid.emit("UNIT_POWER_FREQUENT", "player", "ENERGY")
+    equal(played(druid, before + 1), "sax1", "a jump of three: the first note at once")
+    druid.advance(0.5)
+    equal(played(druid, before + 1), "sax1,sax2,sax3", "then every queued note, none dropped")
+    druid.messages = {}
+    druid.slash("debug")
+    contains(druid.find("debug combo settings"), "playing=false queued=0")
+    local history = druid.find("debug combo history")
+    contains(history, "UNIT_POWER_FREQUENT ENERGY 0>3 of 5")
+    contains(history, "queue sax3 behind 2")
+    contains(history, "play sax3")
+    equal(select(2, history:gsub(" | ", "")), 7, "the last 8 actions only")
+    -- A note whose Play errors does not stop the ones after it.
+    local failing = fixture({class = "ROGUE", newerSounds = SAX})
+    failing.playFails = {sax1 = true}
+    equal(pcall(points, failing, 2), false, "sax1's Play errors")
+    failing.advance(0.5)
+    equal(played(failing), "sax2", "the queue goes on to sax2")
+    failing.playFails = nil
+    failing.advance(1)
+    points(failing, 3)
+    equal(played(failing), "sax2,sax3", "and is not stuck")
+end)
+
+test("combo point chimes: a target switch is no spend (Era loses the points, Forever shows the new mob's); a finisher is", function()
+    -- Era: the points are on you and a switch drops them; the power event
+    -- may come before or after the target event.
+    for _, order in ipairs({"before", "after"}) do
+        local era = fixture({class = "ROGUE", newerSounds = SAX, comboTargetEvent = true})
+        era.combat = true
+        for count = 1, 3 do
+            points(era, count)
+            era.advance(0.2)
+        end
+        local before = #era.played
+        if order == "before" then
+            points(era, 0)
+            era.advance(0.1)
+            era.emit("PLAYER_TARGET_CHANGED")
+        else
+            era.emit("PLAYER_TARGET_CHANGED")
+            era.advance(0.1)
+            points(era, 0)
+        end
+        era.advance(1)
+        equal(played(era, before + 1), "", "Era, the drop " .. order .. " the target event: no spend")
+        points(era, 1)
+        equal(played(era, before + 1), "sax1", "Era, " .. order .. ": the next point starts again at the first note")
+    end
+    -- Forever: the points stay on each mob; switching shows the new one's.
+    local forever = fixture({class = "ROGUE", newerSounds = SAX})
+    forever.combat = true
+    for count = 1, 3 do
+        forever.targetCombo = count
+        forever.emit("UNIT_POWER_UPDATE", "player", "COMBO_POINTS")
+        forever.advance(0.2)
+    end
+    local before = #forever.played
+    forever.targetCombo = 1
+    forever.emit("PLAYER_TARGET_CHANGED")
+    forever.emit("UNIT_POWER_UPDATE", "player", "COMBO_POINTS")
+    forever.advance(1)
+    equal(played(forever, before + 1), "", "to mob B with 1: silent")
+    forever.targetCombo = 3
+    forever.emit("PLAYER_TARGET_CHANGED")
+    forever.emit("UNIT_POWER_UPDATE", "player", "COMBO_POINTS")
+    forever.advance(1)
+    equal(played(forever, before + 1), "", "back to mob A with 3: silent")
+    forever.targetCombo = 4
+    forever.emit("UNIT_POWER_UPDATE", "player", "COMBO_POINTS")
+    equal(played(forever, before + 1), "sax4", "a gain on A plays the next note")
+    -- A finisher just before a switch is a spend; with the cast first it
+    -- plays at once, with the drop first when the cast comes.
+    for _, order in ipairs({"cast first", "drop first"}) do
+        local rogue = fixture({class = "ROGUE", newerSounds = SAX})
+        rogue.combat = true
+        for count = 1, 3 do
+            points(rogue, count)
+            rogue.advance(0.2)
+        end
+        before = #rogue.played
+        if order == "cast first" then
+            rogue.cast(2098)
+            points(rogue, 0)
+            equal(played(rogue, before + 1), "sax1", "cast first: the spend at once")
+        else
+            points(rogue, 0)
+            rogue.cast(2098)
+            equal(played(rogue, before + 1), "sax1", "drop first: the spend when Eviscerate comes")
+        end
+        rogue.emit("PLAYER_TARGET_CHANGED")
+        rogue.advance(1)
+        equal(played(rogue, before + 1), "sax1", order .. ": one spend, though the target changed")
+    end
+end)
+
+test("combo point chimes: a Druid only in Cat Form; a secret count, and an older Dyre's Sounds, fall back", function()
+    local druid = fixture({class = "DRUID", newerSounds = SAX})
+    points(druid, 1)
+    equal(#druid.played, 0, "not in Cat Form: silent")
+    druid.formID = 1
+    druid.emit("UPDATE_SHAPESHIFT_FORM")
+    points(druid, 2)
+    equal(played(druid), "sax2", "in Cat Form")
+    druid.formID = nil
+    druid.emit("UPDATE_SHAPESHIFT_FORM")
+    points(druid, 0)
+    equal(played(druid), "sax2", "shifted out: no spend for the fading points")
+    local readable = fixture({class = "ROGUE", newerSounds = SAX})
+    readable.comboSecret = true
+    readable.targetCombo = 1
+    points(readable, 1)
+    equal(played(readable), "sax1", "UnitPower secret but GetComboPoints readable: the readable one, as usual")
+    local forever = fixture({class = "ROGUE", newerSounds = SAX, remove = {"GetComboPoints"}})
+    forever.comboSecret = true
+    forever.combat = true
+    points(forever, 1)
+    equal(played(forever), "sax3", "a secret count: one mid note per change")
+    forever.advance(0.2)
+    forever.cast(2098)
+    equal(played(forever), "sax3,sax1", "your Eviscerate: the spend sound")
+    forever.advance(0.2)
+    forever.cast(1752)
+    equal(played(forever), "sax3,sax1", "another spell: nothing")
+    local older = fixture({class = "ROGUE"})
+    points(older, 1)
+    equal(older.played[1].key, "talent", "an older Dyre's Sounds without sax: the chimes' default")
+    local target = fixture({class = "ROGUE", newerSounds = SAX})
+    points(target, 3)
+    target.advance(1)
+    local before = #target.played
+    target.comboPoints = 0
+    target.emit("PLAYER_TARGET_CHANGED")
+    points(target, 0)
+    equal(#target.played, before, "a new target (Classic keeps points on the target): no spend")
+    local mage = fixture()
+    equal(mage.row("DBR_COMBO_ENABLED"), nil, "not a Rogue or Druid: no section")
+end)
+
 test("chimes: Cold Snap cancels the Frost chimes; Preparation the Rogue's", function()
     local state = fixture()
     state.combat = true
@@ -4277,8 +4609,8 @@ test("procs: the settings page has a Procs section, one row per proc, aura sound
     local state = fixture({class = "DRUID"})
     local headings = {}
     for _, heading in ipairs(state.headings) do headings[#headings + 1] = heading.heading end
-    equal(table.concat(headings, "|"), "Reminders|Chimes|Proc Chimes|Cast Chimes",
-        "no Consumables before Rebirth; Cast Chimes last")
+    equal(table.concat(headings, "|"), "Reminders|Chimes|Proc Chimes|Cast Chimes|Combo Point Chimes",
+        "no Consumables before Rebirth; Combo Point Chimes last")
     equal(state.settings.DBR_PROCS_ENABLED.name, "Enable")
     local switch, switchAt = state.row("DBR_PROCS_ENABLED")
     local _, chimesAt = state.row("DBR_CHIMES_ENABLED")
