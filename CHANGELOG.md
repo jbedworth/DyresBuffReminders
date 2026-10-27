@@ -5,6 +5,12 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.7.0
+
+### Features
+
+- Combo Point Chimes: a new note set, "Dyre's Bassoon", a quick comic climb to a held F, is the new default. "Dyre's Sax" stays as the second set. The "Point notes" switch is now a "Note set" dropdown: Bassoon, Sax, or Same as Full (each point plays the Full sound). The Full and Spend sounds follow the set unless you chose your own. Players on 1.6.0's defaults move to Bassoon; with your own Full or Spend sound, you keep the Sax. Bassoon needs Dyre's Sounds 1.4.0; an older one plays the Sax notes.
+
 ## 1.6.0
 
 ### Features

@@ -256,13 +256,21 @@ aspects have no cooldown.
 ## Combo point chimes
 
 Rogues, and Druids in Cat Form: a note as you earn each combo point, rising
-from low Bb (Dyre's Sounds 1.3.0's "Dyre's Sax"), the held high Bb when you
-reach the most, and low Bb again when you spend them, also in combat. Several
-points at once play in order. One point fading out of combat, a new target,
-and leaving Cat Form are silent. Under **Combo Point Chimes** in `/dbr`:
-**Enable**, **Full** and **Spend** (each with its own sound), **Only when
-full**, and **Point notes: Dyre's Sax scale** (off: each point plays Full's
-sound). With an older Dyre's Sounds, its default chime plays.
+from low Bb, a held note when you reach the most, and low Bb again when you
+spend them, also in combat. Several points at once play in order. One point
+fading out of combat, a new target, and leaving Cat Form are silent. Under
+**Combo Point Chimes** in `/dbr`: **Enable**, **Full** and **Spend** (each
+with its own sound), **Only when full**, and **Note set**:
+
+- **Bassoon** (the default; Dyre's Sounds 1.4.0's "Dyre's Bassoon"): a quick
+  comic climb, the held F at the most.
+- **Sax** (Dyre's Sounds 1.3.0's "Dyre's Sax"): a scale up to the held high
+  Bb.
+- **Same as Full**: each point plays the Full sound.
+
+Full and Spend follow the set unless you chose your own sound. With a Dyre's
+Sounds older than 1.4.0 the Bassoon plays the Sax notes; with one older than
+1.3.0, its default chime.
 
 ## With Mage Tools Forever or Warlock Tools Forever
 

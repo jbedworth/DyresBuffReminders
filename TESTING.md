@@ -371,6 +371,13 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       with the same settings.
 - [ ] With MTF on a Mage (or WTF on a Warlock) that still chimes: DBR says
       once at login to turn theirs off; with theirs off, it says nothing.
+- [ ] Combo Point Chimes note sets, 1.7.0, with Dyre's Sounds 1.4.0: a
+      Rogue's Sinister Strikes climb the bassoon, 1 to 4, then the held F at
+      5; Eviscerate plays low Bb. "Note set" Sax: the 1.6.0 sax notes, and
+      Full and Spend show sax8 and sax1. Pick your own Full sound, switch
+      the set: Full stays, Spend follows. "Same as Full": each point plays
+      Full's sound. With Dyre's Sounds 1.3.0: the Bassoon set plays the sax.
+      A character that used 1.6.0 with its defaults opens on Bassoon.
 - [ ] Combo Point Chimes, 1.6.0, with Dyre's Sounds 1.3.0 (Era): a Rogue's
       Sinister Strikes play sax notes rising 1 to 4, then the held high note
       at 5; Eviscerate plays low Bb. A two-point builder plays two notes in
@@ -379,7 +386,8 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       first note again; Forever: the new mob's count, silently, and back
       to the first mob silently too). Eviscerate, then a quick target
       change: the spend sound once. A Druid: only in Cat Form; shifting out is silent.
-      "Only when full" plays just the high note. If a Druid hears nothing,
+      "Only when full" plays just the high note (1.7.0: with "Note set"
+      Sax). If a Druid hears nothing,
       `/dbr debug`'s `debug combo` line shows unitPower, getComboPoints,
       formID, catByID, catBySpell, and lastPowerEvent (the last power event
       and its power type); the next lines show the settings and the last 8

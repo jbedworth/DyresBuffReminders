@@ -499,10 +499,51 @@ function DBR.SanitizeCombo(saved)
         return DBR.SanitizeChimeSound and DBR.SanitizeChimeSound(key, default)
             or (type(key) == "string" and key) or default
     end
+    local set = DBR.COMBO_SETS[saved.noteSet or ""] and saved.noteSet
+    local fullSound, spendSound = saved.fullSound, saved.spendSound
+    if not set then
+        -- 1.6.0 had a sax scale switch (scale). Off becomes "Same as Full";
+        -- on becomes the new default, bassoon, unless the player chose a
+        -- Full or Spend sound of their own, which stays with the sax.
+        local sax = DBR.COMBO_SETS.sax
+        local own = (fullSound ~= nil and fullSound ~= sax.full) or (spendSound ~= nil and spendSound ~= sax.spend)
+        set = saved.scale == false and "full" or (own and "sax" or DBR.COMBO_DEFAULT_SET)
+        if not own then
+            fullSound, spendSound = nil, nil
+        end
+    end
+    local defaults = DBR.COMBO_SETS[set].full and DBR.COMBO_SETS[set] or DBR.COMBO_SETS[DBR.COMBO_DEFAULT_SET]
     return {enabled = saved.enabled ~= false, full = saved.full ~= false, spend = saved.spend ~= false,
-        onlyFull = saved.onlyFull == true, scale = saved.scale ~= false,
-        fullSound = Sound(saved.fullSound, DBR.COMBO_FULL_SOUND),
-        spendSound = Sound(saved.spendSound, DBR.COMBO_SPEND_SOUND)}
+        onlyFull = saved.onlyFull == true, noteSet = set,
+        fullSound = Sound(fullSound, defaults.full), spendSound = Sound(spendSound, defaults.spend)}
+end
+
+-- Whether a Full (which "full") or Spend sound is some set's default, not
+-- one the player chose.
+local function SetDefault(which, key)
+    for _, set in pairs(DBR.COMBO_SETS) do
+        if set[which] and set[which] == key then
+            return true
+        end
+    end
+    return false
+end
+
+-- A new note set: Full and Spend follow a set with notes, unless the player
+-- chose their own; "Same as Full" keeps them as they are.
+function DBR.SetComboNoteSet(set)
+    local saved = DBR.db.combo
+    local new = DBR.COMBO_SETS[set]
+    if not new then
+        return
+    end
+    if new.full and SetDefault("full", saved.fullSound) then
+        saved.fullSound = new.full
+    end
+    if new.spend and SetDefault("spend", saved.spendSound) then
+        saved.spendSound = new.spend
+    end
+    saved.noteSet = set
 end
 
 function DBR.HasComboChimes()
@@ -533,9 +574,16 @@ local function PlayCombo(key, speech)
     end
     if library.Play(key, speech) then
         Log("play " .. tostring(key))
-    else
-        Log("play " .. tostring(key) .. " fallback=" .. tostring(library.Play(DBR.DEFAULT_CHIME_SOUND, speech)))
+        return
     end
+    -- An older Dyre's Sounds: the sax note of the same number, then the default.
+    local number = type(key) == "string" and key:match(DBR.COMBO_FALLBACK.pattern)
+    local sax = number and DBR.COMBO_FALLBACK.prefix .. number
+    if sax and library.Play(sax, speech) then
+        Log("play " .. key .. " as " .. sax)
+        return
+    end
+    Log("play " .. tostring(key) .. " fallback=" .. tostring(library.Play(DBR.DEFAULT_CHIME_SOUND, speech)))
 end
 
 -- Notes play in order, one gap apart, by C_Timer (no OnUpdate).
@@ -636,10 +684,11 @@ local function NoteFor(count, most)
     if saved.onlyFull then
         return nil
     end
-    if not saved.scale then
+    local notes = DBR.COMBO_SETS[saved.noteSet].notes
+    if not notes then
         return saved.fullSound, tostring(count)
     end
-    return DBR.COMBO_NOTES[math.min(count, #DBR.COMBO_NOTES)], tostring(count)
+    return notes[math.min(count, #notes)], tostring(count)
 end
 
 -- otherPower: the event named another power (a Druid's Energy); then only a
@@ -691,7 +740,8 @@ local function Changed(otherPower)
         -- spend sound from your own finisher (UNIT_SPELLCAST_SUCCEEDED).
         combo.secret, combo.last = true, nil
         if not saved.onlyFull then
-            Enqueue(DBR.COMBO_SECRET_NOTE, "Point")
+            local notes = DBR.COMBO_SETS[saved.noteSet].notes
+            Enqueue(notes and notes[DBR.COMBO_SECRET_INDEX] or saved.fullSound, "Point")
         end
         return
     end
@@ -813,9 +863,9 @@ function DBR.ReportComboDebug()
         DBR.Describe(unitPower), DBR.Describe(onTarget), DBR.Describe(formID), tostring(CatByID()),
         tostring(CatBySpell()), tostring(combo.event or "none")))
     local saved = DBR.db.combo
-    DBR.Report(string.format("debug combo settings full=%s spend=%s onlyFull=%s scale=%s fullSound=%s spendSound=%s "
+    DBR.Report(string.format("debug combo settings full=%s spend=%s onlyFull=%s noteSet=%s fullSound=%s spendSound=%s "
         .. "playing=%s queued=%d", tostring(saved.full), tostring(saved.spend), tostring(saved.onlyFull),
-        tostring(saved.scale), tostring(saved.fullSound), tostring(saved.spendSound), tostring(combo.playing == true),
+        tostring(saved.noteSet), tostring(saved.fullSound), tostring(saved.spendSound), tostring(combo.playing == true),
         #combo.queue))
     DBR.Report("debug combo history " .. (#combo.history > 0 and table.concat(combo.history, " | ") or "none"))
 end

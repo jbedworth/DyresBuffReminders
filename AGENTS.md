@@ -520,9 +520,9 @@ spells that make a warning apply. Ask the author before changing
 - Rising: one note per point gained, queued `COMBO_NOTE_GAP` (0.13 s) apart
   by `C_Timer` (no OnUpdate); a change queues all its notes before the
   first plays, and the next note's timer is set before each plays, so a
-  failing Play loses no other note: sax1 upward for the points below the most
-  (`COMBO_NOTES`), Full's sound (sax8, the held high Bb) at the most.
-  Falling: Spend's sound (sax1); one point lost out of combat is decay,
+  failing Play loses no other note: the note set's notes upward for the
+  points below the most, Full's sound at the most. Falling: Spend's sound;
+  one point lost out of combat is decay,
   silent. A target switch is no spend (author: "on era, it's the worst of
   both worlds, the points are on you, and if you switch targets, you lose
   them and have to start over. In forever, switching targets maintains the
@@ -539,16 +539,31 @@ spells that make a warning apply. Ask the author before changing
   silently. A gain is never held back, so one reported before its target
   event would play (not seen; Forever's count follows the target).
 - A secret count (Forever: UnitPower is SecretWhenUnitPowerRestricted):
-  one mid note (sax3) per change, and Spend's sound from your own finisher
+  one mid note (the set's third; Same as Full: Full's sound) per change,
+  and Spend's sound from your own finisher
   (`UNIT_SPELLCAST_SUCCEEDED`, `COMBO_FINISHERS` by name: Eviscerate, Slice
   and Dice, Kidney Shot, Rupture, Expose Armor, TBC's Deadly Throw and
   Envenom; Ferocious Bite, Rip, TBC's Maim). To confirm on Forever.
-- Settings `db.combo` = {enabled, full, spend, onlyFull, scale, fullSound,
-  spendSound}: a "Combo Point Chimes" section (Rogues and Druids): Enable,
-  Full and Spend (switch and sound, the chimes' two-row fallback), "Only
-  when full" (off), "Point notes: Dyre's Sax scale" (on; off plays Full's
-  sound per point). An older Dyre's Sounds without the sax keys plays the
-  chimes' default. DBR's release follows Dyre's Sounds 1.3.0.
+- Note sets (`DBR.COMBO_SETS`; author, 1.7.0: "Try this as the primary
+  theme for combo-point notes, move what we have to a second theme"):
+  "Bassoon" (default; Dyre's Sounds 1.4.0, bassoon1 upward, Full bassoon8,
+  the held F, Spend bassoon1), "Sax" (1.3.0, sax1 upward, Full sax8, Spend
+  sax1), and "Same as Full" (each point plays Full's sound). Full and Spend
+  follow a set with notes when they hold some set's default (the player
+  chose nothing); a sound of the player's own stays, and "Same as Full"
+  keeps both. (Chosen over showing the set's sound while not overridden, as
+  DCM does: the saved sounds stay plain keys, as every other chime.) A
+  bassoon key an older Dyre's Sounds lacks plays the sax note of the same
+  number, then the chimes' default.
+- Settings `db.combo` = {enabled, full, spend, onlyFull, noteSet,
+  fullSound, spendSound}: a "Combo Point Chimes" section (Rogues and
+  Druids): Enable, Full and Spend (switch and sound, the chimes' two-row
+  fallback), "Only when full" (off), "Note set" (a dropdown; none without
+  `Settings.CreateDropdown` and `CreateControlTextContainer`). 1.6.0's
+  `scale`: off becomes "full"; on (the default) becomes Bassoon with its
+  Full and Spend, unless Full or Spend was the player's own (not sax8,
+  sax1), which keeps Sax and those sounds. DBR 1.7.0's release follows
+  Dyre's Sounds 1.4.0.
 
 ### Cast chimes (built 1.4.0; author: "a sound when Travel Form, Pact of Cheeta and Sprint fire off")
 

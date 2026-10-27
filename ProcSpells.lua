@@ -139,15 +139,31 @@ DBR.CAST_SOUNDS = {
 -- Combo point chimes (author, 1.6.0: "when combo points are earned in Druid
 -- Cat Form or Rogue's, we need to play a chime", as the Hear Kitty AddOn
 -- does): a note per point gained, the held high note at the most, and a
--- sound when they are spent. Dyre's Sounds 1.3.0's "Dyre's Sax": sax1 Bb up
--- to sax8, the high Bb held. finishers: the casts that spend them, every
+-- sound when they are spent. finishers: the casts that spend them, every
 -- rank by name, for a client whose count is secret (Forever).
 DBR.COMBO_CLASSES = {ROGUE = true, DRUID = true}
-DBR.COMBO_NOTES = {"sax1", "sax2", "sax3", "sax4", "sax5", "sax6", "sax7"}
-DBR.COMBO_FULL_SOUND = "sax8"
-DBR.COMBO_SPEND_SOUND = "sax1"
--- A mid note for each change when the count cannot be read.
-DBR.COMBO_SECRET_NOTE = "sax3"
+-- The note sets (author, 1.7.0: "Try this as the primary theme for
+-- combo-point notes, move what we have to a second theme"): Dyre's Sounds
+-- 1.4.0's "Dyre's Bassoon", a chromatic climb from Bb to the held F, and
+-- 1.3.0's "Dyre's Sax", Bb up to the held high Bb. notes: the points below
+-- the most; full and spend: the Full and Spend sounds' defaults. "full" plays
+-- Full's sound for every point and keeps the Full and Spend sounds as they are.
+DBR.COMBO_SETS = {
+    bassoon = {label = "Bassoon", notes = {"bassoon1", "bassoon2", "bassoon3", "bassoon4", "bassoon5", "bassoon6",
+        "bassoon7"}, full = "bassoon8", spend = "bassoon1"},
+    sax = {label = "Sax", notes = {"sax1", "sax2", "sax3", "sax4", "sax5", "sax6", "sax7"}, full = "sax8",
+        spend = "sax1"},
+    full = {label = "Same as Full"},
+}
+DBR.COMBO_SET_ORDER = {"bassoon", "sax", "full"}
+DBR.COMBO_DEFAULT_SET = "bassoon"
+DBR.COMBO_FULL_SOUND = DBR.COMBO_SETS.bassoon.full
+DBR.COMBO_SPEND_SOUND = DBR.COMBO_SETS.bassoon.spend
+-- With a Dyre's Sounds older than 1.4.0 a bassoon note plays the sax note of
+-- the same number (then the chimes' default).
+DBR.COMBO_FALLBACK = {pattern = "^bassoon(%d)$", prefix = "sax"}
+-- The note for each change when the count cannot be read: the set's third.
+DBR.COMBO_SECRET_INDEX = 3
 -- Between queued notes (the cuts run 0.22-0.3 s).
 DBR.COMBO_NOTE_GAP = 0.13
 -- A drop this close to a target change (either side) is the switch, not a

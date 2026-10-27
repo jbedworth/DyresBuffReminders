@@ -692,7 +692,11 @@ local function fixture(options)
                 object.choices, object.kind = choices, "dropdown"
                 return object
             end,
-            CreateControlTextContainer = function() return {} end,
+            CreateControlTextContainer = function()
+                local data = {}
+                return {Add = function(_, value, label) data[#data + 1] = {value = value, label = label} end,
+                    GetData = function() return data end}
+            end,
             RegisterProxySetting = function(category, variable, variableType, label, default, getValue, setValue)
                 equal(state.settings[variable], nil, "setting variables are unique")
                 local setting = {category = category, variable = variable, type = variableType, name = label,
@@ -947,6 +951,10 @@ local function fixture(options)
     state.emit("ADDON_LOADED", "DyresToolkit")
     state.emit("ADDON_LOADED", ADDON)
     state.emit("PLAYER_LOGIN")
+    -- The combo note set, as the player would choose it.
+    if options.comboSet then
+        state.settings.DBR_COMBO_NOTESET:SetValue(options.comboSet)
+    end
 
     function state.slash(text) env.SlashCmdList.DYRESBUFFREMINDERS(text) end
     function state.last() return state.messages[#state.messages] end
@@ -3908,6 +3916,9 @@ test("cast chimes: a Druid's Feral Charge and Enrage, also in combat; the roars 
 end)
 
 local SAX = {"sax1", "sax2", "sax3", "sax4", "sax5", "sax6", "sax7", "sax8"}
+-- Dyre's Sounds 1.4.0: the sax and the bassoon.
+local SOUNDS = {"sax1", "sax2", "sax3", "sax4", "sax5", "sax6", "sax7", "sax8", "bassoon1", "bassoon2", "bassoon3",
+    "bassoon4", "bassoon5", "bassoon6", "bassoon7", "bassoon8"}
 local function points(state, count)
     state.comboPoints = count
     state.emit("UNIT_POWER_UPDATE", "player", "COMBO_POINTS")
@@ -3918,7 +3929,7 @@ local function played(state, from)
     return table.concat(keys, ",")
 end
 test("combo point chimes: a rising note per point, the held high note at five, in order; a spend sound", function()
-    local state = fixture({class = "ROGUE", newerSounds = SAX})
+    local state = fixture({class = "ROGUE", newerSounds = SOUNDS, comboSet = "sax"})
     for count = 1, 5 do
         points(state, count)
         state.advance(0.2)
@@ -3962,7 +3973,7 @@ test("combo point chimes: a rising note per point, the held high note at five, i
     end
     equal(played(state, before + 1), "sax8", "only when full")
     state.settings.DBR_COMBO_ONLYFULL:SetValue(false)
-    state.settings.DBR_COMBO_SCALE:SetValue(false)
+    state.settings.DBR_COMBO_NOTESET:SetValue("full")
     points(state, 0)
     state.advance(0.5)
     before = #state.played
@@ -3985,18 +3996,94 @@ test("combo point chimes: a rising note per point, the held high note at five, i
     equal(state.row("DBR_COMBO_SPEND").data.cbLabel, "Spend")
 end)
 
+local function climb(state, from, to)
+    for count = from, to do
+        points(state, count)
+        state.advance(0.6)
+    end
+end
+test("combo point chimes, note sets: Bassoon by default, Sax, Same as Full; Full and Spend follow the set", function()
+    local state = fixture({class = "ROGUE", newerSounds = SOUNDS})
+    local row = state.row("DBR_COMBO_NOTESET")
+    equal(row.kind, "dropdown")
+    local labels = {}
+    for _, choice in ipairs(row.choices()) do labels[#labels + 1] = choice.value .. "=" .. choice.label end
+    equal(table.concat(labels, ","), "bassoon=Bassoon,sax=Sax,full=Same as Full")
+    equal(state.dbr.db.combo.noteSet, "bassoon", "Bassoon is the default")
+    equal(state.settings.DBR_COMBO_FULL_SOUND:GetValue(), "bassoon8")
+    equal(state.settings.DBR_COMBO_SPEND_SOUND:GetValue(), "bassoon1")
+    climb(state, 1, 5)
+    equal(played(state), "bassoon1,bassoon2,bassoon3,bassoon4,bassoon8", "1-4 climb, 5 the held F")
+    local before = #state.played
+    points(state, 0)
+    state.advance(0.6)
+    equal(played(state, before + 1), "bassoon1", "spend: the low Bb")
+    row.setting:SetValue("sax")
+    equal(state.dbr.db.combo.fullSound .. "," .. state.dbr.db.combo.spendSound, "sax8,sax1",
+        "Full and Spend follow the set")
+    before = #state.played
+    climb(state, 1, 5)
+    points(state, 0)
+    state.advance(0.6)
+    equal(played(state, before + 1), "sax1,sax2,sax3,sax4,sax8,sax1", "Sax as in 1.6.0, its spend too")
+    state.settings.DBR_COMBO_FULL_SOUND:SetValue("talent")
+    row.setting:SetValue("bassoon")
+    equal(state.dbr.db.combo.fullSound .. "," .. state.dbr.db.combo.spendSound, "talent,bassoon1",
+        "a Full sound of your own stays; Spend follows")
+    row.setting:SetValue("full")
+    before = #state.played
+    climb(state, 1, 3)
+    points(state, 0)
+    state.advance(0.6)
+    equal(played(state, before + 1), "talent,talent,talent,bassoon1", "Same as Full: Full's sound per point")
+    local secret = fixture({class = "ROGUE", newerSounds = SOUNDS, remove = {"GetComboPoints"}})
+    secret.comboSecret = true
+    secret.combat = true
+    points(secret, 1)
+    equal(played(secret), "bassoon3", "a secret count: the set's third note")
+end)
+
+test("combo point chimes, note sets: 1.6.0's settings repaired; an older Dyre's Sounds plays the sax", function()
+    local function repaired(combo)
+        local state = fixture({class = "ROGUE", newerSounds = SOUNDS, db = {combo = combo}})
+        local saved = state.dbr.db.combo
+        equal(saved.scale, nil, "the old switch is gone")
+        return saved.noteSet .. "," .. saved.fullSound .. "," .. saved.spendSound
+    end
+    equal(repaired({scale = true, fullSound = "sax8", spendSound = "sax1"}), "bassoon,bassoon8,bassoon1",
+        "1.6.0's defaults: the new default, Bassoon")
+    equal(repaired({}), "bassoon,bassoon8,bassoon1", "nothing saved: Bassoon")
+    equal(repaired({scale = true, fullSound = "talent", spendSound = "sax1"}), "sax,talent,sax1",
+        "a Full sound of your own: Sax kept")
+    equal(repaired({scale = false, fullSound = "sax8", spendSound = "sax1"}), "full,bassoon8,bassoon1",
+        "the switch off: Same as Full")
+    equal(repaired({scale = false, fullSound = "talent"}), "full,talent,bassoon1", "off, with your own Full")
+    equal(repaired({noteSet = "sax", fullSound = "sax8", spendSound = "sax1"}), "sax,sax8,sax1", "a set stays")
+    equal(repaired({noteSet = "kazoo"}), "bassoon,bassoon8,bassoon1", "an unknown set: the default")
+    local older = fixture({class = "ROGUE", newerSounds = SAX})
+    climb(older, 1, 5)
+    points(older, 0)
+    older.advance(0.6)
+    equal(played(older), "sax1,sax2,sax3,sax4,sax8,sax1", "Dyre's Sounds 1.3.0: each bassoon note as its sax note")
+    older.slash("debug")
+    contains(older.find("debug combo history"), "play bassoon1 as sax1")
+    local oldest = fixture({class = "ROGUE"})
+    points(oldest, 1)
+    equal(played(oldest), "talent", "no sax either: the chimes' default")
+end)
+
 test("combo point chimes, a Druid on Era: Cat Form by ID or by spell, the first point after shifting, either count", function()
-    local byID = fixture({class = "DRUID", newerSounds = SAX})
+    local byID = fixture({class = "DRUID", newerSounds = SOUNDS, comboSet = "sax"})
     byID.formID = 1
     points(byID, 1)
     equal(played(byID), "sax1", "Cat Form by its ID (1), with no shift event first: the first point plays")
-    local bySpell = fixture({class = "DRUID", newerSounds = SAX})
+    local bySpell = fixture({class = "DRUID", newerSounds = SOUNDS, comboSet = "sax"})
     bySpell.formID = 0
     bySpell.form = 2
     bySpell.emit("UPDATE_SHAPESHIFT_FORM")
     points(bySpell, 1)
     equal(played(bySpell), "sax1", "Cat Form by its spell, though the ID reads otherwise")
-    local late = fixture({class = "DRUID", newerSounds = SAX})
+    local late = fixture({class = "DRUID", newerSounds = SOUNDS, comboSet = "sax"})
     late.emit("UPDATE_SHAPESHIFT_FORM")
     late.formID = 1
     points(late, 1)
@@ -4004,13 +4091,13 @@ test("combo point chimes, a Druid on Era: Cat Form by ID or by spell, the first 
     late.advance(0.2)
     points(late, 2)
     equal(played(late), "sax1,sax2")
-    local target = fixture({class = "DRUID", newerSounds = SAX})
+    local target = fixture({class = "DRUID", newerSounds = SOUNDS, comboSet = "sax"})
     target.formID = 1
     target.emit("UPDATE_SHAPESHIFT_FORM")
     target.targetCombo = 1
     points(target, 0)
     equal(played(target), "sax1", "UnitPower reads 0, GetComboPoints on the target 1: the target's counts")
-    local frequent = fixture({class = "ROGUE", newerSounds = SAX})
+    local frequent = fixture({class = "ROGUE", newerSounds = SOUNDS, comboSet = "sax"})
     frequent.comboPoints = 1
     frequent.emit("UNIT_POWER_FREQUENT", "player", "COMBO_POINTS")
     frequent.emit("UNIT_POWER_UPDATE", "player", "COMBO_POINTS")
@@ -4021,7 +4108,7 @@ test("combo point chimes, a Druid on Era: Cat Form by ID or by spell, the first 
 end)
 
 test("combo point chimes, a Druid on Era: points that come with an Energy event; Energy ticks alone change nothing", function()
-    local druid = fixture({class = "DRUID", newerSounds = SAX, comboTargetEvent = true})
+    local druid = fixture({class = "DRUID", newerSounds = SOUNDS, comboSet = "sax", comboTargetEvent = true})
     druid.formID = 1
     druid.emit("UPDATE_SHAPESHIFT_FORM")
     druid.emit("UNIT_POWER_FREQUENT", "player", "ENERGY")
@@ -4039,7 +4126,7 @@ test("combo point chimes, a Druid on Era: points that come with an Energy event;
     equal(played(druid), "sax1", "a target event takes the count quietly")
     druid.slash("debug")
     contains(druid.find("debug combo"), "lastPowerEvent=UNIT_POWER_UPDATE COMBO_POINTS")
-    local forever = fixture({class = "ROGUE", newerSounds = SAX, remove = {"GetComboPoints"}})
+    local forever = fixture({class = "ROGUE", newerSounds = SOUNDS, comboSet = "sax", remove = {"GetComboPoints"}})
     forever.comboSecret = true
     forever.combat = true
     forever.emit("UNIT_POWER_FREQUENT", "player", "ENERGY")
@@ -4049,12 +4136,12 @@ test("combo point chimes, a Druid on Era: points that come with an Energy event;
 end)
 
 test("combo point chimes, an Era Druid in combat: every point's note with Energy events between; jumps queue all; the queue drains", function()
-    local druid = fixture({class = "DRUID", newerSounds = SAX, comboTargetEvent = true})
+    local druid = fixture({class = "DRUID", newerSounds = SOUNDS, comboSet = "sax", comboTargetEvent = true})
     druid.formID = 1
     druid.emit("UPDATE_SHAPESHIFT_FORM")
     druid.combat = true
     druid.slash("debug")
-    contains(druid.find("debug combo settings"), "full=true spend=true onlyFull=false scale=true fullSound=sax8")
+    contains(druid.find("debug combo settings"), "full=true spend=true onlyFull=false noteSet=sax fullSound=sax8")
     for count = 1, 5 do
         druid.emit("UNIT_POWER_FREQUENT", "player", "ENERGY")
         druid.comboPoints = count
@@ -4084,7 +4171,7 @@ test("combo point chimes, an Era Druid in combat: every point's note with Energy
     contains(history, "play sax3")
     equal(select(2, history:gsub(" | ", "")), 7, "the last 8 actions only")
     -- A note whose Play errors does not stop the ones after it.
-    local failing = fixture({class = "ROGUE", newerSounds = SAX})
+    local failing = fixture({class = "ROGUE", newerSounds = SOUNDS, comboSet = "sax"})
     failing.playFails = {sax1 = true}
     equal(pcall(points, failing, 2), false, "sax1's Play errors")
     failing.advance(0.5)
@@ -4099,7 +4186,7 @@ test("combo point chimes: a target switch is no spend (Era loses the points, For
     -- Era: the points are on you and a switch drops them; the power event
     -- may come before or after the target event.
     for _, order in ipairs({"before", "after"}) do
-        local era = fixture({class = "ROGUE", newerSounds = SAX, comboTargetEvent = true})
+        local era = fixture({class = "ROGUE", newerSounds = SOUNDS, comboSet = "sax", comboTargetEvent = true})
         era.combat = true
         for count = 1, 3 do
             points(era, count)
@@ -4121,7 +4208,7 @@ test("combo point chimes: a target switch is no spend (Era loses the points, For
         equal(played(era, before + 1), "sax1", "Era, " .. order .. ": the next point starts again at the first note")
     end
     -- Forever: the points stay on each mob; switching shows the new one's.
-    local forever = fixture({class = "ROGUE", newerSounds = SAX})
+    local forever = fixture({class = "ROGUE", newerSounds = SOUNDS, comboSet = "sax"})
     forever.combat = true
     for count = 1, 3 do
         forever.targetCombo = count
@@ -4145,7 +4232,7 @@ test("combo point chimes: a target switch is no spend (Era loses the points, For
     -- A finisher just before a switch is a spend; with the cast first it
     -- plays at once, with the drop first when the cast comes.
     for _, order in ipairs({"cast first", "drop first"}) do
-        local rogue = fixture({class = "ROGUE", newerSounds = SAX})
+        local rogue = fixture({class = "ROGUE", newerSounds = SOUNDS, comboSet = "sax"})
         rogue.combat = true
         for count = 1, 3 do
             points(rogue, count)
@@ -4168,7 +4255,7 @@ test("combo point chimes: a target switch is no spend (Era loses the points, For
 end)
 
 test("combo point chimes: a Druid only in Cat Form; a secret count, and an older Dyre's Sounds, fall back", function()
-    local druid = fixture({class = "DRUID", newerSounds = SAX})
+    local druid = fixture({class = "DRUID", newerSounds = SOUNDS, comboSet = "sax"})
     points(druid, 1)
     equal(#druid.played, 0, "not in Cat Form: silent")
     druid.formID = 1
@@ -4179,12 +4266,12 @@ test("combo point chimes: a Druid only in Cat Form; a secret count, and an older
     druid.emit("UPDATE_SHAPESHIFT_FORM")
     points(druid, 0)
     equal(played(druid), "sax2", "shifted out: no spend for the fading points")
-    local readable = fixture({class = "ROGUE", newerSounds = SAX})
+    local readable = fixture({class = "ROGUE", newerSounds = SOUNDS, comboSet = "sax"})
     readable.comboSecret = true
     readable.targetCombo = 1
     points(readable, 1)
     equal(played(readable), "sax1", "UnitPower secret but GetComboPoints readable: the readable one, as usual")
-    local forever = fixture({class = "ROGUE", newerSounds = SAX, remove = {"GetComboPoints"}})
+    local forever = fixture({class = "ROGUE", newerSounds = SOUNDS, comboSet = "sax", remove = {"GetComboPoints"}})
     forever.comboSecret = true
     forever.combat = true
     points(forever, 1)
@@ -4198,7 +4285,7 @@ test("combo point chimes: a Druid only in Cat Form; a secret count, and an older
     local older = fixture({class = "ROGUE"})
     points(older, 1)
     equal(older.played[1].key, "talent", "an older Dyre's Sounds without sax: the chimes' default")
-    local target = fixture({class = "ROGUE", newerSounds = SAX})
+    local target = fixture({class = "ROGUE", newerSounds = SOUNDS, comboSet = "sax"})
     points(target, 3)
     target.advance(1)
     local before = #target.played

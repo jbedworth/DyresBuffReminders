@@ -300,8 +300,27 @@ local function AddComboSection()
         .. "they fade, is silent).", DBR.COMBO_SPEND_SOUND, comboSwitch)
     Nest(Flag("DBR_COMBO_ONLYFULL", "Only when full", "combo", "onlyFull", false, "Play only Full's sound (and "
         .. "Spend's), not a note for each point.", function() end), comboSwitch, ComboOn)
-    Nest(Flag("DBR_COMBO_SCALE", "Point notes: Dyre's Sax scale", "combo", "scale", true, "A rising note for each "
-        .. "point (Dyre's Sax). Off: each point plays Full's sound.", function() end), comboSwitch, ComboOn)
+    if type(Settings.CreateDropdown) ~= "function" or type(Settings.CreateControlTextContainer) ~= "function" then
+        return
+    end
+    -- The note set (author, 1.7.0): Full and Spend follow it, unless chosen.
+    local setting = Settings.RegisterProxySetting(category, "DBR_COMBO_NOTESET", Settings.VarType.String, "Note set",
+        DBR.COMBO_DEFAULT_SET, function() return DBR.db.combo.noteSet end,
+        function(value)
+            DBR.SetComboNoteSet(value)
+            Settings.NotifyUpdate("DBR_COMBO_FULL_SOUND")
+            Settings.NotifyUpdate("DBR_COMBO_SPEND_SOUND")
+        end)
+    local function Choices()
+        local container = Settings.CreateControlTextContainer()
+        for _, key in ipairs(DBR.COMBO_SET_ORDER) do
+            container:Add(key, DBR.COMBO_SETS[key].label)
+        end
+        return container:GetData()
+    end
+    Nest(Settings.CreateDropdown(category, setting, Choices, "The notes for each point: Dyre's Bassoon (a quick "
+        .. "climb to a held F) or Dyre's Sax (a scale to the held high Bb), or Full's sound for each. Full and "
+        .. "Spend follow the set unless you chose your own."), comboSwitch, ComboOn)
 end
 
 -- The cast chimes section (author, 1.4.0), for a class with any.
