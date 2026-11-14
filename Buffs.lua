@@ -125,6 +125,12 @@ DBR.BUFFS = {
 -- (your pet's taunt on autocast; petTaunts, every rank, by name). knownBy:
 -- the spells that make it apply (a pet's spells are not yours). Each has its
 -- own switch under Reminders, on at first.
+-- Dyre's Toolkit 2.9.0 has the Pet Taunt warning too (DBR 1.5.0's, moved).
+-- It claims this Owners kind as "DyresToolkit"; while it owns it, DBR's copy
+-- stays quiet (John, 2026-11-13: "Have DBR check to see if DT is installed,
+-- and if so, supress it's pet taunt warning and depend on DT's").
+DBR.PET_TAUNT_KIND = "warn:petTaunt"
+DBR.PET_TAUNT_OWNER = "DyresToolkit"
 DBR.WARNINGS = {
     PALADIN = {
         {key = "furyOff", label = "Warn: Righteous Fury on when not tanking", kind = "fury", spells = {25780},

@@ -1679,6 +1679,28 @@ local POP_PLACE = {point = "CENTER", relativePoint = "CENTER", x = 0, y = 300}
 local POP_HOLD, POP_FADE = 4, 1.5
 local warnings = {list = {}, state = {}}
 
+-- Whether Dyre's Toolkit owns the Pet Taunt warning. Also with its switch
+-- off: the toolkit keeps its claim (off means off). A toolkit before 2.9.0
+-- has no Owners or no claim, so DBR's copy works.
+function DBR.ToolkitOwnsPetTaunt()
+    local toolkit = DBR.toolkit
+    return type(toolkit) == "table" and type(toolkit.KindOwner) == "function"
+        and toolkit.KindOwner(DBR.PET_TAUNT_KIND) == DBR.PET_TAUNT_OWNER
+end
+
+local function Yields(warning)
+    return warning.kind == "petTaunt" and DBR.ToolkitOwnsPetTaunt()
+end
+
+local function AnyWarningLive()
+    for _, warning in ipairs(warnings.list) do
+        if not Yields(warning) then
+            return true
+        end
+    end
+    return false
+end
+
 local function BuildPop()
     local frame = CreateFrame("Frame", "DyresBuffRemindersWarning", UIParent)
     frame:SetFrameStrata("HIGH")
@@ -1703,7 +1725,7 @@ local function BuildPop()
         addon = addonName, key = "warnings", title = "Warning messages", frame = frame, store = DBR.db.warningPop,
         width = POP_WIDTH, height = POP_HEIGHT, point = POP_PLACE, sizes = {scale = true},
         onUnlock = function(_, unlocked)
-            if unlocked then
+            if unlocked and AnyWarningLive() then
                 pop.fader:Stop()
                 pop.title:SetText("Pet taunt on")
                 pop.line:SetText("Growl is on autocast in a group. Turn it off.")
@@ -1738,7 +1760,7 @@ end
 -- A warning's message while it applies (in a group where you are not the
 -- designated tank), as a title and a line; else nil. Out of combat only.
 local function WarningText(warning)
-    if not DBR.db.enabled or not DBR.db.warnings[warning.key] or not KnownBy(warning) then
+    if not DBR.db.enabled or not DBR.db.warnings[warning.key] or Yields(warning) or not KnownBy(warning) then
         return nil
     end
     if not IsInGroup() or DesignatedTank() then
@@ -1809,6 +1831,10 @@ function DBR.SetUpWarnings()
             events:RegisterEvent("PET_BAR_UPDATE")
         end
     end
+    -- The toolkit can claim the Pet Taunt warning after DBR's login.
+    if type(DBR.toolkit.OnOwnerChanged) == "function" then
+        DBR.toolkit.OnOwnerChanged(DBR.PET_TAUNT_KIND, ScheduleRefresh)
+    end
     BuildPop()
     return true
 end
@@ -1820,8 +1846,8 @@ end
 function DBR.ReportWarningsDebug()
     for _, warning in ipairs(warnings.list) do
         local state = warnings.state[warning.key]
-        DBR.Report(string.format("debug warning %s on=%s known=%s now=%s", warning.key,
-            tostring(DBR.db.warnings[warning.key]), tostring(KnownBy(warning)),
+        DBR.Report(string.format("debug warning %s on=%s known=%s toolkit=%s now=%s", warning.key,
+            tostring(DBR.db.warnings[warning.key]), tostring(KnownBy(warning)), tostring(Yields(warning)),
             state.text and (state.title .. ": " .. state.line) or "none"))
     end
 end

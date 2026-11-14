@@ -15,9 +15,9 @@
    checkout exists, the real one), and the settings page against a minimal mock
    of the client. Mocks model secret values as values that raise errors on
    comparison, concatenation, indexing, or printing.
-   The suite loads Dyre's Toolkit's real Core, Layout, Widgets, and Settings
-   from tests/toolkit; a test fails when that copy differs from
-   ../DyresToolkit (skipped where there is no sibling checkout, as in CI).
+   The suite loads Dyre's Toolkit's real Core, Layout, Widgets, Settings, and
+   Owners from ../DyresToolkit when that sibling checkout is there, else from the
+   copy in tests/toolkit (as in CI). Its first line names the folder used.
 3. **In-client checks.** The checklist below covers everything mocks cannot.
 
 ```sh
@@ -255,7 +255,14 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       autocast gets the message ("Pet taunt on / Growl is on autocast in a
       group. Turn it off."); turn autocast off and on again (right-click on
       the pet bar) after 30 s: it shows again. A Warlock with a Voidwalker:
-      Torment and Suffering the same. Solo, or as the tank: none.
+      Torment and Suffering the same. Solo, or as the tank: none. (1.7.1:
+      with Dyre's Toolkit before 2.9.0.)
+- [ ] Pet taunt, 1.7.1, with Dyre's Toolkit 2.9.0: the same Hunter gets one
+      message, the toolkit's, and no DBR chat line. In `/dbr`, "Warn: pet
+      taunt on in a group" is greyed, and its tooltip names the toolkit.
+      Turn the toolkit's "Warn: pet taunt on in a group" off: no message from
+      either. `/dbr debug`: "debug warning hunterPetTaunt ... toolkit=true".
+      `/dbr unlock`: no DBR "Pet taunt on" sample (a Paladin still has one).
 - [ ] Paladin: Righteous Fury shows red while off; a click casts it; no group
       count.
 - [ ] Classic Era, in combat: a Warrior casts Battle Shout mid-fight: its

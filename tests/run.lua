@@ -31,10 +31,25 @@ local function tocFiles()
     return files
 end
 local RUNTIME_FILES = tocFiles()
--- Dyre's Toolkit's files the tests load (a copy in tests/toolkit, checked
--- against ../DyresToolkit when that folder is there). Not the minimap, which
--- needs the embedded libraries.
-local TOOLKIT_FILES = {"Core.lua", "Layout.lua", "Widgets.lua", "Settings.lua"}
+-- Dyre's Toolkit's files the tests load. Not the minimap, which needs the
+-- embedded libraries.
+local TOOLKIT_FILES = {"Core.lua", "Layout.lua", "Widgets.lua", "Settings.lua", "Owners.lua"}
+-- Owners.lua came with Toolkit 2.5.0; the Pet Taunt warning's claim with 2.9.0.
+local TOOLKIT_OWNERS = "Owners.lua"
+-- The real toolkit in ../DyresToolkit when it is there; else the copy in
+-- tests/toolkit (as in CI).
+local function toolkitDir()
+    for _, path in ipairs(TOOLKIT_FILES) do
+        local file = io.open("../DyresToolkit/" .. path, "rb")
+        if not file then
+            return "tests/toolkit/"
+        end
+        file:close()
+    end
+    return "../DyresToolkit/"
+end
+local TOOLKIT_DIR = toolkitDir()
+io.write("# Dyre's Toolkit from ", TOOLKIT_DIR, "\n")
 local PAGE = "Buff Reminders"
 
 -- Classic spell names for the IDs in Buffs.lua, as the client would name them.
@@ -659,9 +674,12 @@ local function fixture(options)
             return {kind = "button", label = label, buttonText = buttonText, click = click, tooltip = tooltip}
         end
         local function initializer(category, setting, tooltip)
-            local object = {setting = setting, tooltip = tooltip}
+            local object = {setting = setting, tooltip = tooltip, modifyPredicates = {}}
             function object:SetParentInitializer(parent, predicate)
                 self.parentInitializer, self.predicate = parent, predicate
+            end
+            function object:AddModifyPredicate(predicate)
+                self.modifyPredicates[#self.modifyPredicates + 1] = predicate
             end
             category.initializers[#category.initializers + 1] = object
             return object
@@ -922,15 +940,26 @@ local function fixture(options)
 
     for _, globalName in ipairs(options.remove or {}) do env[globalName] = nil end
     -- Dyre's Toolkit, its real files: DBR requires it. options.noToolkit leaves
-    -- it out; options.oldToolkit offers contract 1 only.
+    -- it out; options.oldToolkit offers contract 1 only. Toolkit 2.9.0 claims
+    -- the Pet Taunt warning at its login (Tank.lua, not loaded here): the
+    -- fixture claims it the same way. options.toolkitBefore29 leaves out
+    -- Owners.lua and the claim; options.lateClaim makes the test claim it.
     if not options.noToolkit then
-        state.toolkitNS = {InitializeMinimap = function() end}
+        state.toolkitNS = {InitializeMinimap = function() end, InFamily = function() return false end}
         for _, path in ipairs(TOOLKIT_FILES) do
-            local chunk = assert(loadfile("tests/toolkit/" .. path))
-            setfenv(chunk, env)
-            chunk("DyresToolkit", state.toolkitNS)
+            if not (options.toolkitBefore29 and path == TOOLKIT_OWNERS) then
+                local chunk = assert(loadfile(TOOLKIT_DIR .. path))
+                setfenv(chunk, env)
+                chunk("DyresToolkit", state.toolkitNS)
+            end
         end
         state.toolkit = env.DyresToolkit
+        function state.claimPetTaunt()
+            return state.toolkit.ClaimOwner("warn:petTaunt", "DyresToolkit", 50)
+        end
+        if not options.toolkitBefore29 and not options.lateClaim then
+            state.claimPetTaunt()
+        end
         if options.oldToolkit then
             env.DyresToolkit.RequireContract = function(n)
                 if n == 1 then return env.DyresToolkit end
@@ -2955,7 +2984,7 @@ test("Paladin: Righteous Fury on in a group where you aren't the tank: an on-scr
 end)
 
 test("Hunter and Warlock: a pet taunt on autocast in a group where you aren't the tank: an on-screen message", function()
-    local state = fixture({class = "HUNTER", known = {[883] = true}})
+    local state = fixture({class = "HUNTER", known = {[883] = true}, toolkitBefore29 = true})
     local MESSAGE = "Pet taunt on: Growl is on autocast in a group. Turn it off."
     equal(state.icon("hunterPetTaunt"), nil, "no icon")
     state.units.pet = {}
@@ -2986,7 +3015,7 @@ test("Hunter and Warlock: a pet taunt on autocast in a group where you aren't th
     state.units.pet = {}
     state.update("UNIT_PET", "player")
     equal(state.count(MESSAGE), 2, "the tank: no message")
-    local lock = fixture({class = "WARLOCK", known = {[697] = true}})
+    local lock = fixture({class = "WARLOCK", known = {[697] = true}, toolkitBefore29 = true})
     lock.units.pet = {}
     lock.petActions = {[5] = {name = "Torment", auto = true}, [6] = {name = "Suffering", auto = true}}
     lock.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
@@ -2999,6 +3028,84 @@ test("Hunter and Warlock: a pet taunt on autocast in a group where you aren't th
     equal(imp.count("Pet taunt on"), 0, "no Voidwalker or Felguard summon: no warning")
     local priest = fixture({class = "PRIEST"})
     equal(priest.env.DyresBuffRemindersWarning, nil, "a class without warnings: no message box")
+end)
+
+-- A Hunter in a group (not the tank) with Growl on autocast.
+local function growlInGroup(state)
+    state.units.pet = {}
+    state.petActions = {[1] = {name = "Attack", token = true, auto = true}, [4] = {name = "Growl", auto = true}}
+    state.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
+    state.update("PET_BAR_UPDATE")
+    state.advance(1)
+end
+local GROWL = "Pet taunt on: Growl is on autocast in a group. Turn it off."
+local function petTauntSwitch(state)
+    local row = state.row("DBR_WARN_HUNTERPETTAUNT")
+    local live = true
+    for _, predicate in ipairs(row.modifyPredicates) do
+        live = live and predicate()
+    end
+    return row, live
+end
+test("Pet taunt with Dyre's Toolkit 2.9.0: the toolkit warns, DBR stays quiet and greys its switch", function()
+    local state = fixture({class = "HUNTER", known = {[883] = true}})
+    equal(state.toolkit.KindOwner("warn:petTaunt"), "DyresToolkit", "the toolkit's claim")
+    equal(state.dbr.ToolkitOwnsPetTaunt(), true)
+    growlInGroup(state)
+    equal(state.count("Pet taunt on"), 0, "no chat line")
+    equal(warningShown(state), false, "no message box")
+    state.emit("PLAYER_REGEN_DISABLED")
+    equal(state.count("Pet taunt on"), 0, "nothing as combat starts")
+    local row, live = petTauntSwitch(state)
+    equal(live, false, "the switch is greyed")
+    contains(row.tooltip, "Dyre's Toolkit 2.9.0")
+    state.slash("debug")
+    contains(state.find("debug warning hunterPetTaunt"), "toolkit=true")
+    -- The toolkit's own switch off keeps its claim (off means off): it does
+    -- not call SetOwnerEnabled, so the owner stays.
+    local lock = fixture({class = "WARLOCK", known = {[697] = true}})
+    lock.units.pet = {}
+    lock.petActions = {[5] = {name = "Torment", auto = true}}
+    lock.party({{name = "Tanky", class = "WARRIOR", role = "TANK"}})
+    lock.advance(1)
+    equal(lock.toolkit.KindOwner("warn:petTaunt"), "DyresToolkit", "its switch off: still the owner")
+    equal(lock.count("Pet taunt on"), 0, "the toolkit's switch off: DBR still quiet")
+    -- Unlocked: no sample "Pet taunt on" from DBR beside the toolkit's.
+    lock.slash("unlock")
+    equal(warningShown(lock), false, "no DBR sample")
+end)
+
+test("Pet taunt: a claim after DBR's login silences DBR; an older or no toolkit keeps DBR's copy", function()
+    local state = fixture({class = "HUNTER", known = {[883] = true}, lateClaim = true})
+    equal(state.dbr.ToolkitOwnsPetTaunt(), false, "no claim yet")
+    local _, live = petTauntSwitch(state)
+    equal(live, true, "no claim: the switch works")
+    growlInGroup(state)
+    equal(state.count(GROWL), 1, "no claim yet: DBR warns")
+    state.claimPetTaunt()
+    state.advance(1)
+    _, live = petTauntSwitch(state)
+    equal(live, false, "claimed later: greyed")
+    state.advance(31)
+    state.emit("PLAYER_REGEN_DISABLED")
+    equal(state.count(GROWL), 1, "claimed later: no warning again, not even as combat starts")
+    local older = fixture({class = "HUNTER", known = {[883] = true}, toolkitBefore29 = true})
+    equal(older.dbr.ToolkitOwnsPetTaunt(), false, "no Owners: not the toolkit's")
+    growlInGroup(older)
+    equal(older.count(GROWL), 1, "a toolkit before 2.9.0: DBR warns")
+    _, live = petTauntSwitch(older)
+    equal(live, true)
+    -- Owners (2.5.0 to 2.8.0) with no claim: DBR's copy too.
+    local noClaim = fixture({class = "HUNTER", known = {[883] = true}, lateClaim = true})
+    growlInGroup(noClaim)
+    equal(noClaim.count(GROWL), 1, "Owners but no claim: DBR warns")
+    -- No toolkit: DBR needs it and stays off (no warning of its own either).
+    local none = fixture({class = "HUNTER", known = {[883] = true}, noToolkit = true})
+    equal(none.dbr.available, false, "no toolkit: DBR is off")
+    equal(none.env.DyresBuffRemindersWarning, nil, "no message box")
+    -- A Paladin's Righteous Fury warning is DBR's alone.
+    local paladin = fixture({class = "PALADIN", known = {[25780] = true}})
+    equal(paladin.row("DBR_WARN_FURYOFF").modifyPredicates[1], nil, "not greyed by the toolkit")
 end)
 
 test("Paladin: Righteous Fury, on you only", function()
@@ -4975,17 +5082,6 @@ test("toolkit: every DBR frame is a widget; DBR never moves, scales, or saves on
     equal(type(seal.scripts.OnDragStart), "function", "the toolkit's drag (hooked only to keep a Ctrl move's mouse)")
     equal(seal.dyre.store, state.dbr.db.seal, "saved under the keys it had")
     equal(state.widget("righteousFury").dyre.store, state.dbr.db.buffs.righteousFury)
-end)
-test("toolkit: the copy the tests load matches ../DyresToolkit when it is there", function()
-    for _, path in ipairs(TOOLKIT_FILES) do
-        local own = io.open("../DyresToolkit/" .. path, "rb")
-        if own then
-            local copy = assert(io.open("tests/toolkit/" .. path, "rb"))
-            equal(copy:read("*a") == own:read("*a"), true, "tests/toolkit/" .. path .. " is stale: copy it again")
-            copy:close()
-            own:close()
-        end
-    end
 end)
 
 local failed = 0

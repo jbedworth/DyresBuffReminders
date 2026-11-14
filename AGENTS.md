@@ -181,6 +181,23 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   its own switch (`db.warnings`, `DBR_WARN_<KEY>`), on. `knownBy`: the
 spells that make a warning apply. Ask the author before changing
   defaults.
+- Pet Taunt and Dyre's Toolkit 2.9.0 (author, 2026-11-13: "Have DBR check
+  to see if DT is installed, and if so, supress it's pet taunt warning and
+  depend on DT's. If DT is not installed, keep it's copy for now."). The
+  toolkit has DBR 1.5.0's warning (PetTaunt.lua) and claims the Owners kind
+  `warn:petTaunt` (`DBR.PET_TAUNT_KIND`) as "DyresToolkit" at 50.
+  `DBR.ToolkitOwnsPetTaunt`: `toolkit.KindOwner(kind) == "DyresToolkit"`, a
+  feature test, not a version test. While true: no DBR pet taunt message,
+  chat line, or unlocked sample (a Paladin's Righteous Fury warning stays
+  DBR's), and `DBR_WARN_*PETTAUNT` is greyed (`AddModifyPredicate`, checked
+  each time the page draws; its tooltip names the toolkit's Group Warnings).
+  Not `AddSettingsLink`: it opens a member AddOn's page, and the toolkit is
+  not a member. Also with the toolkit's switch off: it keeps its claim (off
+  means off). A toolkit before 2.9.0 (no `KindOwner`, or no claim) leaves
+  DBR's copy on. The toolkit claims at its own login, which can come after
+  DBR's, so `SetUpWarnings` listens with `OnOwnerChanged` and schedules a
+  refresh (no polling). No toolkit at all: DBR is off anyway (it requires
+  the toolkit). `/dbr debug` says `toolkit=true` for a warning that yields.
 - Running out (author, 1.2.0: "For a buff that lasts 30-60 min, a 0-60
   second reminder might need a bigger window"; for every buff, also group
   members'): a buff runs out while it has at most `db.leadPercent` percent
@@ -650,9 +667,13 @@ spells that make a warning apply. Ask the author before changing
   `RegisterSettingsCategory("Dyre's Buff Reminders")` under "Dyre's AddOns",
   with `AddWidgetSettings` per widget; with no page (no settings API), `/dbr`
   says which commands to use.
-- tests/run.lua loads the toolkit's real Core, Layout, Widgets, and Settings
-  from a copy in tests/toolkit; a test fails when the copy differs from
-  ../DyresToolkit. Copy the files again after a toolkit change.
+- tests/run.lua loads the toolkit's real Core, Layout, Widgets, Settings,
+  and Owners from ../DyresToolkit when that folder is there, else from the
+  copy in tests/toolkit (as in CI). The fixture claims `warn:petTaunt` as
+  Toolkit 2.9.0's Tank.lua does at login; `toolkitBefore29` leaves out
+  Owners.lua and the claim, `lateClaim` lets a test claim after login. No test compares the copy with the toolkit
+  (author: "that's a stupid thing to test for a shared resource"); refresh
+  the copy when CI needs a newer toolkit.
 
 ### Commands and settings
 
@@ -701,7 +722,7 @@ spells that make a warning apply. Ask the author before changing
   screenshots/ for listings; it is never packaged.
 - tests/run.lua holds the Lua 5.1 mock suite. tests/test_*.py cover the
   release helpers in scripts/; tests/toolkit holds the toolkit copy the
-  suite loads. .github/workflows/
+  suite loads without ../DyresToolkit. .github/workflows/
   holds CI, opt-in publishing, and the approval gate check.
 - README.md is the user-facing overview, TESTING.md the verification method,
   source evidence, unverified IDs, and in-client checklist,

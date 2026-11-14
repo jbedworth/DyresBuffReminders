@@ -56,7 +56,7 @@ Each buff has its own icon, in a place you choose that never moves. While a buff
 - **Mage:** Arcane Intellect (also for group members who use mana), your armor (Frost, Ice, or Mage Armor), and Dampen or Amplify Magic (off at first).
 - **Paladin:** Righteous Fury, solo or as your group's tank (the Tank role, or a raid's main tank), or with **Always show Righteous Fury** on; in a group where you aren't the tank, a message on screen while it's on. And a seal timer: while a seal is up, its time left counts down, also in combat; in combat with no seal, your last seal pulses and a click casts it.
 - **Priest:** Power Word: Fortitude (also for your group) and Inner Fire; Divine Spirit and Shadow Protection as options.
-- **Hunter and Warlock, in a group where you aren't the tank:** a message on screen while your pet's taunt (Growl, Torment, Suffering) is on autocast.
+- **Hunter and Warlock, in a group where you aren't the tank:** a message on screen while your pet's taunt (Growl, Torment, Suffering) is on autocast. With Dyre's Toolkit 2.9.0 or later, the toolkit shows it instead, so it never shows twice.
 - **Warlock:** Demon Armor (Demon Skin counts), and a Pet reminder: no demon, also mid-fight, and one click summons your last one (not after a Demonic Sacrifice).
 - **Warrior:** Battle Shout, which shows only when it is missing or in its last minute (you choose the seconds), also in combat; it needs rage, so cast it while you still have some after a fight.
 

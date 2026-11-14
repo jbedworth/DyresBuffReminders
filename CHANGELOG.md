@@ -5,6 +5,12 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.7.1
+
+### Other changes
+
+- Hunter and Warlock: with Dyre's Toolkit 2.9.0 or later, the Pet Taunt warning comes from the toolkit only, so it never shows twice. DBR's own warning stays quiet, also when you turn the toolkit's warning off, and its "Warn: pet taunt on in a group" switch is greyed out. Set the warning on the toolkit's page, under Group Warnings. With an older toolkit, DBR warns as before.
+
 ## 1.7.0
 
 ### Features

@@ -695,8 +695,17 @@ function DBR.InitializeOptions()
                 .. "Fury is on: when it starts, and once as combat starts, at most every 30 seconds."
             or "In a group or raid where you aren't the tank, a message on screen (and in chat) while your pet's "
                 .. "taunt is on autocast: when it starts, and once as combat starts, at most every 30 seconds."
-        Nest(Flag("DBR_WARN_" .. warning.key:upper(), warning.label, "warnings", warning.key, true, text,
-            DBR.RefreshReminders), master, Enabled)
+        if warning.kind == "petTaunt" then
+            text = text .. "\n\nWith Dyre's Toolkit 2.9.0 or later, the toolkit warns instead (its page, Group "
+                .. "Warnings), and this switch is greyed out."
+        end
+        local switch = Flag("DBR_WARN_" .. warning.key:upper(), warning.label, "warnings", warning.key, true, text,
+            DBR.RefreshReminders)
+        Nest(switch, master, Enabled)
+        -- Checked each time the page draws: the toolkit can claim it later.
+        if warning.kind == "petTaunt" and type(switch.AddModifyPredicate) == "function" then
+            switch:AddModifyPredicate(function() return not DBR.ToolkitOwnsPetTaunt() end)
+        end
     end
     -- The shared lead only where a buff uses it (author: a Warrior's Battle
     -- Shout has its own, so a second slider would do nothing); db.leadPercent stays.
