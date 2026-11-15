@@ -5,6 +5,14 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.9.0
+
+### Features
+
+- Mage, Classic Era: **Winter's Chill Chimes**, a note as each stack of your Winter's Chill goes on your target: rising from 1 to 4, and the held high note at 5, as the combo point chimes play (Bassoon or Sax). A stack that drops, or the debuff ending, plays nothing. Another mage's Winter's Chill does not chime. On by default, in its own section of the settings.
+  Not yet checked in game: if you play Frost on Classic Era, please tell us on CurseForge whether it chimes, with the `last=` line from `/dbr debug`.
+- Mage, WoW: Forever: `/dbr probe on` now also tests Winter's Chill on your target, for a later Forever chime.
+
 ## 1.8.0
 
 ### Features

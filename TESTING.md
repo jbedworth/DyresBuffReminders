@@ -480,6 +480,29 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       Nightfall sound setting from Warlock Tools Forever"; with WTF's
       Nightfall still on, note whether you hear it twice (until WTF stands
       aside for DBR).
+- [ ] Winter's Chill Chimes, Unreleased, Classic Era, a Mage with the
+      Winter's Chill talent and Dyre's Sounds 1.4.0: the settings show a
+      "Winter's Chill Chimes" section with "Enable" (on) and "Note set".
+      Frostbolt a target dummy or mob until 5 stacks: the bassoon climbs 1 to
+      4, then the held F at 5. Further Frostbolts at 5 stacks: nothing. Let
+      it run out: nothing. "Note set" Sax: it plays the held high Bb, then
+      the sax notes. With another mage's Winter's Chill on the target and
+      yours not applied: nothing. "Enable" off: silent, and `/dbr debug`
+      shows `combatLog=false`; on again: `combatLog=true`. A Rogue on Era
+      has no such section. After a stack, `/dbr debug`'s `last=` shows the
+      spellID the log gave: `spellID=0` (Classic's log gives no IDs) with
+      `name=Winter's Chill` means the name match made it chime; report
+      which one you see.
+- [ ] Winter's Chill probe, WoW: Forever, a Mage with Winter's Chill (for
+      John; it decides the Forever chime): `/dbr probe on`. Note the line
+      `probe target sound 12579 on target: added=... stacks=...` (yes or
+      refused). Target a dummy, cast Frostbolt until Winter's Chill shows on
+      it: do you hear the proc sound (Dyre's Sounds' "magical") when it goes
+      on, and again on each stack? Leave combat with it still on the
+      target: the line `probe target Winter's Chill spellID=... stacks=...
+      source=...` gives its real ID and stacks (report the ID if it is not
+      12579; if it is, the sound may still be silent, so say which you heard).
+      Change target and back: the line changes. `/dbr probe off` stops it.
 - [ ] Reactive-ability probe, on a Warrior (then a Rogue and a Hunter):
       `/dbr probe on` lists the spells you know. Fight until a dodge (Overpower)
       or a block/dodge/parry (Revenge), and a target under 20% (Execute): a

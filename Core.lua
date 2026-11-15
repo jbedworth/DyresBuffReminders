@@ -102,7 +102,8 @@ local REQUIRED_NAMESPACE = {
     "InitializeChimes", "PreviewChime", "ReportChimesDebug",
     "ClassProcs", "HasProcSounds", "SanitizeProcs", "SanitizeProcSound", "ApplyProcSounds", "PreviewProc",
     "InitializeProcs", "ImportProcs", "SanitizeCasts", "ClassCasts", "InitializeCasts", "PreviewCast", "SanitizeCombo", "HasComboChimes",
-    "InitializeCombo", "PreviewCombo", "ReportComboDebug",
+    "InitializeCombo", "PreviewCombo", "ReportComboDebug", "HasWintersChill", "SanitizeWintersChill",
+    "PreviewWintersChill", "ApplyWintersChill", "InitializeWintersChill", "ReportWintersChillDebug",
     "ReportCastsDebug", "ReportProcsDebug", "OtherProcs", "ReportOtherProcs", "AddOnLoaded",
     "StandsAside", "SetProbe", "ProbeOn", "ProbeOff", "InitializeProbe", "ReportProbeDebug",
     "InitializeOptions", "OpenSettings",
@@ -183,6 +184,9 @@ function DBR.SanitizeDB(db)
     end
     if DBR.SanitizeCombo then
         db.combo = DBR.SanitizeCombo(db.combo)
+    end
+    if DBR.SanitizeWintersChill then
+        db.wintersChill = DBR.SanitizeWintersChill(db.wintersChill)
     end
     return db
 end
@@ -297,6 +301,7 @@ function DBR.ReportDebug()
     DBR.ReportProcsDebug(not DBR.IsSecret(class) and class or nil)
     DBR.ReportCastsDebug(not DBR.IsSecret(class) and class or nil)
     DBR.ReportComboDebug()
+    DBR.ReportWintersChillDebug()
     DBR.ReportProbeDebug()
 end
 
@@ -378,6 +383,7 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     DBR.ReportOtherProcs(class)
     DBR.InitializeCasts(class)
     DBR.InitializeCombo(class)
+    DBR.InitializeWintersChill()
     DBR.InitializeProbe()
     DBR.InitializeOptions()
     DBR.toolkit.RegisterAddOn({addon = addonName, title = DEFAULT_TITLE, setLocked = DBR.ApplyLocked,

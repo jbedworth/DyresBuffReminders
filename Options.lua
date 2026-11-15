@@ -323,6 +323,47 @@ local function AddComboSection()
         .. "Spend follow the set unless you chose your own."), comboSwitch, ComboOn)
 end
 
+-- Winter's Chill stack chimes (John, 2026-11-15), for a Mage on Classic Era:
+-- its own section, since Era has no Proc Chimes section (no aura sounds).
+local function AddWintersChillSection()
+    if not DBR.HasWintersChill() then
+        return
+    end
+    Heading("Winter's Chill Chimes")
+    local tooltip = "A note as each stack of your Winter's Chill goes on your target, rising from 1 to 4, and the "
+        .. "held high note at 5, as combo point chimes play. Also in combat. A stack that drops, or the debuff "
+        .. "ending, plays nothing."
+    if not DBR.SoundLibrary() then
+        tooltip = tooltip .. " Install Dyre's Sounds to hear them."
+    end
+    local switch = Flag("DBR_WINTERSCHILL_ENABLED", "Enable", "wintersChill", "enabled", true, tooltip,
+        DBR.ApplyWintersChill)
+    if type(Settings.CreateDropdown) ~= "function" or type(Settings.CreateControlTextContainer) ~= "function" then
+        return
+    end
+    local setting = Settings.RegisterProxySetting(category, "DBR_WINTERSCHILL_NOTESET", Settings.VarType.String,
+        "Note set", DBR.COMBO_DEFAULT_SET, function() return DBR.db.wintersChill.noteSet end,
+        function(value)
+            local set = DBR.COMBO_SETS[value]
+            if set and set.notes and set.full then
+                DBR.db.wintersChill.noteSet = value
+                DBR.PreviewWintersChill()
+            end
+        end)
+    local function Choices()
+        local container = Settings.CreateControlTextContainer()
+        for _, key in ipairs(DBR.COMBO_SET_ORDER) do
+            if DBR.COMBO_SETS[key].notes then
+                container:Add(key, DBR.COMBO_SETS[key].label)
+            end
+        end
+        return container:GetData()
+    end
+    Nest(Settings.CreateDropdown(category, setting, Choices, "The notes for each stack: Dyre's Bassoon (a quick "
+        .. "climb to a held F) or Dyre's Sax (a scale to the held high Bb). Choosing one plays the held note."),
+        switch, function() return DBR.db.wintersChill.enabled end)
+end
+
 -- The cast chimes section (author, 1.4.0), for a class with any.
 local function AddCastsSection()
     local spells = DBR.ClassCasts(DBR.classFile)
@@ -788,6 +829,7 @@ function DBR.InitializeOptions()
     AddProcsSection()
     AddCastsSection()
     AddComboSection()
+    AddWintersChillSection()
 end
 
 function DBR.OpenSettings()

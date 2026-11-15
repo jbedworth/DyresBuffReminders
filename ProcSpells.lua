@@ -174,3 +174,12 @@ DBR.COMBO_FINISHERS = {
         8640, 11273, 11274, 11275, 26867, 8647, 8649, 8650, 11197, 11198, 26866, 26679, 32645, 32684},
     DRUID = {22568, 22827, 22828, 22829, 31018, 24248, 1079, 9492, 9493, 9752, 9894, 9896, 27008, 22570},
 }
+
+-- Winter's Chill stack chimes (John, 2026-11-15: "we need a chime for Winter's
+-- Chill procs ... a similar escalating chime as combo points (Rogue/Druid) -
+-- and it takes up to 5 stacks so it fits"). Classic Era only: the talent
+-- (ranks 11180, 28592-28595) puts the debuff 12579 on the target, up to 5
+-- stacks. One note per stack your own spells add, from the combo point note
+-- sets: stacks 1-4 rise, 5 is the held note. Forever's Winter's Chill differs
+-- and its auras on a target cannot be heard yet: /dbr probe tests it there.
+DBR.WINTERS_CHILL = {class = "MAGE", debuff = 12579, most = 5}
