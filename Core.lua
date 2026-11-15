@@ -93,9 +93,11 @@ local REQUIRED_NAMESPACE = {
     "ClassReminders", "SanitizeReminders", "SanitizeLead", "InitializeReminders", "ImportReminders", "AddCtrlMove", "CheckWarnings", "WarningsAtCombat",
     "SetUpWarnings", "ClassWarnings", "ReportWarningsDebug",
     "RefreshReminders", "ReportRemindersDebug", "SanitizeSeal", "InitializeSeal",
-    "RefreshSeal", "ReportSealDebug", "HasSealTimer", "SealWidget", "BuffWidgets", "HasBuffSlots", "CombatAspectWidget", "RefreshCombatAspect",
+    "RefreshSeal", "ReportSealDebug", "HasSealTimer", "SealWidget", "BuffWidgets", "AspectReminderWidget",
+    "LinkAspectBarButton", "HasBuffSlots",
     "SanitizeConsumables", "SanitizeAmmoWarn", "InitializeConsumables", "RefreshConsumables", "ConsumablesWidget",
-    "ReportConsumablesDebug",
+    "ReportConsumablesDebug", "SanitizeAspectBar", "InitializeAspectBar", "RefreshAspectBar", "AspectBarWidget",
+    "ReportAspectBarDebug",
     "ClassChimes", "SoundLibrary", "ReportMissingSounds", "SanitizeChimes", "ImportChimes", "ReportOtherChimes",
     "InitializeChimes", "PreviewChime", "ReportChimesDebug",
     "ClassProcs", "HasProcSounds", "SanitizeProcs", "SanitizeProcSound", "ApplyProcSounds", "PreviewProc",
@@ -166,6 +168,9 @@ function DBR.SanitizeDB(db)
     end
     if DBR.SanitizeConsumables then
         db.consumables = DBR.SanitizeConsumables(db.consumables, SanitizePosition)
+    end
+    if DBR.SanitizeAspectBar then
+        db.aspectBar = DBR.SanitizeAspectBar(db.aspectBar, SanitizePosition)
     end
     if DBR.SanitizeChimes and type(DBR.CHIME_SPELLS) == "table" then
         db.chimes = DBR.SanitizeChimes(db.chimes)
@@ -246,6 +251,7 @@ function DBR.ApplyLocked(locked)
     DBR.RefreshReminders()
     DBR.RefreshSeal()
     DBR.RefreshConsumables()
+    DBR.RefreshAspectBar()
 end
 
 -- /dbr unlock and /dbr lock: one layout mode for every Dyre's AddOn.
@@ -286,6 +292,7 @@ function DBR.ReportDebug()
     DBR.ReportRemindersDebug()
     DBR.ReportSealDebug()
     DBR.ReportConsumablesDebug()
+    DBR.ReportAspectBarDebug()
     DBR.ReportChimesDebug(not DBR.IsSecret(class) and class or nil)
     DBR.ReportProcsDebug(not DBR.IsSecret(class) and class or nil)
     DBR.ReportCastsDebug(not DBR.IsSecret(class) and class or nil)
@@ -354,6 +361,7 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     DBR.InitializeReminders(class)
     DBR.InitializeSeal(class)
     DBR.InitializeConsumables(class)
+    DBR.InitializeAspectBar(class)
     if #DBR.ClassReminders() == 0 then
         DBR.Report("There are no buff reminders for your class yet.")
     end

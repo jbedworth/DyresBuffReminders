@@ -83,7 +83,8 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   fresh"), with one chat line naming the source. MTF's and WTF's armor
   clicks used the same rule (last cast, else `prefer`), so the click is
   unchanged; DBR's also works in combat.
-  Hunter (author, 1.1.0): Aspect (My buffs, on by default): Hawk, Monkey,
+  Hunter (author, 1.1.0): Aspect (on by default; since 1.8.0 a problem
+  indicator with a mode, see the aspect bar section): Hawk, Monkey, Viper,
   Wild, Beast, Cheetah, or Pack counts as up; a click recasts the last
   combat aspect cast (`db.last.aspect`), else Hawk, else Monkey. Cheetah and
   Pack (`forget`) are never remembered nor recast: they daze when you are
@@ -91,22 +92,11 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   clicks are macros "/use !Name" (author: "!" never toggles an aspect off;
   pinned SlashCommands.lua:377-387, /use hands the "!" name to
   CastSpellByName, as /cast does).
-- Combat aspect (author, 1.1.0): a secure button
-  (`DyresBuffRemindersCombatAspect`) that is no widget of its own (author:
-  to the player "this should behave like 1 widget"): parented to UIParent
-  and anchored, out of combat, CENTER on the Aspect widget, above its aura
-  slot; it takes that widget's scale (onLayout) and opacity (onOpacity). No sample when unlocked: the Aspect slot
-  is the one to drag. `db.combatAspect` keeps only enabled, soundOn, and
-  sound (a pre-release's place, scale, and opacity are dropped). Its switch
-  works with the Aspect reminder off. Armed out of combat only: while
-  Cheetah or Pack is up, macrotext "/use !<combat aspect>" and driver
-  "[combat] show; hide"; else "hide". `SecureHandlerWrapScript` (pinned
-  Blizzard_RestrictedAddOnEnvironment/SecureHandlers.lua:602) hides it after
-  a click (post-body `self:Hide()`; clicks on release only); without it,
-  no button. The player's own combat-aspect cast in combat dims its texture
-  to 0.4 and stops the pulse, never alpha 0 (invisible frames must not take
-  clicks). Optional sound at `PLAYER_REGEN_DISABLED` (Dyre's Sounds, its
-  own switch, default "talent"). Nothing changes secure state in combat.
+- Combat aspect (author, 1.1.0; folded into the Aspect reminder in 1.8.0,
+  see the aspect bar section): the button `DyresBuffRemindersCombatAspect`
+  is gone; the Aspect reminder shows in combat with Cheetah or Pack up. Its
+  sound at combat start stays (Dyre's Sounds, its own switch, default
+  "talent"). Invisible frames must not take clicks.
   Warrior (author, 1.2.0): Battle Shout (others, so Group buffs; watched on
   you; 6673, 5242, 6192, 11549, 11550, 11551, 25289). Its own lead
   (Buffs.lua `lead`, author: "I usually don't let BS get below 1 min"):
@@ -221,7 +211,7 @@ spells that make a warning apply. Ask the author before changing
   also while it waits under the slot, so it shows the moment the slot goes;
   none while ours is raised and only running out. Yellow (1, 1, 0), flashing
   (Alpha, BOUNCE), on a plain frame above the slot (and above our raised
-  icon, below the combat aspect button), no mouse, shown by alpha only, so it
+  icon), no mouse, shown by alpha only, so it
   changes in combat: from the lead until the known end of the watched unit's
   buff (yours, or the tank's), one tokened `C_Timer` per edge; at the end it
   goes, and the red one under the slot shows. Out of combat a group
@@ -232,8 +222,8 @@ spells that make a warning apply. Ask the author before changing
   self-only buff always; a single-target one when it went on the timed unit
   (the event names no target: you, with no target, yourself targeted, or a
   target you cannot help; another unit, when it is your target; a secret
-  answer counts as not). The combat aspect button keeps its pulsing gold
-  border; the seal timer and ammo are unchanged.
+  answer counts as not). The Aspect reminder has its own red outline
+  (1.8.0); the seal timer and ammo are unchanged.
 - Druid forms (author-approved): buffs with `cancelForm` (Mark of the Wild,
   Thorns) click as a `macrotext` "/cancelform" then "/use [@unit] Name"
   while any form is active (`GetShapeshiftFormInfo`, refreshed on
@@ -352,6 +342,110 @@ spells that make a warning apply. Ask the author before changing
   when combat ends. Without the aura container, it stays off with one
   message.
 
+### The aspect bar (built 1.8.0; John, 2026-11-13)
+
+- John: "I'm about to level my hunter, so, can we add a Hunter aspect bar to
+  DBR that one-click swaps aspects"; a player on the MTF forum asked first
+  for DBR "as a stance bar for aspects". AspectBar.lua; data
+  `DBR.ASPECT_BAR[class]` (Hunter only, as `DBR.CONSUMABLES`: data, not a
+  gate), in order, combat aspects first: Hawk, Monkey, Viper (TBC 34074),
+  Beast, Wild, then Cheetah, Pack. Every rank by ID (TBC's Hawk 27044 and
+  Wild 27045 too); the click and the aura read by name.
+- One secure button per data entry (`DyresBuffRemindersAspect_<key>`), in the
+  widget `DyresBuffRemindersAspectBar` (key `aspectBar`, store
+  `db.aspectBar`: `enabled`, default on (author decision, John,
+  2026-11-13: "make it on by default for hunters", replacing the first
+  build's default off; only a saved false turns it off, and other classes
+  get no bar, sample, or settings rows); `vertical`, default off; place, scale,
+  opacity; Size 50-200%). Only known aspects show, packed in order; a click is
+  "/use !<Name>" (as the Aspect reminder: "!" never toggles it off). Made,
+  placed, armed, shown, and hidden out of combat only: SPELLS_CHANGED (a new
+  aspect or rank), lock, death (PLAYER_DEAD, ALIVE, UNGHOST), and taxi
+  (PLAYER_CONTROL_LOST, GAINED); asked in combat, it waits for
+  PLAYER_REGEN_ENABLED. After a reload in combat, it is made after combat.
+  Hidden while dead or on a taxi (a secret answer counts as alive and not on
+  a taxi); mounted: shown. Unlocked: shown, no clicks; with no aspect known,
+  Hawk as a sample. Content size per shown button, 36 and 4 apart, from the
+  LEFT edge (vertical: the TOP edge). Default place CENTER (0, 72): under My
+  buffs' row at 130, the toolkit's snap gap apart; vertical grows down from
+  its top. A test checks it clears every other DBR widget of a Hunter.
+- The border (a plain BackdropTemplate frame inside the button, shown by
+  alpha, so it changes in combat): out of combat the aura by name
+  (`GetAuraDataBySpellName`, on the player's UNIT_AURA, after combat, and at
+  each refresh, only while the bar is on); a secret read is unknown and keeps
+  the border. In combat the player's own UNIT_SPELLCAST_SUCCEEDED for an
+  aspect name moves it; a secret spell ID changes nothing. A cancel in combat
+  cannot be seen until combat ends.
+- The Aspect reminder (John's final design, 2026-11-13; it replaces the
+  "No aspect!" warning of a test build, which never shipped). John: "The
+  'Aspect Reminder' widget does 2 main things: 1) gives a visual indicator in
+  or out of combat if you have no aspect at all up - Red Outline. If I enter
+  combat without an aspect up, or with Cheeta or Pack up, it should similarly
+  show a visual indicator - Red Outline. If none of those things are true
+  (combat appropriate aspect is up, in combat or out) no indicator should
+  show. The widget should be resizable (scale from 50% - 200%, default 100%)
+  and movable (obviously). The ability to click it and have the last combat
+  aspect cast is now just nice to have; now that we have the aspect bar. I
+  like it, would like to keep it, but it is somewhat redundant. Oh, sometimes
+  hunters fight with Cheeta up in the open world to kill fast, there should
+  be 3 settings for this: Normal (Remind me always), Speed-Running (only
+  remind me if no aspect is up or if Pack is up), or Disabled (don't show at
+  all). Default is normal."
+- Built (Buffs.lua's `combatAspect`, `forget` Cheetah and Pack, `speedOk`
+  Cheetah): one widget (`buff_aspect`), one secure icon with a red outline
+  and the click's picture, no aura slot. A problem: no aspect up (in or out
+  of combat); in combat, Pack (Normal, Speed-Running) or Cheetah (Normal).
+  Cheetah or Pack out of combat is travel, no problem. Out of combat, from
+  the aura read (`AspectNow`; a secret read keeps the last state): no aspect,
+  "always"; a travel aspect that is a problem in combat, "combat"; else
+  "never" (the attribute `dbr-show`), and the frame is shown or hidden
+  then. It has NO visibility driver: the game's driver manager shows or
+  hides a frame with one every 0.2 s, changed or not (pinned
+  SecureStateDriver.lua:95-105, :119-129), so a secure Hide in combat held
+  at most 0.2 s (found in client, John, 2026-11-14: after a click in combat
+  it "faded, and then went away when combat ended"). Instead an attribute
+  driver `state-dbrcombat` ("[combat] 1; 0"), set only on a change
+  (:106-115), runs the icon's `_onstate-dbrcombat` (template
+  SecureHandlerStateTemplate) at combat's edges: shown for "always", and for
+  "combat" when combat starts; else hidden. The test mock re-applies
+  visibility drivers on every `state.tick()`, as the client does. Dead or
+  on a taxi: hidden. Unlocked:
+  the sample, no click. The click, always (bar on or off): "/use !<last
+  combat aspect>". It does the 1.1.0 combat aspect button's job, so that
+  button is gone (red outline, not the pulsing gold border).
+- In combat: its own click hides it (secure wrap, post-body `self:Hide()`,
+  clicks on release); each aspect bar button is wrapped with the reminder as
+  header and a frame ref (`SecureHandlerSetFrameRef`, pinned
+  SecureHandlers.lua:702; `HANDLE:GetFrameRef`, RestrictedFrames.lua:205;
+  `HANDLE:Show`/`Hide` on a protected frame, :394-408), and its post-body,
+  only when `PlayerInCombat()` (RestrictedEnvironment.lua:200), hides the
+  reminder (a combat aspect) or shows it (Pack; Cheetah in Normal), per the
+  attribute `dbr-reminder` set out of combat. A cast from anywhere else
+  (the player's own UNIT_SPELLCAST_SUCCEEDED): a combat aspect dims it to 0.4
+  and sets the outline's alpha 0; a problem aspect sets both back to 1;
+  never alpha 0 on the button (it still takes clicks); a secret spell ID
+  changes nothing. A cancel in combat cannot be seen until combat ends.
+- The mode (`db.aspectMode`: "normal", "speed", "off"; a dropdown,
+  `DBR_ASPECT_MODE`, in place of the Aspect switch, under Reminders' Enable;
+  without the dropdown API, a switch, on = Normal) keeps `db.spells.aspect`
+  (= not "off"). Migration: a saved switch off, with no mode, is "off".
+  "Disabled (don't show at all)" is read as the whole widget off. The sound
+  (`db.combatAspect.soundOn`, `sound`; the button's `enabled` is dropped)
+  sits under the mode and plays only when combat starts with a problem
+  (speech "<travel aspect> is up" or "No aspect up").
+- Size: its own `scale` (50-200%, default 100%), opacity, Reset size
+  ("Aspect reminder: size", "opacity"); the reminder icons' sliders skip it.
+  The same saved key as the shared size, so a size set there stays, with its
+  place. Default place: My buffs' row beside the Pet icon, as before. A
+  test build's `warnScale` place is converted once to the size now (its
+  center stays) and dropped. `/dbr debug`: `debug aspectReminder mode=
+  state= problem= driver= macro= sound=`.
+- Settings: heading "Aspect bar" after the reminder sizes: "Enable"
+  (`DBR_ASPECT_BAR`), "Vertical" nested, then the toolkit's AddWidgetSettings
+  ("Aspect bar: size", "Aspect bar: opacity", Reset size). Independent of the
+  reminders' Enable (as the Consumables). Each button is wrapped for the
+  Aspect reminder (above). `/dbr debug`: `debug aspectBar`.
+
 ### Consumables: ammo (built, 1.1.0; author-approved, Part B's first item)
 
 - By class since 1.2.0 (author: "only classes that could equip a ranged
@@ -369,9 +463,13 @@ spells that make a warning apply. Ask the author before changing
   legacy globals not in the generated docs: guarded, and a missing API or a
   secret count keeps the last readable count ("?" before any); `/dbr debug`
   shows `countAPI=ok|secret|missing`.
-- No ammo equipped: missing, with "Equip your arrows/bullets." when a bag
-  holds that kind (Classic projectile subclasses Arrow 2, Bullet 3; the
-  generated docs list none), else "No arrows/bullets in your bags."
+- No ammo equipped, or a count of 0: missing (count 0, red, pulsing), with
+  John's text (1.8.0): "You have ammunition in your inventory. Remember to
+  equip your ammo." when a bag holds that kind (Classic projectile
+  subclasses Arrow 2, Bullet 3; the generated docs list none), else "You do
+  not have ammunition in your inventory. Remember to equip your ammo." Found
+  in client: used-up arrows leave the ammo slot empty, and a new tier in the
+  bags is not fired until it is equipped.
 - Ctrl-drag while locked (toolkit free move): the Consumables bar and the
   seal timer are click-through while locked, so `DBR.AddCtrlMove` (Core.lua)
   has each take the mouse while Ctrl is held, out of combat
@@ -709,13 +807,14 @@ spells that make a warning apply. Ask the author before changing
 ## Project structure
 
 - Runtime files: DyresBuffReminders.toc, Commands.lua, Core.lua,
-  Buffs.lua, Reminders.lua, AuraEngine.lua, Seals.lua, Consumables.lua, ChimeSpells.lua, Chimes.lua,
+  Buffs.lua, Reminders.lua, AuraEngine.lua, Seals.lua, Consumables.lua, AspectBar.lua, ChimeSpells.lua,
+  Chimes.lua,
   ProcSpells.lua, Procs.lua, Probe.lua, Options.lua, loaded in that order. Commands
   parses `/dbr`; Core owns saved
   settings and their repair, the login banner, install and API checks, slash
   conflict reporting, joining Dyre's Toolkit, the lock, and startup;
   Buffs holds the buff lists; Reminders the bars and icons; Seals the Paladin seal
-  timer; Consumables the Consumables bar (ammo); ChimeSpells the chime lists; Chimes the chimes and Dyre's Sounds;
+  timer; Consumables the Consumables bar (ammo); AspectBar the Hunter aspect bar; ChimeSpells the chime lists; Chimes the chimes and Dyre's Sounds;
   ProcSpells the proc lists; Procs the proc sounds; Probe the debug-only
   reactive-ability probe; Options the settings page.
 - artwork/ holds the logo (SVG source, 1024 and 512 PNG renders) and
@@ -802,7 +901,8 @@ spells that make a warning apply. Ask the author before changing
   player-facing changes; the builder puts it at the top of release-notes.md
   and fails without it.
 - Package only DyresBuffReminders.toc, Commands.lua, Core.lua,
-  Buffs.lua, Reminders.lua, AuraEngine.lua, Seals.lua, Consumables.lua, ChimeSpells.lua, Chimes.lua,
+  Buffs.lua, Reminders.lua, AuraEngine.lua, Seals.lua, Consumables.lua, AspectBar.lua, ChimeSpells.lua,
+  Chimes.lua,
   ProcSpells.lua, Procs.lua, Probe.lua, Options.lua, and LICENSE under the top-level
   `DyresBuffReminders/` folder, named `DyresBuffReminders-<version>-forever.zip`,
   with the builder's BigWigs-format `release.json` (flavors `forever` and `classic`; the TOC lists Interface `16001, 11509`, and each CurseForge upload names Forever 1.60.1 and Classic Era 1.15.9, `CURSEFORGE_CLASSIC_GAME_VERSION_ID`) attached

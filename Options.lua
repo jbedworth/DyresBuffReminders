@@ -427,6 +427,14 @@ local function AddReminderSizes()
     if #buffs > 0 then
         AddBuffSizes(buffs)
     end
+    -- The Aspect reminder has its own size (John: "resizable (scale from 50% -
+    -- 200%, default 100%)").
+    local aspectWidget = DBR.AspectReminderWidget()
+    if aspectWidget then
+        DBR.toolkit.AddWidgetSettings(category, layout, aspectWidget, {
+            labels = {scale = "Aspect reminder: size", opacity = "Aspect reminder: opacity"},
+        })
+    end
     local sealWidget = DBR.SealWidget()
     if sealWidget then
         DBR.toolkit.AddWidgetSettings(category, layout, sealWidget, {
@@ -441,22 +449,52 @@ local function AddReminderSizes()
     end
 end
 
--- A Hunter's combat aspect button, under the Aspect switch, then its sound at
--- combat start (its own switch and choice, Dyre's Sounds) on one row, or two
+-- The Aspect reminder's mode (John, 1.8.0), in place of its switch:
+-- Normal, Speed-Running, or Disabled. Without the dropdown API, a switch
+-- (on: Normal).
+local ASPECT_MODE_TOOLTIP = "Normal: a red outline when no aspect is up, in or out of combat, and in combat with "
+    .. "Aspect of the Cheetah or the Pack up. Speed-Running: Cheetah is fine in combat (fighting with it up to "
+    .. "kill fast); no aspect or Pack still shows it. Disabled: it never shows. A click casts your last combat "
+    .. "aspect (else Hawk, else Monkey)."
+
+local function AddAspectMode(reminder)
+    local key = reminder.key
+    local function Set(value)
+        if not DBR.ASPECT_MODE_LABELS[value] then
+            return
+        end
+        DBR.db.aspectMode = value
+        DBR.db.spells[key] = value ~= "off"
+        DBR.RefreshReminders()
+    end
+    if type(Settings.CreateDropdown) ~= "function" or type(Settings.CreateControlTextContainer) ~= "function" then
+        local setting = Settings.RegisterProxySetting(category, "DBR_BUFF_" .. key:upper(), Settings.VarType.Boolean,
+            reminder.label, true, function() return DBR.db.aspectMode ~= "off" end,
+            function(value) Set(value and "normal" or "off") end)
+        return Settings.CreateCheckbox(category, setting, ASPECT_MODE_TOOLTIP)
+    end
+    local setting = Settings.RegisterProxySetting(category, "DBR_ASPECT_MODE", Settings.VarType.String,
+        reminder.label, "normal", function() return DBR.db.aspectMode end, Set)
+    local function Choices()
+        local container = Settings.CreateControlTextContainer()
+        for _, mode in ipairs(DBR.ASPECT_MODE_ORDER) do
+            container:Add(mode, DBR.ASPECT_MODE_LABELS[mode])
+        end
+        return container:GetData()
+    end
+    return Settings.CreateDropdown(category, setting, Choices, ASPECT_MODE_TOOLTIP)
+end
+
+-- Under the Aspect reminder's mode: its sound when combat starts with a
+-- problem (its own switch and choice, Dyre's Sounds) on one row, or two
 -- with an older Dyre's Sounds or client, or the switch alone without it.
-local function AddCombatAspect(aspectSwitch, key)
-    local combat = Flag("DBR_COMBAT_ASPECT", "Combat aspect reminder", "combatAspect", "enabled", true,
-        "When combat starts with Aspect of the Cheetah or the Pack up, show the combat aspect a click casts "
-            .. "(your last, else Hawk, else Monkey). It is set up out of combat, so the game shows it the moment "
-            .. "the fight starts.", DBR.RefreshReminders)
-    -- Listed under Aspect, but its own switch: it works with the Aspect reminder off.
-    Nest(combat, aspectSwitch, function() return DBR.db.enabled end)
+local function AddCombatAspect(combat)
     local function CombatOn()
-        return DBR.db.enabled and DBR.db.combatAspect.enabled
+        return DBR.db.enabled and DBR.db.aspectMode ~= "off"
     end
     local saved = DBR.db.combatAspect
-    local label, tooltip = "Sound at combat start", "Play a sound when combat starts with Aspect of the "
-        .. "Cheetah or the Pack up."
+    local label, tooltip = "Sound at combat start", "Play a sound when combat starts with an aspect problem: no "
+        .. "aspect up, or Aspect of the Pack (or, in Normal, the Cheetah) up."
     local setting = Settings.RegisterProxySetting(category, "DBR_COMBAT_ASPECT_SOUND_ON", Settings.VarType.Boolean,
         label, true, function() return saved.soundOn end,
         function(value) saved.soundOn = value == true end)
@@ -475,7 +513,7 @@ local function AddCombatAspect(aspectSwitch, key)
             end
         end)
     local soundTooltip = "The sound at combat start. Choosing one plays it once. Text to Speech says which aspect "
-        .. "is up."
+        .. "is up, or \"No aspect up\"."
     if HasCheckboxDropdown(library) then
         local row = CreateSettingsCheckboxDropdownInitializer(setting, label, tooltip, sound, library.Choices(),
             "Sound", soundTooltip)
@@ -489,6 +527,28 @@ local function AddCombatAspect(aspectSwitch, key)
     local dropdown = Settings.CreateDropdown(category, sound, library.Choices(), soundTooltip)
     library.SetupMenu(dropdown)
     Nest(dropdown, switch, function() return CombatOn() and saved.soundOn end)
+end
+
+-- The aspect bar (1.8.0), for a Hunter: Enable (on at first), Vertical,
+-- then its Size and Opacity (the toolkit's sliders).
+local function AddAspectBarSection()
+    local widget = DBR.AspectBarWidget()
+    if not widget then
+        return
+    end
+    Heading("Aspect bar")
+    local saved = DBR.db.aspectBar
+    local master = Flag("DBR_ASPECT_BAR", "Enable", "aspectBar", "enabled", true,
+        "A bar with a button for each aspect you know. Click one to swap to that aspect; a click never turns "
+            .. "an aspect off. The aspect that is up has a gold border, also in combat. Hidden while dead or on a "
+            .. "flight path.", DBR.RefreshAspectBar)
+    local vertical = Flag("DBR_ASPECT_BAR_VERTICAL", "Vertical", "aspectBar", "vertical", false,
+        "Stack the buttons top to bottom instead of left to right. A change in combat applies after it.",
+        DBR.RefreshAspectBar)
+    Nest(vertical, master, function() return saved.enabled end)
+    DBR.toolkit.AddWidgetSettings(category, layout, widget, {
+        labels = {scale = "Aspect bar: size", opacity = "Aspect bar: opacity"},
+    })
 end
 
 -- Consumables (Part B), for a class with any (DBR.CONSUMABLES): Enable, then
@@ -659,8 +719,13 @@ function DBR.InitializeOptions()
     local function Enabled() return DBR.db.enabled end
     for _, reminder in ipairs(DBR.ClassReminders()) do
         local key = reminder.key
-        local buff = Flag("DBR_BUFF_" .. key:upper(), reminder.label, "spells", key, reminder.on,
-            BuffTooltip(reminder), DBR.RefreshReminders)
+        local buff
+        if reminder.combatAspect then
+            buff = AddAspectMode(reminder)
+        else
+            buff = Flag("DBR_BUFF_" .. key:upper(), reminder.label, "spells", key, reminder.on,
+                BuffTooltip(reminder), DBR.RefreshReminders)
+        end
         Nest(buff, master, Enabled)
         if reminder.group then
             local group = Flag("DBR_GROUP_" .. key:upper(), reminder.label .. ": also your group", "groups", key,
@@ -677,8 +742,8 @@ function DBR.InitializeOptions()
                     .. "or a raid's main tank).", DBR.RefreshReminders)
             Nest(always, buff, function() return DBR.db.enabled and DBR.db.spells[key] end)
         end
-        if reminder.combatAspect and DBR.CombatAspectWidget() then
-            AddCombatAspect(buff, key)
+        if reminder.combatAspect then
+            AddCombatAspect(buff)
         end
     end
     if DBR.HasSealTimer() then
@@ -717,6 +782,7 @@ function DBR.InitializeOptions()
         AddSharedLead(master, Enabled)
     end
     AddReminderSizes()
+    AddAspectBarSection()
     AddConsumablesSection()
     AddChimesSection()
     AddProcsSection()

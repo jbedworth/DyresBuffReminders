@@ -5,6 +5,23 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.8.0
+
+### Features
+
+- Hunter: an aspect bar, a button for each aspect you know (Hawk, Monkey, Viper where the game has it, Beast, Wild, Cheetah, and Pack). One click swaps to that aspect, and a click never turns an aspect off. The aspect that is up has a gold border, also in combat. New aspects and ranks show after combat. It hides while you are dead or on a flight path and shows while mounted. It is on at first for Hunters; under **Aspect bar** in `/dbr` you can turn it off, stack it vertically, and set its size and opacity. Move it with the other frames (`/dbr unlock`).
+- Hunter: the Aspect reminder shows only when there is a problem, with a red outline: no aspect up, in or out of combat, or a fight with Aspect of the Cheetah or the Pack up. Otherwise nothing shows. It shows your last combat aspect, and a click casts it, with the aspect bar on or off. A click on the reminder or on an aspect bar button in combat hides it at once; a combat aspect cast from your action bar dims it until the fight ends.
+- Hunter: an Aspect mode in place of the Aspect switch: **Normal** (default), **Speed-Running** (Cheetah is fine in a fight; no aspect or Pack still shows the reminder), or **Disabled**. If you had turned the Aspect reminder off, it is Disabled.
+- Hunter: the Aspect reminder has its own size (50-200%) and opacity under **Reminders**; **Reminder icons: size** no longer changes it. It keeps the size and place it had.
+
+### Fixes
+
+- Ammo: with no ammo equipped, or none left, the tooltip says whether you have ammunition in your inventory and reminds you to equip it. When you use up your arrows or bullets and buy the next tier, the game does not fire the new ammo until you put it in the ammo slot.
+
+### Other changes
+
+- Hunter: the combat aspect icon is now part of the Aspect reminder, so its "Combat aspect reminder" switch is gone. Its sound at combat start stays, under the Aspect mode, and plays only when a fight starts with an aspect problem.
+
 ## 1.7.1
 
 ### Other changes

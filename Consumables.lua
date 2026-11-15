@@ -78,7 +78,8 @@ local WEAPON_CLASS, PROJECTILE_CLASS = 2, 6
 local AMMO_KINDS = {[2] = "arrow", [18] = "arrow", [3] = "bullet"}
 -- Classic's projectile subclasses (the generated docs list none): Arrow 2, Bullet 3.
 local PROJECTILE_KINDS = {[2] = "arrow", [3] = "bullet"}
-local WORDS = {arrow = "arrows", bullet = "bullets"}
+local HINT_IN_BAGS = "You have ammunition in your inventory. Remember to equip your ammo."
+local HINT_NOT_IN_BAGS = "You do not have ammunition in your inventory. Remember to equip your ammo."
 local DEFAULT_ICONS = {arrow = "Interface\\Icons\\INV_Ammo_Arrow_02",
     bullet = "Interface\\Icons\\INV_Ammo_Bullet_02"}
 -- Beside My buffs' default place.
@@ -263,12 +264,13 @@ local function RefreshAmmo()
     local _, _, texture = ItemInfo(itemID)
     icon.texture:SetTexture(texture or DEFAULT_ICONS[kind])
     local state
-    if not itemID then
+    if not itemID or (count and count <= 0) then
+        -- An empty ammo slot or none left: missing. Ammo of that kind in a
+        -- bag is not fired until you put it in the ammo slot (found in client:
+        -- John used up his arrows, the slot was empty, and his quiver was
+        -- full of the next tier). John's words for the hint.
         state = "missing"
-        ammo.hint = InBags(kind) and ("Equip your " .. WORDS[kind] .. ".")
-            or ("No " .. WORDS[kind] .. " in your bags.")
-    elseif count and count <= 0 then
-        state, ammo.hint = "missing", "Out of " .. WORDS[kind] .. "."
+        ammo.hint = InBags(kind) and HINT_IN_BAGS or HINT_NOT_IN_BAGS
     elseif count and count <= saved.ammoWarn then
         state, ammo.hint = "low", "Running low."
     else

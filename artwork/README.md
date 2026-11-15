@@ -28,8 +28,16 @@ chrome --headless=new --hide-scrollbars --window-size=1024,1024 --force-device-s
 
 ## Screenshots
 
-In-game captures by the author on the Forever beta client, saved as PNG in
-`screenshots/`. None are taken yet. Suggested shots:
+In-game captures by the author, saved in `screenshots/`. Taken:
+
+| File | Shows |
+| --- | --- |
+| forever-hunter-aspect-reminder-no-aspect.webp | Forever, level 9 Hunter, out of combat, no aspect: the Aspect reminder (Monkey, red outline) behind the player, and the Aspect bar (one Monkey button, no border) at the bottom; the ammo count beside the player frame (1.8.0) |
+| forever-hunter-aspect-bar-monkey-up.webp | The same, Monkey up: no reminder, and the bar's Monkey button with the gold border (1.8.0) |
+| forever-hunter-aspect-reminder-combat.webp | In combat with a Strigid Owl and no aspect: the reminder with its red outline; Dyre's Debuff Tracker's Serpent Sting row shows top left (1.8.0) |
+
+Raw screenshots: never change or overwrite them; crop copies for listings.
+Still suggested:
 
 - `screenshots/reminders.png`: a row of reminder icons pulsing, with a group
   count and the tooltip naming who lacks the buff.

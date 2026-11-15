@@ -89,6 +89,7 @@ say `unknownIDs=none`.
 | Frost / Ice / Mage Armor | 168, 7300, 7301 / 7302, 7320, 10219, 10220 / 6117, 22782, 22783 | |
 | Demon Skin / Demon Armor | 687, 696 / 706, 1086, 11733, 11734, 11735 | |
 | Aspect of the Hawk / Monkey / Wild / Beast / Cheetah / Pack | 13165, 14318, 14319, 14320, 14321, 14322, 25296 / 13163 / 20043, 20190 / 13161 / 5118 / 13159 | |
+| Aspect bar only (TBC): Hawk / Wild / Viper | 27044 / 27045 / 34074 | |
 | Mark of the Wild | 1126, 5232, 6756, 5234, 8907, 9884, 9885 | Gift of the Wild 21849 (Wild Berries 17021), 21850 (Wild Thornroot 17026) |
 | Thorns | 467, 782, 1075, 8914, 9756, 9910 | |
 | Power Word: Fortitude | 1243, 1244, 1245, 2791, 10937, 10938 | Prayer of Fortitude 21562 (Holy Candle 17028), 21564 (Sacred Candle 17029) |
@@ -186,21 +187,58 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       Arcane Brilliance. Armor recasts the one you used last.
 - [ ] Warlock: Demon Armor shows red while neither armor is on; a click casts
       Demon Armor (Demon Skin before you learn it).
-- [ ] Hunter: with no aspect up, the Aspect icon shows red; any
-      aspect (Cheetah and Pack too) hides it. Cast Monkey, then remove it:
-      a click casts Monkey. Cast Cheetah, then remove it: a click still casts
-      Monkey. `/dbr debug` shows `debug aspect ... unknownIDs=none
-      last=Aspect of the Monkey`.
-- [ ] Hunter, combat aspect: with Aspect of the Cheetah up, out of combat,
-      nothing shows; pull a mob: the combat aspect icon shows at once (your
-      last combat aspect, else Hawk), with the sound if on. Click it: the
-      aspect goes up and the icon goes away. Again with Cheetah, but cast
-      Hawk from your own bar: the icon dims to about 40% and stays where it
-      was. Click the dimmed icon with Hawk up: Hawk stays up ("!"). Pack
-      works the same. It shows on the Aspect icon; `/dbr unlock` shows
-      one outline (Aspect), and after dragging that icon the combat icon
-      appears at its new place. After combat, `/dbr debug` shows
-      `debug combatAspect`.
+- [ ] Hunter, Aspect reminder (1.8.0), Normal (the default): with no aspect
+      up, out of combat, the reminder shows your last combat aspect (else
+      Hawk) with a red outline; pull a mob with none up: it still shows. Put
+      up Hawk (or Monkey, Viper, Beast, Wild): it goes away, in and out of
+      combat. Put up Cheetah, then Pack: nothing out of combat; pull a mob:
+      it shows the moment combat starts, with the sound if on (Text to
+      Speech says "Aspect of the Cheetah is up", or "No aspect up").
+      `/dbr debug` shows `debug aspectReminder mode=normal ...` and `debug
+      aspect ... last=` (`unknownIDs=` may list TBC's 27044, 34074, 27045).
+- [ ] Hunter, Aspect reminder, Speed-Running (**Aspect** under Reminders):
+      pull a mob with Cheetah up: nothing shows, no sound. With Pack up, or
+      none: it shows in combat.
+- [ ] Hunter, Aspect reminder, Disabled: it never shows, in or out of
+      combat, and its sound is greyed out. A Hunter who had turned the old
+      Aspect switch off finds Disabled after the update.
+- [ ] Hunter, Aspect reminder clicks: a click casts your last combat aspect
+      with the aspect bar on and with it off; click it with Hawk up: Hawk
+      stays up ("!"). In combat with Cheetah up: click the reminder: the
+      aspect goes up and the reminder goes away at once. Again, but click
+      Hawk on the aspect bar: the reminder goes away at once (the bar's
+      secure wrap). Again, but cast Hawk from your own action bar or a key:
+      the reminder dims to about 40% and its red outline goes; it stays
+      where it was, clickable, and goes away after combat. With Hawk up in
+      combat, click Pack on the bar: the reminder shows. Cancel the aspect in
+      combat: nothing shows until combat ends (known limit: AddOns cannot read
+      buffs in combat). Hidden while dead and on a flight path.
+- [ ] Hunter, Aspect reminder size and place: **Aspect reminder: size**
+      (50-200%, 100% at first) and **opacity** change only it; **Reminder
+      icons: size** no longer changes it, and a size set there before stays.
+      It sits beside the Pet icon at first; `/dbr unlock` shows one Aspect
+      outline, and a drag moves it. After the "No aspect!" test build, it
+      stays where it was then, at 100%.
+- [ ] Hunter, aspect bar (1.8.0): on at first, also on a new Hunter: one
+      button per aspect you know, combat aspects first. Other classes: no
+      bar, no "Aspect bar" section, nothing when unlocked.
+      Click each in turn: that aspect goes up, and its button gets the gold
+      border. Click the one that is up: it stays up ("!"). `/dbr debug`
+      shows `debug aspectBar ... unknownIDs=` (Viper's 34074 and TBC's
+      27044, 27045 may be unknown on Forever).
+- [ ] Hunter, aspect bar in combat: with Hawk up, pull a mob, then click
+      Monkey on the bar: the border moves to Monkey at once. Cast Hawk from
+      your own action bar: the border moves back to Hawk. After combat it
+      still matches the aspect on you.
+- [ ] Hunter, aspect bar rebuild: learn a new aspect or rank at the trainer
+      (or `/reload` after one): the new button shows in its place, with the
+      new rank's picture, and a click casts the new rank. Learned in combat
+      (rare), it shows when combat ends.
+- [ ] Hunter, aspect bar: hidden on a flight path and while dead, back on
+      landing and on release; shown while mounted. `/dbr unlock`: it shows
+      outlined, a click on a button casts nothing, and a drag moves it; at
+      first it sits under the Aspect and Pet icons, clear of them and of the
+      Consumables bar. **Vertical** stacks it downward.
 - [ ] Warrior: Battle Shout shows while it is off, and a click
       casts it (with rage). Out of combat it shows from 60 seconds left; its own
       "Remind before it runs out" changes that. While up with more than 60 s
@@ -241,7 +279,9 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       bow and arrows equipped, the Consumables bar shows the arrows' icon and
       count, also in combat as you shoot. Set Warn at above your count: the
       count turns red and pulses. Unequip the arrows (keep them in a bag):
-      missing, tooltip "Equip your arrows." A thrown weapon or wand: nothing
+      missing, tooltip "You have ammunition in your inventory. Remember to
+      equip your ammo." Use up the arrows, then buy the next tier (John,
+      1.8.0): the slot is empty, count 0, red, and the same tooltip. A thrown weapon or wand: nothing
       shows. `/dbr debug` shows `debug ammo ... countAPI=ok`.
 - [ ] Paladin, Righteous Fury, 1.5.0: solo with it down, it shows (with or
       without Improved Righteous Fury). In a group without the Tank role,

@@ -94,8 +94,13 @@ local REFRESH_DELAY = 0.2
 -- A timer can fire a hair early; this much past the lead time still counts.
 local TIMER_SLACK = 0.05
 
+-- The Aspect reminder's modes (Buffs.lua's combatAspect; John, 1.8.0):
+-- Normal (default), Speed-Running (Cheetah is fine in combat), Disabled.
+DBR.ASPECT_MODE_ORDER = {"normal", "speed", "off"}
+DBR.ASPECT_MODE_LABELS = {normal = "Normal", speed = "Speed-Running", off = "Disabled"}
+
 local reminders = {list = {}, icons = {}, names = {}, spellKeys = {}, spellNames = {}, widgets = {},
-    seen = {}, windows = {}, warns = {}, timed = {}, casts = {}}
+    seen = {}, windows = {}, warns = {}, timed = {}, casts = {}, upNames = {}, travelNames = {}, speedNames = {}}
 
 -- The default row a reminder starts in: the upper for any buff that can go on
 -- another player (Buffs.lua's group or others), the lower for self-only ones.
@@ -188,6 +193,24 @@ function DBR.ImportReminders(classFile)
     return true
 end
 
+-- The Aspect reminder's saved place and sizes: its own Size now (the same
+-- key, scale, so a size set with the shared reminder size stays, and so does
+-- its place). A 1.8.0 test build had its own warnScale and saved its place in
+-- that size's units, without scale: once, that place is converted to the
+-- size now (scale, else 100), which keeps its center where it was on screen.
+local function SanitizeAspectWidget(widget, sanitizePosition)
+    local position = sanitizePosition(widget.position)
+    local scale = widget.scale
+    local from = widget.warnScale
+    if type(from) == "number" and from == from and from > 0 then
+        local to = (type(scale) == "number" and scale == scale and scale > 0) and scale or 100
+        if position and position.point == "CENTER" and position.relativePoint == "BOTTOMLEFT" then
+            position.x, position.y = position.x * from / to, position.y * from / to
+        end
+    end
+    return {position = position, scale = scale, opacity = widget.opacity}
+end
+
 -- The saved reminder settings for every class's buffs, repaired; Core calls
 -- this from SanitizeDB. Keys no class has are dropped. Each buff widget has
 -- its own table, db.buffs[key] (the coordinator: each widget its own store),
@@ -226,19 +249,31 @@ function DBR.SanitizeReminders(db, sanitizePosition)
     local pop = type(db.warningPop) == "table" and db.warningPop or {}
     db.warningPop = {position = sanitizePosition(pop.position), scale = pop.scale}
     local aspect = type(db.combatAspect) == "table" and db.combatAspect or {}
-    -- Its place, size, and opacity are My buffs' (a pre-release had its own).
-    db.combatAspect = {enabled = aspect.enabled ~= false, soundOn = aspect.soundOn ~= false,
+    -- The combat-start sound (1.8.0: the combat aspect button is the Aspect
+    -- reminder's job now; its switch and a pre-release's place are dropped).
+    db.combatAspect = {soundOn = aspect.soundOn ~= false,
         sound = DBR.SanitizeChimeSound and DBR.SanitizeChimeSound(aspect.sound) or aspect.sound}
     for _, list in pairs(DBR.BUFFS) do
         for _, reminder in ipairs(list) do
             local key = reminder.key
             local widget = type(buffs[key]) == "table" and buffs[key] or {}
-            db.buffs[key] = {position = sanitizePosition(widget.position), scale = widget.scale,
-                opacity = widget.opacity}
+            if reminder.combatAspect then
+                db.buffs[key] = SanitizeAspectWidget(widget, sanitizePosition)
+            else
+                db.buffs[key] = {position = sanitizePosition(widget.position), scale = widget.scale,
+                    opacity = widget.opacity}
+            end
             if type(spells[key]) == "boolean" then
                 db.spells[key] = spells[key]
             else
                 db.spells[key] = reminder.on
+            end
+            if reminder.combatAspect then
+                -- The mode replaces the switch (John, 1.8.0): a switch saved off is Disabled.
+                if not DBR.ASPECT_MODE_LABELS[db.aspectMode] then
+                    db.aspectMode = spells[key] == false and "off" or "normal"
+                end
+                db.spells[key] = db.aspectMode ~= "off"
             end
             if reminder.group then
                 db.groups[key] = groups[key] ~= false
@@ -906,6 +941,34 @@ local function SetDriver(icon, driver)
     end
 end
 
+-- The Aspect reminder has no visibility driver: the game's driver manager
+-- shows or hides a frame with one every 0.2 s, changed or not (pinned
+-- SecureStateDriver.lua:95-105 and :119-129), so a secure Hide in combat held
+-- for at most 0.2 s (found in client, John, 2026-11-14: after a click on the
+-- reminder in combat it "faded, and then went away when combat ended"). An
+-- attribute driver sets its attribute only on a change (:106-115), so the
+-- icon gets "state-dbrcombat" (1 in combat, else 0) and this handler (a
+-- SecureHandlerStateTemplate `_onstate-`) shows or hides it at the change,
+-- by "dbr-show", set out of combat: "always", "combat" (the game shows it
+-- when combat starts), or "never". Between changes a secure Hide or Show
+-- holds.
+local ASPECT_COMBAT_DRIVER = "[combat] 1; 0"
+local ASPECT_ON_COMBAT = [[
+local show = self:GetAttribute("dbr-show")
+if show == "always" or (show == "combat" and (newstate == 1 or newstate == "1")) then
+    self:Show()
+else
+    self:Hide()
+end
+]]
+local ASPECT_SHOW = {[SHOWN_DRIVER] = "always", [COMBAT_ONLY_DRIVER] = "combat", [HIDDEN_DRIVER] = "never"}
+
+-- Out of combat: the Aspect reminder's mode (no visibility driver, above).
+local function SetAspectShow(icon, driver)
+    icon.driver = driver
+    icon:SetAttribute("dbr-show", ASPECT_SHOW[driver])
+end
+
 -- A secret or missing answer counts as not on a taxi.
 local function OnTaxi()
     if type(UnitOnTaxi) ~= "function" then
@@ -913,6 +976,173 @@ local function OnTaxi()
     end
     local onTaxi = UnitOnTaxi("player")
     return not DBR.IsSecret(onTaxi) and onTaxi == true
+end
+
+-- The Aspect reminder (Buffs.lua's combatAspect; John, 1.8.0): "gives a
+-- visual indicator in or out of combat if you have no aspect at all up - Red
+-- Outline. If I enter combat without an aspect up, or with Cheeta or Pack up,
+-- it should similarly show a visual indicator". One secure icon with a red
+-- outline, shown only when there is a problem, else nothing (no aura slot).
+-- It shows the combat aspect a click casts (your last, else Hawk, else
+-- Monkey); a click casts it with "!", with the aspect bar on or off. It does
+-- the 1.1.0 combat aspect button's job, so that button is gone.
+--
+-- AddOn code cannot read auras or change secure frames in combat, so it is
+-- set out of combat from the aura read: no aspect, shown ("show"); a travel
+-- aspect that is a problem in combat (Pack; Cheetah in Normal), shown by the
+-- game when combat starts ("[combat] show; hide"); else hidden. In combat:
+-- its own click hides it (a secure wrap); a click on an aspect bar button
+-- hides or shows it in secure code (RefreshBarRoles); your own aspect cast
+-- from anywhere else dims it to 0.4 and takes the outline away (both allowed
+-- in combat; never alpha 0: it still takes clicks), or, for a travel aspect
+-- that is a problem, makes it solid again. After combat the aura decides. A
+-- cancel in combat cannot be seen until combat ends.
+
+-- Out of combat: "none" (no aspect on you), the travel aspect's name
+-- (Buffs.lua's forget: Cheetah, Pack), "fine" (a combat aspect is up), or
+-- false when a read was secret (cannot tell). The combat aspect up is what
+-- a click recasts.
+local function AspectNow(reminder)
+    local key = reminder.key
+    local travel
+    for _, name in ipairs(reminders.names[key]) do
+        local aura = C_UnitAuras.GetAuraDataBySpellName("player", name, "HELPFUL")
+        if DBR.IsSecret(aura) then
+            return false
+        end
+        if aura ~= nil then
+            if not reminders.travelNames[key][name] then
+                if reminders.spellNames[name] == key then
+                    DBR.db.last[key] = name
+                end
+                return "fine"
+            end
+            travel = name
+        end
+    end
+    return travel or "none"
+end
+
+-- Whether an aspect up in combat is a problem (John): Pack in Normal and
+-- Speed-Running; Cheetah in Normal only ("sometimes hunters fight with Cheeta
+-- up in the open world to kill fast"); a combat aspect never.
+local function BadInCombat(reminder, name)
+    local key = reminder.key
+    if not reminders.travelNames[key][name] then
+        return false
+    end
+    return not (DBR.db.aspectMode == "speed" and reminders.speedNames[key][name])
+end
+
+-- The aspect bar's buttons (AspectBar.lua links each). A click on one in
+-- combat hides the reminder when its aspect fixes the problem, or shows it
+-- when it makes one, in secure code: the wrap's post-body (pinned
+-- SecureHandlers.lua:602, run after the click, header explicitly protected)
+-- reaches the reminder through a frame ref (SecureHandlers.lua:702,
+-- RestrictedFrames.lua:205), whose handle may Show and Hide a protected frame
+-- (RestrictedFrames.lua:394-408). PlayerInCombat (RestrictedEnvironment.lua:200)
+-- keeps it out of the way out of combat, where the aura read decides. Each
+-- button's role is an attribute, set out of combat.
+local BAR_CLICK = [[
+if PlayerInCombat() then
+    local reminder = self:GetFrameRef("dbrAspectReminder")
+    local role = self:GetAttribute("dbr-reminder")
+    if reminder and role == "hide" then
+        reminder:Hide()
+    elseif reminder and role == "show" then
+        reminder:Show()
+    end
+end
+]]
+local barButtons = {}
+
+-- Out of combat only.
+local function WireBarButton(entry, icon)
+    SecureHandlerSetFrameRef(entry.button, "dbrAspectReminder", icon)
+    SecureHandlerWrapScript(entry.button, "OnClick", icon, "return nil, true", BAR_CLICK)
+    entry.wired = true
+end
+
+function DBR.LinkAspectBarButton(button, spellID)
+    if type(SecureHandlerWrapScript) ~= "function" or type(SecureHandlerSetFrameRef) ~= "function" then
+        return
+    end
+    local entry = {button = button, name = C_Spell.GetSpellName(spellID)}
+    barButtons[#barButtons + 1] = entry
+    local reminder = reminders.aspect
+    local icon = reminder and reminders.icons[reminder.key]
+    if icon and icon.wrapped and not InCombatLockdown() then
+        WireBarButton(entry, icon)
+    end
+end
+
+-- Out of combat: each bar button's role in combat (none while the reminder
+-- is off, unlocked, or you are dead or on a taxi).
+local function RefreshBarRoles(reminder, icon, active)
+    for _, entry in ipairs(barButtons) do
+        if not entry.wired and icon.wrapped then
+            WireBarButton(entry, icon)
+        end
+        if entry.wired then
+            local role
+            if active and entry.name and reminders.upNames[reminder.key][entry.name] then
+                role = BadInCombat(reminder, entry.name) and "show" or "hide"
+            end
+            entry.button:SetAttribute("dbr-reminder", role)
+        end
+    end
+end
+
+-- Out of combat: the Aspect reminder's state, click, and driver.
+local function RefreshAspectReminder(reminder, icon, countable, canCheck, unlocked)
+    local state
+    if countable and canCheck then
+        state = AspectNow(reminder)
+        -- A secret read changes nothing.
+        if state == false then
+            state = reminders.aspectState or "fine"
+        end
+    end
+    reminders.aspectState = state
+    local travel = state and state ~= "none" and state ~= "fine" and state or nil
+    local problem
+    if not unlocked and state == "none" then
+        problem = "now"
+    elseif not unlocked and travel and BadInCombat(reminder, travel) then
+        problem = "combat"
+    end
+    reminders.aspectProblem, reminders.aspectTravel = problem, travel
+    icon.alarm = problem == "now" and "No aspect is up." or problem == "combat"
+        and (travel .. " is up: a problem in combat.") or nil
+    StopWarn(reminder.key)
+    local driver
+    if unlocked then
+        ApplyClick(icon, reminder, nil)
+        driver = countable and SHOWN_DRIVER or HIDDEN_DRIVER
+    else
+        ApplyClick(icon, reminder, countable and canCheck and ArmedAction(reminder) or nil)
+        driver = problem == "now" and SHOWN_DRIVER or problem == "combat" and COMBAT_ONLY_DRIVER or HIDDEN_DRIVER
+    end
+    ShowIcon(icon, driver ~= HIDDEN_DRIVER, nil)
+    if icon.wrapped then
+        SetAspectShow(icon, driver)
+    else
+        SetDriver(icon, driver)
+    end
+    -- A wrap may have hidden or shown it in combat, and the combat driver
+    -- acts only at combat's edges, so out of combat it is set here.
+    local wanted = driver == SHOWN_DRIVER
+    if icon:IsShown() ~= wanted then
+        if wanted then
+            icon:Show()
+        else
+            icon:Hide()
+        end
+    end
+    icon:SetAlpha(1)
+    SetBorder(icon, RED)
+    icon.texture:SetAlpha(unlocked and canCheck and state ~= "none" and DIM_ALPHA or 1)
+    RefreshBarRoles(reminder, icon, countable and canCheck and not unlocked)
 end
 
 function DBR.RefreshReminders()
@@ -942,7 +1172,9 @@ function DBR.RefreshReminders()
         icon.timeLeft:Hide()
         local holder = reminders.widgets[reminder.key]
         holder:SetShown(countable)
-        if unlocked then
+        if reminder.combatAspect then
+            RefreshAspectReminder(reminder, icon, countable, canCheck, unlocked)
+        elseif unlocked then
             -- Dragging must not cast. A buff that is on shows dimmed, still.
             ApplyClick(icon, reminder, nil)
             local missing = countable and canCheck and #Missing(reminder) > 0
@@ -1043,7 +1275,6 @@ function DBR.RefreshReminders()
         local icon = reminders.icons[reminder.key]
         icon.texture:SetTexture(ClickTexture(reminder, icon.action))
     end
-    DBR.RefreshCombatAspect(canCheck)
     DBR.CheckWarnings()
     -- One timer for the next buff to reach the lead time; a newer refresh
     -- makes older timers do nothing.
@@ -1071,6 +1302,9 @@ local function ShowTooltip(icon)
     if not DBR.db.locked then
         GameTooltip:AddLine("Drag to move it.", 1, 1, 1, true)
     else
+        if icon.alarm then
+            GameTooltip:AddLine(icon.alarm, 1, 1, 1, true)
+        end
         if icon.watching then
             GameTooltip:AddLine(icon.label .. ": on " .. icon.watching, 1, 1, 1, true)
         end
@@ -1131,97 +1365,38 @@ local function CreateIcon(reminder, bar, name, template)
     return icon
 end
 
--- The armor you cast is what a click recasts.
--- The combat aspect button (author, a Hunter player: "I commonly forget and
--- end up fighting with Cheetah up by accident"). When combat starts with
--- Aspect of the Cheetah or the Pack up, it shows the combat aspect a click
--- casts (the Aspect reminder's: your last, else Hawk, else Monkey). AddOn code
--- cannot read auras or change secure frames in combat, so it is armed out of
--- combat only: while a travel aspect is up, its click is set and the game
--- shows it for combat ("[combat] show; hide"); otherwise "hide". A click
--- casts with "!" and hides it (a secure wrap may Hide in combat). Your own
--- combat-aspect cast from elsewhere dims it (alpha 0.4, no pulse), never to
--- 0: an invisible frame must not take clicks (MTF 0.3.2's bug); a stray
--- click casts with "!", which takes nothing down.
---
--- To the player it is the Aspect widget (author: "this should behave like 1
--- widget"): not a widget of its own, it sits on the Aspect widget, above its
--- aura slot, with its scale and opacity, and has no sample of its own. It is
--- anchored to the widget, not its child, so its own driver alone decides
--- when it shows. Anchors and scale change out of combat only.
-local combat = {}
-
--- Out of combat: the travel aspect on you, by name, or nil. A secret aura
--- reads as none.
-local function TravelUp(reminder)
-    for _, id in ipairs(reminder.forget or {}) do
-        local name = C_Spell.GetSpellName(id)
-        if name then
-            local aura = C_UnitAuras.GetAuraDataBySpellName("player", name, "HELPFUL")
-            if not DBR.IsSecret(aura) and aura ~= nil then
-                return name
-            end
-        end
-    end
-end
-
--- Out of combat: on the Aspect widget, with its scale, above its aura slot.
-local function PlaceCombatAspect()
-    local button, holder = combat.button, combat.holder
-    if not button or not holder or InCombatLockdown() then
+-- In combat: your own cast of an aspect (readable then). One that fixes the
+-- problem dims the reminder to 0.4 and takes its outline away; one that
+-- makes a problem (Pack; Cheetah in Normal) makes it solid and red again.
+-- Neither is protected; it is never faded to 0, as it still takes clicks
+-- (MTF 0.3.2's bug). Hidden, it stays hidden until combat ends.
+local function AspectCast(name)
+    local reminder = reminders.aspect
+    if not reminder or not name or not reminders.upNames[reminder.key][name] then
         return
     end
-    button:SetScale(holder:GetScale())
-    button:ClearAllPoints()
-    button:SetPoint("CENTER", holder, "CENTER", 0, 0)
-    button:SetFrameLevel(holder:GetFrameLevel() + SLOT_LEVELS_ABOVE * 3)
-end
-
--- Out of combat only.
-function DBR.RefreshCombatAspect(canCheck)
-    local button = combat.button
-    if not button then
-        return
-    end
-    PlaceCombatAspect()
-    local reminder = combat.reminder
-    local saved = DBR.db.combatAspect
-    -- Its own switch: it works with the Aspect reminder off too.
-    local wanted = DBR.db.enabled and saved.enabled and Known(reminder)
-    local unlocked = not DBR.db.locked
-    local spell = SingleSpell(reminder)
-    local travel = wanted and canCheck and not unlocked and spell and TravelUp(reminder) or nil
-    combat.travel, combat.spell = travel, spell
-    button.texture:SetTexture(ClickTexture(reminder, nil))
-    button.texture:SetAlpha(1)
-    Pulse(button, true)
-    local macro = travel and ("/use !" .. spell) or nil
-    button:SetAttribute("type1", macro and "macro" or nil)
-    button:SetAttribute("macrotext1", macro)
-    local driver = travel and COMBAT_ONLY_DRIVER or HIDDEN_DRIVER
-    if combat.driver ~= driver then
-        combat.driver = driver
-        RegisterStateDriver(button, "visibility", driver)
+    local icon = reminders.icons[reminder.key]
+    if BadInCombat(reminder, name) then
+        icon:SetAlpha(1)
+        icon.glow:SetAlpha(1)
+    else
+        icon:SetAlpha(DIM_ALPHA)
+        icon.glow:SetAlpha(0)
     end
 end
 
--- In combat: your own combat-aspect cast (readable then) dims the button.
-local function CombatAspectCast(name)
-    if combat.travel and name and reminders.spellNames[name] == combat.reminder.key then
-        combat.button.texture:SetAlpha(DIM_ALPHA)
-        Pulse(combat.button, false)
-    end
-end
-
--- Combat starts: the optional sound (Dyre's Sounds, its own switch and choice).
+-- Combat starts with a problem: the optional sound (Dyre's Sounds, its own
+-- switch and choice).
 local function CombatStarts()
     local saved = DBR.db.combatAspect
-    if not combat.travel or not saved.soundOn then
+    local problem = reminders.aspectProblem
+    if not problem or not saved.soundOn then
         return
     end
+    local speech = reminders.aspectTravel and (reminders.aspectTravel .. " is up") or "No aspect up"
     local library = DBR.SoundLibrary()
-    if library and not library.Play(saved.sound, combat.travel .. " is up") then
-        library.Play(DBR.DEFAULT_CHIME_SOUND, combat.travel .. " is up")
+    if library and not library.Play(saved.sound, speech) then
+        library.Play(DBR.DEFAULT_CHIME_SOUND, speech)
     end
 end
 
@@ -1232,34 +1407,10 @@ function DBR.PreviewCombatAspect()
     end
 end
 
-local function CombatAspectTooltip(button)
-    GameTooltip:SetOwner(button, "ANCHOR_TOP")
-    GameTooltip:SetText("Combat aspect", GOLD[1], GOLD[2], GOLD[3])
-    if combat.travel then
-        GameTooltip:AddLine(combat.travel .. " is up.", 1, 1, 1, true)
-        GameTooltip:AddLine("Click: " .. combat.spell .. ".", 0.7, 0.7, 0.7, true)
-    end
-    GameTooltip:Show()
-end
-
-local function CreateCombatAspect(reminder)
-    local button = CreateIcon(reminder, UIParent, "DyresBuffRemindersCombatAspect",
-        "SecureActionButtonTemplate, SecureHandlerBaseTemplate")
-    -- One click event per click (on release), so the wrap hides it after the cast.
-    button:RegisterForClicks("AnyUp")
-    button:SetScript("OnEnter", CombatAspectTooltip)
-    SecureHandlerWrapScript(button, "OnClick", button, "return nil, true", "self:Hide()")
-    combat.button, combat.reminder = button, reminder
-    combat.holder = reminders.widgets[reminder.key]
-    if combat.holder then
-        button:SetAlpha(combat.holder:GetAlpha())
-    end
-    PlaceCombatAspect()
-end
-
--- The combat aspect button, for the settings page (a Hunter's); nil without.
-function DBR.CombatAspectWidget()
-    return combat.button
+-- The Aspect reminder's widget, for its own size settings (a Hunter's); nil without.
+function DBR.AspectReminderWidget()
+    local reminder = reminders.aspect
+    return reminder and reminders.widgets[reminder.key] or nil
 end
 
 -- By ID, else by name (a rank Forever renumbered); forgotten spells never.
@@ -1405,34 +1556,45 @@ end
 -- in it, and the aura slot above. The toolkit owns its mouse ("unlocked":
 -- only to drag); the icon takes clicks itself.
 local function CreateBuffWidget(reminder, row, index, count)
+    local aspect = reminder.combatAspect
     if not DBR.db.buffs[reminder.key].position then
         SeedFromBar(reminder, index, count)
     end
     local holder = CreateFrame("Frame", "DyresBuffRemindersBuff_" .. reminder.key, UIParent)
-    local icon = CreateIcon(reminder, holder)
+    local wrap = aspect and type(SecureHandlerWrapScript) == "function"
+    local icon = CreateIcon(reminder, holder, nil,
+        wrap and "SecureActionButtonTemplate, SecureHandlerStateTemplate" or nil)
     icon:SetAllPoints(holder)
+    if wrap then
+        -- A click hides it at once, also in combat (its cast fixes the
+        -- problem); clicks on release only, so the cast comes first. Out of
+        -- combat a refresh then shows it again if the cast failed.
+        icon:RegisterForClicks("AnyUp")
+        SecureHandlerWrapScript(icon, "OnClick", icon, "return nil, true", "self:Hide()")
+        -- Shown and hidden by combat's edges and the out-of-combat refresh,
+        -- never by a visibility driver (SetAspectShow).
+        icon:SetAttribute("dbr-show", "never")
+        icon:SetAttribute("_onstate-dbrcombat", ASPECT_ON_COMBAT)
+        RegisterStateDriver(icon, "dbrcombat", ASPECT_COMBAT_DRIVER)
+        icon:HookScript("OnClick", function()
+            if not InCombatLockdown() then
+                ScheduleRefresh()
+            end
+        end)
+        icon.wrapped = true
+    end
     reminders.icons[reminder.key] = icon
     reminders.widgets[reminder.key] = holder
-    -- A pet has no aura for the slot to draw.
-    if reminders.container and not reminder.pet then
+    -- A pet has no aura for the slot to draw; the Aspect reminder shows only
+    -- when there is a problem, so it has none either.
+    if reminders.container and not reminder.pet and not aspect then
         holder.slot = CreateSlot(reminder, holder, icon)
         holder.warn = CreateWarn(holder, holder.slot)
-    end
-    local function OnLayout()
-        if combat.holder == holder then
-            PlaceCombatAspect()
-        end
-    end
-    local function OnOpacity(_, alpha)
-        if combat.holder == holder and combat.button then
-            combat.button:SetAlpha(alpha)
-        end
     end
     DBR.toolkit.CreateWidget({
         addon = addonName, key = "buff_" .. reminder.key, title = reminder.label, frame = holder,
         store = DBR.db.buffs[reminder.key], width = ICON_SIZE, height = ICON_SIZE,
         point = DefaultPoint(reminder, row, index, count), sizes = DBR.WIDGET_SIZES,
-        onLayout = OnLayout, onOpacity = OnOpacity,
     })
     -- The icon covers the widget: a drag that starts on it moves the widget.
     holder:AddDragHandle(icon)
@@ -1591,12 +1753,9 @@ local function SetUp()
     end
     -- 1.1.0's bar places have seeded the icons: drop them.
     DBR.db.bars = nil
-    for _, reminder in ipairs(reminders.list) do
-        -- Needs the secure wrap that hides it on a click; without it, no button.
-        if reminder.combatAspect and type(SecureHandlerWrapScript) == "function" then
-            CreateCombatAspect(reminder)
-            events:RegisterEvent("PLAYER_REGEN_DISABLED")
-        end
+    if reminders.aspect then
+        -- The sound when combat starts with a problem.
+        events:RegisterEvent("PLAYER_REGEN_DISABLED")
     end
     reminders.ready = true
     if DBR.SetUpWarnings() then
@@ -1634,9 +1793,7 @@ events:SetScript("OnEvent", function(_, event, unit, _, spellID)
         RememberCast(spellID)
         if InCombatLockdown() and not DBR.IsSecret(spellID) then
             local name = C_Spell.GetSpellName(spellID)
-            if combat.button then
-                CombatAspectCast(name)
-            end
+            AspectCast(name)
             OwnCast(name)
         end
         return
@@ -1856,6 +2013,28 @@ function DBR.InitializeReminders(class)
     reminders.list = DBR.BUFFS[class] or {}
     for _, reminder in ipairs(reminders.list) do
         reminders.names[reminder.key] = BuffNames(reminder)
+        local up = {}
+        for _, name in ipairs(reminders.names[reminder.key]) do
+            up[name] = true
+        end
+        reminders.upNames[reminder.key] = up
+        if reminder.combatAspect then
+            reminders.aspect = reminder
+            local travel, speed = {}, {}
+            for _, id in ipairs(reminder.forget or {}) do
+                local name = C_Spell.GetSpellName(id)
+                if name then
+                    travel[name] = true
+                end
+            end
+            for _, id in ipairs(reminder.speedOk or {}) do
+                local name = C_Spell.GetSpellName(id)
+                if name then
+                    speed[name] = true
+                end
+            end
+            reminders.travelNames[reminder.key], reminders.speedNames[reminder.key] = travel, speed
+        end
         local casts = {}
         for _, id in ipairs(reminder.spells) do
             local name = C_Spell.GetSpellName(id)
@@ -1902,28 +2081,32 @@ function DBR.InitializeReminders(class)
     SetUp()
 end
 
--- The buff widgets, for the settings page, in Buffs.lua's order.
+-- The buff widgets that share the reminder icons' size, for the settings
+-- page, in Buffs.lua's order (the Aspect reminder has its own).
 function DBR.BuffWidgets()
     local list = {}
     for _, reminder in ipairs(reminders.list) do
         local holder = reminders.widgets[reminder.key]
-        if holder then
+        if holder and not reminder.combatAspect then
             list[#list + 1] = holder
         end
     end
     return list
 end
 
+
 -- Whether the buff widgets have the aura container (in-combat display).
 function DBR.HasBuffSlots()
     return reminders.container == true
 end
 
-local function ReportCombatAspectDebug()
-    if combat.button then
-        DBR.Report(string.format("debug combatAspect on=%s armed=%s travel=%s macro=%s driver=%s sound=%s",
-            tostring(DBR.db.combatAspect.enabled), tostring(combat.travel ~= nil), tostring(combat.travel),
-            tostring(combat.button:GetAttribute("macrotext1")), tostring(combat.driver),
+local function ReportAspectReminderDebug()
+    local reminder = reminders.aspect
+    local icon = reminder and reminders.icons[reminder.key]
+    if icon then
+        DBR.Report(string.format("debug aspectReminder mode=%s state=%s problem=%s driver=%s macro=%s sound=%s",
+            tostring(DBR.db.aspectMode), tostring(reminders.aspectState), tostring(reminders.aspectProblem),
+            tostring(icon.driver), tostring(icon:GetAttribute("macrotext1")),
             DBR.db.combatAspect.soundOn and tostring(DBR.db.combatAspect.sound) or "off"))
     end
 end
@@ -1986,6 +2169,6 @@ function DBR.ReportRemindersDebug()
             ReportAuraReads(reminder)
         end
     end
-    ReportCombatAspectDebug()
+    ReportAspectReminderDebug()
     DBR.ReportWarningsDebug()
 end

@@ -92,6 +92,10 @@ name("Aspect of the Wild", 20043, 20190)
 name("Aspect of the Beast", 13161)
 name("Aspect of the Cheetah", 5118)
 name("Aspect of the Pack", 13159)
+-- TBC's ranks and Aspect of the Viper (the aspect bar's data).
+name("Aspect of the Hawk", 27044)
+name("Aspect of the Wild", 27045)
+name("Aspect of the Viper", 34074)
 name("Travel Form", 783)
 name("Bear Form", 5487)
 name("Dire Bear Form", 9634)
@@ -464,7 +468,7 @@ local function fixture(options)
     -- state.ammoCount (a number or "secret"), state.bags[bag] = {itemIDs}.
     state.equipped, state.bags = {}, {}
     local ITEMS = {[2504] = {2, 2, 4001}, [2508] = {2, 3, 4002}, [15807] = {2, 18, 4003}, [2947] = {2, 16, 4004},
-        [5069] = {2, 19, 4005}, [2512] = {6, 2, 3001, "Rough Arrow"}, [2516] = {6, 3, 3002, "Light Shot"},
+        [5069] = {2, 19, 4005}, [2512] = {6, 2, 3001, "Rough Arrow"}, [2515] = {6, 2, 3003, "Sharp Arrow"}, [2516] = {6, 3, 3002, "Light Shot"},
         -- Reagents (class 5): Rebirth's seeds and Gift of the Wild's.
         [17034] = {5, 0, 5034, "Maple Seed"}, [17035] = {5, 0, 5035, "Stranglethorn Seed"},
         [17036] = {5, 0, 5036, "Ashwood Seed"}, [17037] = {5, 0, 5037, "Hornbeam Seed"},
@@ -585,29 +589,71 @@ local function fixture(options)
         state.runTimers()
     end
 
-    -- State drivers: only "[combat] hide; show" is used.
+    -- State drivers, as the client's SecureStateDriverManager (pinned
+    -- SecureStateDriver.lua): each update (every 0.2 s, and at events) a
+    -- visibility driver shows or hides its frame, changed or not (:95-105,
+    -- :119-129), so a secure Hide under a "show" driver lasts until the next
+    -- update; an attribute driver sets its attribute only on a change
+    -- (:106-115), which runs the frame's `_onstate-<name>` handler (the
+    -- restricted snippet, run here with self as the frame and newstate).
+    -- state.tick() is one update.
+    state.driverStates = {}
+    state.attributeDrivers = {}
+    local function RunOnState(frame, name, value)
+        local body = frame.attributes["_onstate-" .. name]
+        if not body then return end
+        local handle = {
+            Show = function() frame.shown = true end,
+            Hide = function() frame.shown = false end,
+            GetAttribute = function(_, key) return frame.attributes[key] end,
+        }
+        local chunk = assert(loadstring("local self, stateid, newstate = ...\n" .. body))
+        chunk(handle, name, value)
+    end
     function state.applyDrivers()
+        for frame, drivers in pairs(state.attributeDrivers) do
+            for name, driver in pairs(drivers) do
+                equal(driver, "[combat] 1; 0", "a known attribute driver")
+                local value = state.combat and 1 or 0
+                if frame.attributes["state-" .. name] ~= value then
+                    frame.attributes["state-" .. name] = value
+                    RunOnState(frame, name, value)
+                end
+            end
+        end
         for frame, driver in pairs(state.drivers) do
+            local value
             if driver == "[combat] hide; show" then
-                frame.shown = not state.combat
+                value = not state.combat
             elseif driver == "[combat] show; hide" then
-                frame.shown = state.combat
+                value = state.combat
             elseif driver == "show" then
-                frame.shown = true
+                value = true
             elseif driver == "[mounted] hide; [nopet] show; [@pet,dead] show; hide" then
                 -- The pet reminder: state.units.pet (dead or not), state.mounted.
                 local pet = state.units.pet
-                frame.shown = not state.mounted and (pet == nil or pet.dead == true)
+                value = not state.mounted and (pet == nil or pet.dead == true)
             else
                 equal(driver, "hide", "a known driver")
-                frame.shown = false
+                value = false
             end
+            state.driverStates[frame] = value
+            frame.shown = value
         end
     end
+    state.tick = state.applyDrivers
     env.RegisterStateDriver = function(frame, kind, driver)
-        equal(kind, "visibility")
         if state.combat then error("RegisterStateDriver in combat") end
-        state.drivers[frame] = driver
+        if kind == "visibility" then
+            equal(state.attributeDrivers[frame], nil, "a visibility driver on a frame with an attribute driver")
+            state.drivers[frame] = driver
+            state.driverStates[frame] = nil
+        else
+            equal(state.drivers[frame], nil, "an attribute driver on a frame with a visibility driver")
+            state.attributeDrivers[frame] = state.attributeDrivers[frame] or {}
+            state.attributeDrivers[frame][kind] = driver
+            frame.attributes["state-" .. kind] = nil
+        end
         state.applyDrivers()
     end
     -- Secure wraps: recorded; state.secureClick runs a wrapped frame's click as
@@ -615,7 +661,12 @@ local function fixture(options)
     state.wraps = {}
     if not options.noSecureWrap then
         env.SecureHandlerWrapScript = function(frame, script, header, preBody, postBody)
+            if state.combat then error("SecureHandlerWrapScript in combat") end
             state.wraps[frame] = {script = script, header = header, pre = preBody, post = postBody}
+        end
+        env.SecureHandlerSetFrameRef = function(frame, label, ref)
+            if state.combat then error("SecureHandlerSetFrameRef in combat") end
+            frame.attributes["frameref-" .. label] = ref
         end
     end
     function state.secureClick(frame)
@@ -623,6 +674,14 @@ local function fixture(options)
         state.clicked[#state.clicked + 1] = frame.attributes.macrotext1 or frame.attributes.spell1
         local wrap = state.wraps[frame]
         if wrap and wrap.post == "self:Hide()" then frame.shown = false end
+        -- The aspect bar's post-body (Reminders.lua's BAR_CLICK), as the
+        -- restricted code would run it: in combat only, through the frame ref.
+        if wrap and wrap.post and wrap.post:find("dbrAspectReminder", 1, true) and state.combat then
+            local reminder = frame.attributes["frameref-dbrAspectReminder"]
+            local role = frame.attributes["dbr-reminder"]
+            if reminder and role == "hide" then reminder.shown = false end
+            if reminder and role == "show" then reminder.shown = true end
+        end
     end
     env.GameTooltip = {
         SetOwner = function() state.tooltip = {} end,
@@ -1072,7 +1131,8 @@ end
 
 test("the TOC loads every runtime file in order, with the release metadata", function()
     equal(table.concat(RUNTIME_FILES, ","),
-        "Commands.lua,Core.lua,Buffs.lua,Reminders.lua,AuraEngine.lua,Seals.lua,Consumables.lua,ChimeSpells.lua,"
+        "Commands.lua,Core.lua,Buffs.lua,Reminders.lua,AuraEngine.lua,Seals.lua,Consumables.lua,AspectBar.lua,"
+            .. "ChimeSpells.lua,"
             .. "Chimes.lua,"
             .. "ProcSpells.lua,Procs.lua,Probe.lua,Options.lua")
     local state = fixture()
@@ -1099,10 +1159,10 @@ test("a mixed install stays off and says what to do", function()
     local noBuffs = fixture({files = {"Commands.lua", "Core.lua", "Reminders.lua", "Seals.lua", "Options.lua"}})
     contains(noBuffs.last(), "missing Buffs.lua, Seals.lua, ChimeSpells.lua, or ProcSpells.lua")
     local noChimes = fixture({files = {"Commands.lua", "Core.lua", "Buffs.lua", "Reminders.lua",
-        "Seals.lua", "Consumables.lua", "ChimeSpells.lua", "ProcSpells.lua", "Procs.lua", "Options.lua"}})
+        "Seals.lua", "Consumables.lua", "AspectBar.lua", "ChimeSpells.lua", "ProcSpells.lua", "Procs.lua", "Options.lua"}})
     contains(noChimes.last(), "missing ClassChimes")
     local noProcs = fixture({files = {"Commands.lua", "Core.lua", "Buffs.lua", "Reminders.lua",
-        "Seals.lua", "Consumables.lua", "ChimeSpells.lua", "Chimes.lua", "ProcSpells.lua", "Options.lua"}})
+        "Seals.lua", "Consumables.lua", "AspectBar.lua", "ChimeSpells.lua", "Chimes.lua", "ProcSpells.lua", "Options.lua"}})
     contains(noProcs.last(), "missing ClassProcs")
 end)
 test("a client without a required API stays off", function()
@@ -1712,9 +1772,9 @@ end)
 -- Paladin -----------------------------------------------------------------------------
 
 local HAWK, HAWK_7, MONKEY, WILD, BEAST, CHEETAH, PACK = 13165, 25296, 13163, 20043, 13161, 5118, 13159
-test("Hunter: no aspect shows the Aspect reminder in My buffs; any aspect counts as up", function()
+test("Hunter: no aspect shows the Aspect reminder with its click; out of combat any aspect hides it", function()
     local state = fixture({class = "HUNTER", known = {[HAWK] = true, [MONKEY] = true, [CHEETAH] = true,
-        [PACK] = true, [WILD] = true, [BEAST] = true}})
+        [PACK] = true, [WILD] = true, [BEAST] = true}, db = {aspectBar = {enabled = false}}})
     local aspect = state.icon("aspect")
     equal(aspect.parent, state.widget("aspect"), "its own widget")
     equal(visible(aspect), true)
@@ -1733,7 +1793,7 @@ test("Hunter: no aspect shows the Aspect reminder in My buffs; any aspect counts
 end)
 test("Hunter: a click recasts the last combat aspect, never Cheetah or Pack", function()
     local state = fixture({class = "HUNTER", known = {[HAWK] = true, [MONKEY] = true, [CHEETAH] = true,
-        [PACK] = true, [WILD] = true}})
+        [PACK] = true, [WILD] = true}, db = {aspectBar = {enabled = false}}})
     local aspect = state.icon("aspect")
     state.cast(MONKEY)
     state.update("UNIT_AURA", "player")
@@ -1752,12 +1812,12 @@ test("Hunter: a click recasts the last combat aspect, never Cheetah or Pack", fu
     state.update("UNIT_AURA", "player")
     equal(state.dbr.db.last.aspect, "Aspect of the Hawk", "every rank counts")
     local saved = fixture({class = "HUNTER", known = {[HAWK] = true, [CHEETAH] = true},
-        db = {last = {aspect = "Aspect of the Cheetah"}}})
+        db = {last = {aspect = "Aspect of the Cheetah"}, aspectBar = {enabled = false}}})
     equal(saved.icon("aspect").attributes.macrotext1, "/use !Aspect of the Hawk", "a saved Cheetah is never cast")
 end)
 test("a reminder's picture is always the spell its click casts, as its tooltip says", function()
     local hunter = fixture({class = "HUNTER", known = {[HAWK] = true, [MONKEY] = true, [CHEETAH] = true,
-        [PACK] = true}})
+        [PACK] = true}, db = {aspectBar = {enabled = false}}})
     local aspect = hunter.icon("aspect")
     equal(aspect.texture.texture, 2000 + HAWK, "nothing cast: Hawk, not the last aspect in the list (Pack)")
     hunter.cast(HAWK)
@@ -1786,27 +1846,27 @@ test("a reminder's picture is always the spell its click casts, as its tooltip s
     contains(tooltip(mage, armor), "Click: Ice Armor on you.")
 end)
 test("Hunter: without a combat aspect cast, Hawk, then Monkey; off or unknown takes no slot", function()
-    local monkey = fixture({class = "HUNTER", known = {[MONKEY] = true, [CHEETAH] = true}})
+    local monkey = fixture({class = "HUNTER", known = {[MONKEY] = true, [CHEETAH] = true}, db = {aspectBar = {enabled = false}}})
     equal(monkey.icon("aspect").attributes.macrotext1, "/use !Aspect of the Monkey", "no Hawk yet: Monkey")
-    local cheetah = fixture({class = "HUNTER", known = {[CHEETAH] = true}})
+    local cheetah = fixture({class = "HUNTER", known = {[CHEETAH] = true}, db = {aspectBar = {enabled = false}}})
     equal(cheetah.icon("aspect").attributes.macrotext1, nil, "only Cheetah known: nothing to cast")
     local none = fixture({class = "HUNTER"})
     equal(none.widget("aspect").shown, false, "no aspect known: no widget")
     local off = fixture({class = "HUNTER", known = {[HAWK] = true}})
-    off.settings.DBR_BUFF_ASPECT:SetValue(false)
+    off.settings.DBR_ASPECT_MODE:SetValue("off")
     equal(off.widget("aspect").shown, false, "switched off: no widget")
     equal(visible(off.icon("aspect")), false)
     off.clear()
     off.slash("debug")
     contains(off.find("debug aspect"), "unknownIDs=none last=nil")
 end)
--- The combat aspect button.
+-- The Aspect reminder (John, 1.8.0): one widget, shown only when there is a problem.
 local function hunterFixture(options)
     options = options or {}
     options.class = "HUNTER"
     options.known = options.known or {[HAWK] = true, [MONKEY] = true, [CHEETAH] = true, [PACK] = true}
     local state = fixture(options)
-    return state, state.env.DyresBuffRemindersCombatAspect
+    return state, state.icon("aspect")
 end
 local function enterCombat(state)
     state.combat = true
@@ -1818,154 +1878,6 @@ local function leaveCombat(state)
     state.applyDrivers()
     state.emit("PLAYER_REGEN_ENABLED")
 end
-test("combat aspect: armed out of combat while Cheetah or Pack is up; the game shows it in combat", function()
-    local state, button = hunterFixture()
-    equal(state.drivers[button], "hide", "no travel aspect: never shows")
-    state.cast(MONKEY)
-    state.buff("player", "Aspect of the Cheetah")
-    state.update("UNIT_AURA", "player")
-    equal(state.drivers[button], "[combat] show; hide")
-    equal(button.attributes.type1, "macro")
-    equal(button.attributes.macrotext1, "/use !Aspect of the Monkey", "the last combat aspect, with \"!\"")
-    equal(button.texture.texture, 2000 + MONKEY)
-    equal(button.shown, false, "out of combat: hidden")
-    enterCombat(state)
-    equal(button.shown, true, "combat starts: shown by the game")
-    leaveCombat(state)
-    state.units.player.buffs = {}
-    state.update("UNIT_AURA", "player")
-    equal(state.drivers[button], "hide", "no travel aspect: hidden again")
-    equal(button.attributes.macrotext1, nil)
-    local pack, packButton = hunterFixture()
-    pack.buff("player", "Aspect of the Pack")
-    pack.update("UNIT_AURA", "player")
-    equal(packButton.attributes.macrotext1, "/use !Aspect of the Hawk", "Pack too; nothing cast: Hawk")
-    local monkey, monkeyButton = hunterFixture({known = {[MONKEY] = true, [CHEETAH] = true}})
-    monkey.buff("player", "Aspect of the Cheetah")
-    monkey.update("UNIT_AURA", "player")
-    equal(monkeyButton.attributes.macrotext1, "/use !Aspect of the Monkey", "no Hawk: Monkey")
-end)
-test("combat aspect: a click casts with \"!\" and hides it; your own cast dims it, never to invisible", function()
-    local state, button = hunterFixture()
-    state.buff("player", "Aspect of the Cheetah")
-    state.update("UNIT_AURA", "player")
-    enterCombat(state)
-    state.secureClick(button)
-    equal(state.clicked[1], "/use !Aspect of the Hawk", "\"!\": a stray click never takes an aspect down")
-    equal(button.shown, false, "the secure wrap hides it after the click")
-    equal(state.wraps[button].script, "OnClick")
-    leaveCombat(state)
-    enterCombat(state)
-    equal(button.shown, true, "the next fight with Cheetah up: shown again")
-    state.cast(CHEETAH)
-    equal(button.texture.alpha, 1, "a travel aspect cast does not dim it")
-    state.cast(HAWK)
-    equal(button.texture.alpha, 0.4, "your own Hawk cast dims it")
-    equal(button.glow.animation.playing, false, "and stops its pulse")
-    equal(button.shown, true, "still visible where it takes clicks")
-    equal(button.alpha ~= 0, true, "never faded to invisible")
-    equal(button.attributes.macrotext1, "/use !Aspect of the Hawk", "no secure change in combat")
-    leaveCombat(state)
-    equal(button.texture.alpha, 1, "reset after combat")
-end)
-test("combat aspect: a sound at combat start, with its own switch and choice", function()
-    local state, button = hunterFixture()
-    enterCombat(state)
-    equal(#state.played, 0, "not armed: no sound")
-    leaveCombat(state)
-    state.buff("player", "Aspect of the Cheetah")
-    state.update("UNIT_AURA", "player")
-    enterCombat(state)
-    equal(state.played[1].key, "talent", "the default sound")
-    equal(state.played[1].speech, "Aspect of the Cheetah is up")
-    leaveCombat(state)
-    state.settings.DBR_COMBAT_ASPECT_SOUND:SetValue("magical")
-    equal(state.dbr.db.combatAspect.sound, "magical")
-    equal(state.played[#state.played].key, "magical", "choosing a sound plays it")
-    local before = #state.played
-    enterCombat(state)
-    equal(state.played[#state.played].key, "magical")
-    leaveCombat(state)
-    state.settings.DBR_COMBAT_ASPECT_SOUND_ON:SetValue(false)
-    before = #state.played
-    enterCombat(state)
-    equal(#state.played, before, "sound switched off")
-    equal(button.shown, true, "the button still shows")
-end)
-test("combat aspect: settings, unlock, its widget, and who gets it", function()
-    local state, button = hunterFixture()
-    local row = state.row("DBR_COMBAT_ASPECT")
-    equal(row.setting.name, "Combat aspect reminder")
-    equal(row.parentInitializer, state.row("DBR_BUFF_ASPECT"), "under the Aspect switch")
-    local sound = state.row("DBR_COMBAT_ASPECT_SOUND_ON")
-    equal(sound.kind, "checkboxdropdown", "the switch and the sound on one row")
-    equal(sound.parentInitializer, row)
-    equal(state.row("DYRE_DYRESBUFFREMINDERS_COMBATASPECT_SCALE"), nil, "no size rows of its own")
-    state.buff("player", "Aspect of the Cheetah")
-    state.update("UNIT_AURA", "player")
-    state.settings.DBR_COMBAT_ASPECT:SetValue(false)
-    equal(state.drivers[button], "hide", "switched off: never shows")
-    state.settings.DBR_COMBAT_ASPECT:SetValue(true)
-    state.slash("unlock")
-    equal(state.drivers[button], "hide", "unlocked: no sample of its own; the Aspect slot is the one to drag")
-    equal(button.attributes.macrotext1, nil, "dragging never casts")
-    state.slash("lock")
-    equal(state.drivers[button], "[combat] show; hide")
-    state.clear()
-    state.slash("debug")
-    contains(state.find("debug combatAspect"), "armed=true travel=Aspect of the Cheetah macro=/use !Aspect of the Hawk")
-    equal(fixture({known = {[INTELLECT] = true}}).env.DyresBuffRemindersCombatAspect, nil, "a Mage: none")
-    local bare, bareButton = hunterFixture({noSecureWrap = true})
-    equal(bareButton, nil, "without the secure wrap: no button")
-    equal(bare.row("DBR_COMBAT_ASPECT"), nil)
-    local db = fixture({class = "HUNTER", db = {combatAspect = {enabled = "x", soundOn = 0, sound = 5,
-        position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 1, y = 2}, scale = 150, opacity = 50}}}).dbr.db
-    equal(db.combatAspect.enabled, true)
-    equal(db.combatAspect.soundOn, true)
-    equal(db.combatAspect.sound, "talent")
-    equal(db.combatAspect.position, nil, "its own place is dropped: it is My buffs'")
-    equal(db.combatAspect.scale, nil)
-    equal(db.combatAspect.opacity, nil)
-end)
-test("combat aspect: one widget to the player: it sits on the Aspect widget and follows it", function()
-    local state, button = hunterFixture()
-    local holder = state.widget("aspect")
-    equal(button.parent, state.env.UIParent, "its own driver decides when it shows")
-    for _, widget in ipairs(state.toolkit.Widgets(ADDON)) do
-        equal(widget ~= button, true, "not a widget of its own")
-    end
-    local point = button.points[#button.points]
-    equal(point[1], "CENTER")
-    equal(point[2], holder, "anchored to the Aspect widget")
-    equal(button:GetFrameLevel() > holder.slot:GetFrameLevel(), true, "above the aura slot")
-    state.slash("unlock")
-    local aspect = state.icon("aspect")
-    aspect.scripts.OnDragStart(aspect)
-    holder:ClearAllPoints()
-    holder:SetPoint("CENTER", nil, "BOTTOMLEFT", 300, 200)
-    aspect.scripts.OnDragStop(aspect)
-    state.slash("lock")
-    local bx, by = state.absCenter(button)
-    local ax, ay = state.absCenter(holder)
-    equal(math.floor(bx + 0.5), math.floor(ax + 0.5), "moving the Aspect widget moves it too")
-    equal(math.floor(by + 0.5), math.floor(ay + 0.5))
-    state.settings.DBR_BUFF_ICONS_SCALE:SetValue(150)
-    equal(button.scale, holder.scale, "the widget's size")
-    equal(button.scale, 1.5)
-    state.settings.DBR_BUFF_ICONS_OPACITY:SetValue(60)
-    equal(button.alpha, 0.6, "the widget's opacity")
-    state.buff("player", "Aspect of the Cheetah")
-    state.update("UNIT_AURA", "player")
-    state.combat = true
-    state.applyDrivers()
-    equal(button.shown, true, "the combat aspect shows in combat")
-    state.combat = false
-    state.applyDrivers()
-    state.emit("PLAYER_REGEN_ENABLED")
-    state.settings.DBR_BUFF_ASPECT:SetValue(false)
-    equal(state.drivers[button], "[combat] show; hide", "Aspect off, Cheetah up: still armed")
-    equal(state.row("DBR_COMBAT_ASPECT").predicate(), true, "its switch stays usable with Aspect off")
-end)
 -- Ammo (Consumables) ------------------------------------------------------------------
 local BOW, GUN, CROSSBOW, THROWN, WAND, ARROW, BULLET = 2504, 2508, 15807, 2947, 5069, 2512, 2516
 local function ammoFixture(options)
@@ -2011,21 +1923,54 @@ test("ammo: arrows in your bags but none equipped shows missing, with what to do
     equal(frame.shown, true)
     equal(icon.texture.desaturated, true)
     equal(icon.texture.texture, "Interface\\Icons\\INV_Ammo_Arrow_02", "the default arrow icon")
-    contains(tooltip(state, icon), "Equip your arrows.")
+    contains(tooltip(state, icon), "You have ammunition in your inventory. Remember to equip your ammo.")
     state.bags[0] = {6948}
     state.emit("BAG_UPDATE_DELAYED")
-    contains(tooltip(state, icon), "No arrows in your bags.")
+    contains(tooltip(state, icon), "You do not have ammunition in your inventory. Remember to equip your ammo.")
     local crossbow, _, crossbowIcon = ammoFixture()
     crossbow.bags[1] = {ARROW}
     equip(crossbow, CROSSBOW, nil, 0)
-    contains(tooltip(crossbow, crossbowIcon), "Equip your arrows.", "a crossbow takes arrows")
+    contains(tooltip(crossbow, crossbowIcon), "You have ammunition in your inventory. Remember to equip your ammo.", "a crossbow takes arrows")
+end)
+test("ammo: a tier switch (John): arrows used up, the slot empty, the next tier in the bags", function()
+    local state, frame, icon = ammoFixture()
+    equip(state, BOW, ARROW, 1000)
+    equal(icon.count.text, "1000")
+    -- All Rough Arrows used up: the ammo slot is empty (found in client), no arrows in the bags.
+    state.bags[0] = {6948}
+    equip(state, BOW, nil, 0)
+    equal(frame.shown, true)
+    equal(icon.count.text, "0")
+    equal(isRed(icon), true)
+    equal(icon.texture.desaturated, true)
+    equal(icon.texture.texture, "Interface\\Icons\\INV_Ammo_Arrow_02", "the default arrow icon")
+    contains(tooltip(state, icon), "You do not have ammunition in your inventory. Remember to equip your ammo.")
+    -- Sharp Arrows bought, not yet equipped.
+    state.bags[0] = {6948, 2515}
+    state.bags[1] = {2515, 2515}
+    state.emit("BAG_UPDATE_DELAYED")
+    equal(icon.count.text, "0", "not in the ammo slot: the game does not fire them")
+    equal(isRed(icon), true)
+    contains(tooltip(state, icon), "You have ammunition in your inventory. Remember to equip your ammo.")
+    -- A used-up item left in the slot at 0 gives the same two texts.
+    equip(state, BOW, ARROW, 0)
+    contains(tooltip(state, icon), "You have ammunition in your inventory. Remember to equip your ammo.")
+    state.bags[0], state.bags[1] = {6948}, nil
+    state.emit("BAG_UPDATE_DELAYED")
+    contains(tooltip(state, icon), "You do not have ammunition in your inventory. Remember to equip your ammo.")
+    -- Sharp Arrows in the ammo slot: their count.
+    equip(state, BOW, 2515, 1600)
+    equal(icon.count.text, "1600")
+    equal(icon.texture.texture, 3003, "the new arrows' icon")
+    equal(icon.texture.desaturated, false)
+    equal(isRed(icon), false)
 end)
 test("ammo: a gun takes bullets; a Warrior with a gun counts too", function()
     local state, _, icon = ammoFixture({class = "WARRIOR"})
     state.bags[2] = {ARROW, BULLET}
     equip(state, GUN, nil, 0)
     equal(icon.texture.texture, "Interface\\Icons\\INV_Ammo_Bullet_02")
-    contains(tooltip(state, icon), "Equip your bullets.")
+    contains(tooltip(state, icon), "You have ammunition in your inventory. Remember to equip your ammo.")
     equip(state, GUN, BULLET, 900)
     equal(icon.texture.texture, 3002)
     equal(icon.count.text, "900")
@@ -5082,6 +5027,565 @@ test("toolkit: every DBR frame is a widget; DBR never moves, scales, or saves on
     equal(type(seal.scripts.OnDragStart), "function", "the toolkit's drag (hooked only to keep a Ctrl move's mouse)")
     equal(seal.dyre.store, state.dbr.db.seal, "saved under the keys it had")
     equal(state.widget("righteousFury").dyre.store, state.dbr.db.buffs.righteousFury)
+end)
+
+-- The aspect bar (1.8.0) ------------------------------------------------------------------
+
+local VIPER, HAWK_TBC, WILD_TBC = 34074, 27044, 27045
+local ASPECT_ORDER = {"hawk", "monkey", "viper", "beast", "wild", "cheetah", "pack"}
+local function aspectButton(state, key) return state.env["DyresBuffRemindersAspect_" .. key] end
+local function aspectBar(state) return state.env.DyresBuffRemindersAspectBar end
+-- The shown buttons, left to right (or top to bottom), as keys.
+local function shownAspects(state)
+    local list = {}
+    for _, key in ipairs(ASPECT_ORDER) do
+        local button = aspectButton(state, key)
+        if button.shown then
+            local point = button.points[#button.points]
+            list[#list + 1] = {key = key, offset = point[1] == "TOP" and -point[5] or point[4], at = point[1]}
+        end
+    end
+    table.sort(list, function(a, b) return a.offset < b.offset end)
+    local keys = {}
+    for _, entry in ipairs(list) do keys[#keys + 1] = entry.key end
+    return table.concat(keys, ","), list
+end
+local function glowing(state)
+    local keys = {}
+    for _, key in ipairs(ASPECT_ORDER) do
+        if aspectButton(state, key).glow:GetAlpha() == 1 then keys[#keys + 1] = key end
+    end
+    return table.concat(keys, ",")
+end
+local function aspectBarOn(state)
+    state.settings.DBR_ASPECT_BAR:SetValue(true)
+end
+
+test("Aspect bar: a new Hunter gets it on; other classes get no bar, sample, or settings", function()
+    -- A new character: no saved settings at all (John: "make it on by default for hunters").
+    local state = hunterFixture({known = {[HAWK] = true, [MONKEY] = true}})
+    equal(state.dbr.db.aspectBar.enabled, true, "on at first for a Hunter")
+    equal(aspectBar(state).shown, true, "shown at login")
+    equal(shownAspects(state), "hawk,monkey")
+    equal(aspectButton(state, "hawk").attributes.macrotext1, "/use !Aspect of the Hawk", "armed at login")
+    equal(state.row("DBR_ASPECT_BAR").setting.default, true, "the setting's default")
+    equal(state.row("DBR_ASPECT_BAR").setting:GetValue(), true)
+    -- Off stays off: a saved false is kept.
+    local off = hunterFixture({db = {aspectBar = {enabled = false}}})
+    equal(off.dbr.db.aspectBar.enabled, false, "a saved off stays off")
+    equal(aspectBar(off).shown, false)
+    -- Other classes: no bar, no sample when unlocked, no settings rows.
+    for _, class in ipairs({"PALADIN", "WARRIOR", "MAGE", "ROGUE"}) do
+        local other = fixture({class = class})
+        other.slash("unlock")
+        equal(other.env.DyresBuffRemindersAspectBar, nil, class .. ": no bar")
+        equal(other.env.DyresBuffRemindersAspect_hawk, nil, class .. ": no sample")
+        equal(other.row("DBR_ASPECT_BAR"), nil, class .. ": no Enable row")
+        equal(other.row("DBR_ASPECT_BAR_VERTICAL"), nil, class .. ": no Vertical row")
+        equal(other.row("DYRE_DYRESBUFFREMINDERS_ASPECTBAR_SCALE"), nil, class .. ": no size row")
+        for _, heading in ipairs(other.headings) do
+            equal(heading.heading ~= "Aspect bar", true, class .. ": no heading")
+        end
+    end
+end)
+
+test("Aspect bar: a button per aspect you know, in order, each casting /use !Name", function()
+    local state = hunterFixture({known = {[HAWK] = true, [14318] = true, [MONKEY] = true, [CHEETAH] = true,
+        [PACK] = true}})
+    local frame = aspectBar(state)
+    state.settings.DBR_ASPECT_BAR:SetValue(false)
+    equal(frame.shown, false, "off: hidden")
+    equal(aspectButton(state, "hawk").attributes.macrotext1, nil, "off: no click")
+    aspectBarOn(state)
+    equal(frame.shown, true)
+    equal(shownAspects(state), "hawk,monkey,cheetah,pack", "combat aspects first; unknown ones hidden")
+    equal(aspectButton(state, "hawk").attributes.macrotext1, "/use !Aspect of the Hawk", "by name: every rank")
+    equal(aspectButton(state, "hawk").attributes.type1, "macro")
+    equal(aspectButton(state, "hawk").texture.texture, 2000 + 14318, "the highest known rank's picture")
+    equal(aspectButton(state, "pack").attributes.macrotext1, "/use !Aspect of the Pack")
+    equal(aspectButton(state, "viper").attributes.macrotext1, nil, "not known: no click")
+    equal(frame.dyre.contentWidth, 4 * 36 + 3 * 4, "the bar fits its buttons")
+    equal(frame.dyre.contentHeight, 36)
+    state.secureClick(aspectButton(state, "monkey"))
+    equal(state.clicked[#state.clicked], "/use !Aspect of the Monkey")
+    -- Viper and the TBC ranks are data: known, they show in their place.
+    local tbc = hunterFixture({known = {[HAWK_TBC] = true, [VIPER] = true, [WILD_TBC] = true, [BEAST] = true},
+        db = {aspectBar = {enabled = true}}})
+    equal(shownAspects(tbc), "hawk,viper,beast,wild")
+    equal(aspectButton(tbc, "viper").attributes.macrotext1, "/use !Aspect of the Viper")
+    -- Saved settings are repaired; another class has no bar and no section.
+    local repaired = hunterFixture({db = {aspectBar = {enabled = "yes", vertical = 1, position = "x"}}})
+    equal(repaired.dbr.db.aspectBar.enabled, true, "damaged: back to on")
+    equal(repaired.dbr.db.aspectBar.vertical, false)
+    equal(type(repaired.dbr.db.aspectBar.position), "table", "a damaged place: the toolkit's default")
+    equal(repaired.dbr.db.aspectBar.position.y, 400 + 72, "its default place, as the toolkit saves it")
+    local paladin = fixture({class = "PALADIN", known = {[25780] = true}})
+    equal(paladin.env.DyresBuffRemindersAspectBar, nil, "no bar for a Paladin")
+    equal(paladin.row("DBR_ASPECT_BAR"), nil, "no section for a Paladin")
+end)
+
+test("Aspect bar: a gold border on the aspect that is up, from the aura out of combat and own casts in combat",
+    function()
+    local state = hunterFixture()
+    aspectBarOn(state)
+    equal(glowing(state), "", "no aspect up")
+    state.buff("player", "Aspect of the Hawk")
+    state.update("UNIT_AURA", "player")
+    equal(glowing(state), "hawk")
+    -- In combat auras are refused (the mock raises an error on a read): the
+    -- player's own cast moves the border.
+    enterCombat(state)
+    state.update("UNIT_AURA", "player")
+    state.cast(CHEETAH)
+    equal(glowing(state), "cheetah", "own cast in combat")
+    state.cast(BLINK)
+    equal(glowing(state), "cheetah", "not an aspect: no change")
+    state.emit("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-guid", state.secret())
+    equal(glowing(state), "cheetah", "a secret spell ID: unknown, no change")
+    -- After combat the aura decides again.
+    state.units.player.buffs = {["Aspect of the Monkey"] = true}
+    leaveCombat(state)
+    equal(glowing(state), "monkey", "after combat: the aura")
+    -- A secret aura is unknown: the border stays.
+    state.units.player.secretAuras = true
+    state.update("UNIT_AURA", "player")
+    equal(glowing(state), "monkey", "secret: the border stays")
+    state.units.player.secretAuras = nil
+    state.units.player.buffs = {}
+    state.update("UNIT_AURA", "player")
+    equal(glowing(state), "", "no aspect up: no border")
+    -- The tooltip: the name and what a click does.
+    state.buff("player", "Aspect of the Hawk")
+    state.update("UNIT_AURA", "player")
+    local text = tooltip(state, aspectButton(state, "hawk"))
+    contains(text, "Aspect of the Hawk|It is up now.")
+    contains(text, "Click: cast Aspect of the Hawk. A click never turns an aspect off.")
+    state.slash("debug")
+    contains(state.find("debug aspectBar"), "on=true vertical=false known=hawk,monkey,cheetah,pack active=hawk")
+end)
+
+test("Aspect bar: rebuilt only out of combat; a newly learned aspect or rank waits for combat to end", function()
+    local state = hunterFixture({known = {[HAWK] = true, [MONKEY] = true}, db = {aspectBar = {enabled = true}}})
+    equal(shownAspects(state), "hawk,monkey")
+    enterCombat(state)
+    -- The mock raises an error on any secure change in combat.
+    state.known[WILD] = true
+    state.known[14318] = true
+    state.update("SPELLS_CHANGED")
+    equal(shownAspects(state), "hawk,monkey", "in combat: nothing changes")
+    equal(aspectButton(state, "wild").attributes.macrotext1, nil)
+    state.settings.DBR_ASPECT_BAR_VERTICAL:SetValue(true)
+    leaveCombat(state)
+    equal(shownAspects(state), "hawk,monkey,wild", "after combat: the new aspect, in its place")
+    equal(aspectButton(state, "wild").attributes.macrotext1, "/use !Aspect of the Wild")
+    equal(aspectButton(state, "hawk").texture.texture, 2000 + 14318, "the new rank's picture")
+    local _, list = shownAspects(state)
+    equal(list[3].at, "TOP", "vertical, set in combat, applies after it")
+    equal(list[3].offset, 2 * 40)
+    equal(aspectBar(state).dyre.contentWidth, 36)
+    equal(aspectBar(state).dyre.contentHeight, 3 * 36 + 2 * 4)
+    -- A reload in combat: the bar is made only once combat ends.
+    local reload = hunterFixture({combat = true, db = {aspectBar = {enabled = true}}})
+    equal(reload.env.DyresBuffRemindersAspectBar, nil, "not made in combat")
+    leaveCombat(reload)
+    equal(shownAspects(reload), "hawk,monkey,cheetah,pack", "made after combat")
+end)
+
+test("Aspect bar: hidden while dead or on a flight path, shown while mounted; unlocked it never casts", function()
+    local state = hunterFixture({db = {aspectBar = {enabled = true}}})
+    local frame = aspectBar(state)
+    equal(frame.shown, true)
+    state.taxi = true
+    state.update("PLAYER_CONTROL_LOST")
+    equal(frame.shown, false, "on a flight path")
+    state.taxi = false
+    state.update("PLAYER_CONTROL_GAINED")
+    equal(frame.shown, true, "landed")
+    state.units.player.dead = true
+    state.update("PLAYER_DEAD")
+    equal(frame.shown, false, "dead")
+    state.units.player.dead = false
+    state.update("PLAYER_ALIVE")
+    equal(frame.shown, true, "alive")
+    state.mounted = true
+    state.update("PLAYER_ENTERING_WORLD")
+    equal(frame.shown, true, "mounted: shown")
+    state.slash("unlock")
+    equal(frame.shown, true)
+    equal(aspectButton(state, "hawk").attributes.macrotext1, nil, "unlocked: dragging must not cast")
+    contains(tooltip(state, aspectButton(state, "hawk")), "Drag to move the aspect bar.")
+    state.slash("lock")
+    equal(aspectButton(state, "hawk").attributes.macrotext1, "/use !Aspect of the Hawk", "locked again")
+    -- No aspect yet: nothing locked, one sample unlocked to place the bar.
+    local fresh = hunterFixture({known = {}, db = {aspectBar = {enabled = true}}})
+    equal(aspectBar(fresh).shown, false, "no aspect: nothing")
+    fresh.slash("unlock")
+    equal(aspectBar(fresh).shown, true)
+    equal(shownAspects(fresh), "hawk", "a sample to place")
+    equal(aspectButton(fresh, "hawk").attributes.macrotext1, nil)
+end)
+
+test("Aspect bar: its settings, and a default place clear of every other DBR widget", function()
+    local all = {}
+    for _, aspect in ipairs({HAWK, MONKEY, VIPER, BEAST, WILD, CHEETAH, PACK}) do all[aspect] = true end
+    all[883] = true
+    local state = hunterFixture({known = all, db = {aspectBar = {enabled = true}}})
+    local _, enableIndex = state.row("DBR_ASPECT_BAR")
+    local vertical, verticalIndex = state.row("DBR_ASPECT_BAR_VERTICAL")
+    equal(verticalIndex, enableIndex + 1, "Vertical under Enable")
+    equal(vertical.parentInitializer, (state.row("DBR_ASPECT_BAR")))
+    local size = state.row("DYRE_DYRESBUFFREMINDERS_ASPECTBAR_SCALE")
+    equal(size.setting.name, "Aspect bar: size")
+    equal(state.row("DYRE_DYRESBUFFREMINDERS_ASPECTBAR_OPACITY").setting.name, "Aspect bar: opacity")
+    equal(shownAspects(state), "hawk,monkey,viper,beast,wild,cheetah,pack")
+    local function rect(widget)
+        local x, y = widget:GetCenter()
+        local scale = widget:GetEffectiveScale()
+        local w, h = widget:GetWidth() * scale / 2, widget:GetHeight() * scale / 2
+        return {x * scale - w, y * scale - h, x * scale + w, y * scale + h}
+    end
+    local function clear(widgets)
+        for i = 1, #widgets do
+            for j = i + 1, #widgets do
+                local a, b = rect(widgets[i]), rect(widgets[j])
+                local overlap = a[1] < b[3] and b[1] < a[3] and a[2] < b[4] and b[2] < a[4]
+                equal(overlap, false, widgets[i].dyre.widgetKey .. " and " .. widgets[j].dyre.widgetKey)
+            end
+        end
+    end
+    local widgets = state.toolkit.Widgets(ADDON)
+    local keys = {}
+    for _, widget in ipairs(widgets) do keys[#keys + 1] = widget.dyre.widgetKey end
+    equal(table.concat(keys, ","), "buff_aspect,buff_hunterPet,warnings,consumables,aspectBar")
+    clear(widgets)
+    -- Vertical keeps the top edge, so it grows down, away from the reminders.
+    state.settings.DBR_ASPECT_BAR_VERTICAL:SetValue(true)
+    clear(widgets)
+end)
+
+-- The Aspect reminder (John, 1.8.0) -------------------------------------------------
+local function aspectUp(state, name)
+    state.units.player.buffs = name and {[name] = true} or {}
+    state.update("UNIT_AURA", "player")
+end
+-- Shown, and red: the indicator.
+local function indicator(icon)
+    return icon.shown == true and icon.glow.shown == true and icon.glow:GetAlpha() == 1 and icon.alpha ~= 0.4
+end
+test("Aspect reminder, Normal: a red outline with no aspect up, and in combat with Cheetah or Pack up", function()
+    local state, icon = hunterFixture()
+    equal(state.dbr.db.aspectMode, "normal", "Normal at first")
+    equal(state.widget("aspect").slot, nil, "no aura slot draws the aspect")
+    equal(indicator(icon), true, "no aspect, out of combat: shown, red")
+    equal(icon.glow.backdropBorder[1], 1, "red")
+    equal(icon.glow.backdropBorder[2], 0.2)
+    equal(icon.texture.texture, 2000 + HAWK, "the last combat aspect's icon, else Hawk")
+    equal(icon.driver, "show")
+    enterCombat(state)
+    equal(indicator(icon), true, "no aspect, in combat: shown")
+    leaveCombat(state)
+    aspectUp(state, "Aspect of the Hawk")
+    equal(icon.shown, false, "a combat aspect up: nothing shows")
+    equal(icon.driver, "hide")
+    enterCombat(state)
+    equal(icon.shown, false, "nor in combat")
+    leaveCombat(state)
+    for _, name in ipairs({"Aspect of the Cheetah", "Aspect of the Pack"}) do
+        aspectUp(state, name)
+        equal(icon.shown, false, name .. " out of combat: travel, no indicator")
+        equal(icon.driver, "[combat] show; hide", name .. ": the game shows it when combat starts")
+        equal(icon.attributes.macrotext1, "/use !Aspect of the Hawk", "armed for the fight")
+        enterCombat(state)
+        equal(indicator(icon), true, name .. " in combat: shown, red")
+        leaveCombat(state)
+        equal(icon.shown, false, name .. ": hidden again after combat")
+    end
+    aspectUp(state, nil)
+    state.cast(MONKEY)
+    state.wait(1)
+    equal(icon.texture.texture, 2000 + MONKEY, "the last combat aspect's icon")
+end)
+test("Aspect reminder, Speed-Running: Cheetah is fine in combat; no aspect or Pack still shows it", function()
+    local state, icon = hunterFixture()
+    state.settings.DBR_ASPECT_MODE:SetValue("speed")
+    equal(state.dbr.db.aspectMode, "speed")
+    equal(indicator(icon), true, "no aspect: shown")
+    enterCombat(state)
+    equal(indicator(icon), true, "no aspect in combat: shown")
+    leaveCombat(state)
+    aspectUp(state, "Aspect of the Cheetah")
+    equal(icon.driver, "hide", "Cheetah: no indicator, in or out of combat")
+    enterCombat(state)
+    equal(icon.shown, false, "Cheetah in combat: fine")
+    leaveCombat(state)
+    aspectUp(state, "Aspect of the Pack")
+    equal(icon.driver, "[combat] show; hide")
+    enterCombat(state)
+    equal(indicator(icon), true, "Pack in combat: shown")
+    leaveCombat(state)
+    aspectUp(state, "Aspect of the Monkey")
+    enterCombat(state)
+    equal(icon.shown, false, "a combat aspect: nothing")
+end)
+test("Aspect reminder, Disabled: it never shows; a saved switch off becomes Disabled", function()
+    local state, icon = hunterFixture()
+    state.settings.DBR_ASPECT_MODE:SetValue("off")
+    equal(state.dbr.db.spells.aspect, false)
+    equal(state.widget("aspect").shown, false, "no widget")
+    equal(icon.shown, false)
+    enterCombat(state)
+    equal(icon.shown, false, "not in combat either")
+    leaveCombat(state)
+    aspectUp(state, "Aspect of the Pack")
+    enterCombat(state)
+    equal(icon.shown, false, "not with Pack in combat")
+    leaveCombat(state)
+    equal(state.row("DBR_COMBAT_ASPECT_SOUND_ON").predicate(), false, "its sound greyed out")
+    state.slash("unlock")
+    equal(icon.shown, false, "no sample")
+    state.slash("lock")
+    state.settings.DBR_ASPECT_MODE:SetValue("bogus")
+    equal(state.dbr.db.aspectMode, "off", "an unknown mode changes nothing")
+    local function mode(db) return fixture({class = "HUNTER", known = {[HAWK] = true}, db = db}).dbr.db end
+    local off = mode({spells = {aspect = false}})
+    equal(off.aspectMode, "off", "a saved Aspect switch off: Disabled")
+    equal(off.spells.aspect, false)
+    equal(mode({spells = {aspect = true}}).aspectMode, "normal", "on: Normal")
+    equal(mode({}).aspectMode, "normal", "new: Normal")
+    equal(mode({aspectMode = "x", spells = {aspect = false}}).aspectMode, "off", "damaged: from the switch")
+    local speed = mode({aspectMode = "speed", spells = {aspect = false}})
+    equal(speed.aspectMode, "speed", "a saved mode wins")
+    equal(speed.spells.aspect, true, "and decides the switch")
+    local sound = mode({combatAspect = {enabled = false, soundOn = false, sound = "magical"}}).combatAspect
+    equal(sound.enabled, nil, "the combat aspect button's switch is dropped")
+    equal(sound.soundOn, false)
+    equal(sound.sound, "magical")
+end)
+test("Aspect reminder: the mode dropdown replaces the switch; the sound sits under it", function()
+    local state = hunterFixture()
+    local row = state.row("DBR_ASPECT_MODE")
+    equal(row.setting.name, "Aspect")
+    equal(row.parentInitializer, state.row("DBR_ENABLED"), "under Reminders' Enable")
+    equal(state.row("DBR_BUFF_ASPECT"), nil, "no switch")
+    equal(state.row("DBR_COMBAT_ASPECT"), nil, "no combat aspect button switch")
+    local sound = state.row("DBR_COMBAT_ASPECT_SOUND_ON")
+    equal(sound.parentInitializer, row, "the sound under the mode")
+    equal(sound.predicate(), true)
+    equal(state.env.DyresBuffRemindersCombatAspect, nil, "one widget: no combat aspect button")
+    local keys = {}
+    for _, widget in ipairs(state.toolkit.Widgets(ADDON)) do
+        if widget.dyre.widgetKey:find("aspect", 1, true) then keys[#keys + 1] = widget.dyre.widgetKey end
+    end
+    equal(table.concat(keys, ","), "buff_aspect,aspectBar")
+end)
+test("Aspect reminder: its own size, 50-200%, default 100%; a size set before stays, with its place", function()
+    local state, icon = hunterFixture()
+    local holder = state.widget("aspect")
+    local scale = state.row("DYRE_DYRESBUFFREMINDERS_BUFF_ASPECT_SCALE")
+    equal(scale.setting.name, "Aspect reminder: size")
+    equal(scale.options.minValue, 50)
+    equal(scale.options.maxValue, 200)
+    equal(holder.dyre.sizes.scale.default, 100)
+    equal(holder.scale, 1, "100% at first")
+    equal(state.row("DYRE_DYRESBUFFREMINDERS_BUFF_ASPECT_OPACITY").setting.name, "Aspect reminder: opacity")
+    state.settings.DBR_BUFF_ICONS_SCALE:SetValue(150)
+    equal(holder.scale, 1, "the shared size no longer changes it")
+    equal(state.widget("hunterPet").scale, 1.5)
+    state.settings.DYRE_DYRESBUFFREMINDERS_BUFF_ASPECT_SCALE:SetValue(300)
+    equal(holder.scale, 2, "at most 200%")
+    -- Its default place: the old one, in My buffs' row beside the Pet icon.
+    local fresh = hunterFixture()
+    local ax, ay = fresh.absCenter(fresh.widget("aspect"))
+    local px, py = fresh.absCenter(fresh.widget("hunterPet"))
+    equal(ay, py, "in My buffs' row")
+    equal(px - ax, 60, "beside the Pet icon")
+    -- A size set with the shared slider (150%) stays, so its place does too.
+    local shared = hunterFixture({db = {buffs = {aspect = {scale = 150,
+        position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 200, y = 100}}}}})
+    equal(shared.dbr.db.buffs.aspect.scale, 150, "its own size starts at the size it had")
+    local sx, sy = shared.absCenter(shared.widget("aspect"))
+    equal(sx, 300, "its center stays on the same screen spot")
+    equal(sy, 150)
+    -- The 1.8.0 test build (warnScale 200, its place in those units, no scale): converted once to 100%.
+    local test = hunterFixture({db = {buffs = {aspect = {warnScale = 200,
+        position = {point = "CENTER", relativePoint = "BOTTOMLEFT", x = 150, y = 100}}}}})
+    local saved = test.dbr.db.buffs.aspect
+    equal(saved.warnScale, nil, "the test build's size is dropped")
+    equal(saved.scale, 100)
+    equal(saved.position.x, 300, "in the new size's units")
+    local tx, ty = test.absCenter(test.widget("aspect"))
+    equal(tx, 300, "its center stays where it was")
+    equal(ty, 200)
+    equal(test.dbr.SanitizeDB(test.dbr.db).buffs.aspect.position.x, 300, "converted once only")
+end)
+test("Aspect reminder: a click casts the last combat aspect with the aspect bar on or off", function()
+    for _, barOn in ipairs({true, false}) do
+        local state, icon = hunterFixture({db = {aspectBar = {enabled = barOn}}})
+        local label = barOn and "bar on: " or "bar off: "
+        equal(icon.attributes.type1, "macro", label .. "a macro")
+        equal(icon.attributes.macrotext1, "/use !Aspect of the Hawk", label .. "\"!\": never takes an aspect down")
+        contains(tooltip(state, icon), "Click: Aspect of the Hawk on you.")
+        contains(tooltip(state, icon), "No aspect is up.")
+        state.slash("unlock")
+        equal(icon.attributes.macrotext1, nil, label .. "unlocked: dragging never casts")
+        equal(icon.shown, true, label .. "unlocked: the sample")
+        contains(tooltip(state, icon), "Drag to move")
+        state.slash("lock")
+    end
+    local cheetah = hunterFixture({known = {[CHEETAH] = true}})
+    equal(cheetah.icon("aspect").attributes.macrotext1, nil, "only Cheetah known: nothing to cast")
+    local bare, bareIcon = hunterFixture({noSecureWrap = true})
+    equal(indicator(bareIcon), true, "without the secure wrap: still shown")
+    equal(bareIcon.attributes.macrotext1, "/use !Aspect of the Hawk")
+end)
+test("Aspect reminder in combat: its own click hides it; an aspect bar click hides or shows it", function()
+    local state, icon = hunterFixture()
+    equal(state.wraps[icon].post, "self:Hide()")
+    equal(state.drivers[icon], nil, "no visibility driver: the game's would show it again within 0.2 s")
+    equal(icon.attributes["dbr-show"], "always")
+    enterCombat(state)
+    state.secureClick(icon)
+    equal(state.clicked[1], "/use !Aspect of the Hawk")
+    equal(icon.shown, false, "its own click hides it")
+    state.tick()
+    state.tick()
+    equal(icon.shown, false, "and it stays hidden (John, 2026-11-14: it came back, dimmed, until combat ended)")
+    leaveCombat(state)
+    equal(indicator(icon), true, "still no aspect after combat: shown again")
+    local hawk, pack, cheetah = aspectButton(state, "hawk"), aspectButton(state, "pack"), aspectButton(state, "cheetah")
+    equal(hawk.attributes["frameref-dbrAspectReminder"], icon, "each bar button reaches the reminder")
+    equal(state.wraps[hawk].header, icon)
+    equal(hawk.attributes["dbr-reminder"], "hide")
+    equal(pack.attributes["dbr-reminder"], "show")
+    equal(cheetah.attributes["dbr-reminder"], "show", "Normal: Cheetah is a problem")
+    enterCombat(state)
+    state.secureClick(hawk)
+    equal(icon.shown, false, "Hawk from the bar: hidden in secure code")
+    state.tick()
+    equal(icon.shown, false, "and it stays hidden")
+    state.secureClick(pack)
+    equal(icon.shown, true, "Pack from the bar: shown again")
+    state.tick()
+    equal(icon.shown, true, "and it stays shown")
+    leaveCombat(state)
+    state.secureClick(hawk)
+    equal(icon.shown, true, "out of combat the bar click does nothing; the aura decides")
+    state.settings.DBR_ASPECT_MODE:SetValue("speed")
+    equal(cheetah.attributes["dbr-reminder"], "hide", "Speed-Running: Cheetah fixes it")
+    state.settings.DBR_ASPECT_MODE:SetValue("off")
+    equal(hawk.attributes["dbr-reminder"], nil, "Disabled: no role")
+    state.settings.DBR_ASPECT_MODE:SetValue("normal")
+    aspectUp(state, "Aspect of the Hawk")
+    enterCombat(state)
+    equal(icon.shown, false)
+    equal(icon.attributes["dbr-show"], "never")
+    state.secureClick(pack)
+    equal(icon.shown, true, "hidden with Hawk up, then Pack from the bar: shown")
+    state.units.player.buffs = {["Aspect of the Hawk"] = true}
+    leaveCombat(state)
+    equal(icon.shown, false, "after combat the aura decides")
+end)
+test("Aspect reminder: combat's start shows it for a travel aspect, and its click then hides it for good", function()
+    local state, icon = hunterFixture()
+    aspectUp(state, "Aspect of the Cheetah")
+    equal(icon.attributes["dbr-show"], "combat")
+    equal(icon.shown, false, "Cheetah out of combat: travel, no problem")
+    enterCombat(state)
+    equal(icon.shown, true, "combat starts with Cheetah up: shown by the combat edge")
+    state.tick()
+    equal(icon.shown, true)
+    state.secureClick(icon)
+    state.tick()
+    equal(icon.shown, false, "its click hides it, and no update shows it again")
+    state.combat = false
+    state.tick()
+    equal(icon.shown, false, "combat's end with mode combat: hidden")
+end)
+test("Aspect reminder in combat: a cast from elsewhere dims it, never to invisible", function()
+    local state, icon = hunterFixture()
+    enterCombat(state)
+    state.cast(MONKEY)
+    equal(icon.alpha, 0.4, "a combat aspect from the action bar dims it")
+    equal(icon.glow:GetAlpha(), 0, "and takes the red outline away")
+    equal(icon.shown, true, "still where it takes clicks")
+    equal(icon.alpha ~= 0, true, "never alpha 0")
+    equal(icon.attributes.macrotext1, "/use !Aspect of the Hawk", "no secure change in combat")
+    state.cast(BLINK)
+    equal(icon.alpha, 0.4, "not an aspect: no change")
+    state.emit("UNIT_SPELLCAST_SUCCEEDED", "player", "cast-guid", state.secret())
+    equal(icon.alpha, 0.4, "a secret spell ID: no change")
+    state.cast(PACK)
+    equal(indicator(icon), true, "Pack: a problem again, solid and red")
+    state.cast(HAWK)
+    equal(icon.alpha, 0.4)
+    state.units.player.buffs = {["Aspect of the Hawk"] = true}
+    leaveCombat(state)
+    equal(icon.shown, false, "after combat: hidden")
+    equal(icon.alpha, 1, "reset")
+    equal(icon.glow:GetAlpha(), 1)
+end)
+test("Aspect reminder: the sound plays only when combat starts with a problem", function()
+    local state = hunterFixture()
+    enterCombat(state)
+    equal(state.played[1].speech, "No aspect up", "no aspect")
+    equal(state.played[1].key, "talent", "the default sound")
+    leaveCombat(state)
+    aspectUp(state, "Aspect of the Cheetah")
+    enterCombat(state)
+    equal(state.played[2].speech, "Aspect of the Cheetah is up")
+    leaveCombat(state)
+    aspectUp(state, "Aspect of the Hawk")
+    enterCombat(state)
+    equal(#state.played, 2, "a combat aspect: no sound")
+    leaveCombat(state)
+    state.settings.DBR_ASPECT_MODE:SetValue("speed")
+    aspectUp(state, "Aspect of the Cheetah")
+    enterCombat(state)
+    equal(#state.played, 2, "Speed-Running with Cheetah: no sound")
+    leaveCombat(state)
+    state.settings.DBR_COMBAT_ASPECT_SOUND:SetValue("magical")
+    equal(state.played[#state.played].key, "magical", "choosing a sound plays it")
+    local before = #state.played
+    aspectUp(state, "Aspect of the Pack")
+    enterCombat(state)
+    equal(state.played[#state.played].key, "magical")
+    equal(#state.played, before + 1)
+    leaveCombat(state)
+    state.settings.DBR_COMBAT_ASPECT_SOUND_ON:SetValue(false)
+    before = #state.played
+    enterCombat(state)
+    equal(#state.played, before, "sound switched off")
+end)
+test("Aspect reminder: hidden while dead or on a taxi; debug; a secret aura changes nothing", function()
+    local state, icon = hunterFixture()
+    state.units.player.dead = true
+    state.update("PLAYER_DEAD")
+    equal(icon.shown, false, "dead: hidden")
+    equal(icon.attributes.macrotext1, nil)
+    state.units.player.dead = false
+    state.update("PLAYER_ALIVE")
+    equal(indicator(icon), true)
+    state.taxi = true
+    state.update("PLAYER_CONTROL_LOST")
+    equal(icon.shown, false, "on a flight path: hidden")
+    state.taxi = false
+    state.update("PLAYER_CONTROL_GAINED")
+    equal(indicator(icon), true)
+    state.clear()
+    state.slash("debug")
+    contains(state.find("debug aspectReminder"), "mode=normal state=none problem=now driver=show "
+        .. "macro=/use !Aspect of the Hawk sound=talent")
+    aspectUp(state, "Aspect of the Hawk")
+    state.units.player.secretAuras = true
+    state.update("UNIT_AURA", "player")
+    equal(icon.shown, false, "a secret read: the last state stays")
+    state.units.player.secretAuras = nil
+    aspectUp(state, nil)
+    state.units.player.secretAuras = true
+    state.update("UNIT_AURA", "player")
+    equal(indicator(icon), true, "no aspect, then a secret read: still shown")
+    state.units.player.secretAuras = nil
+    equal(fixture({known = {[INTELLECT] = true}}).env.DyresBuffRemindersIcon_aspect, nil, "a Mage: none")
 end)
 
 local failed = 0

@@ -9,16 +9,17 @@ AddOns → Buff Reminders**, or type `/dbr`. They are saved per character.
   Thorns watches that tank and a click casts it on them. Solo, with no tank,
   as the tank yourself, or when the tank is dead, offline, or out of range,
   it watches you.
-- **Hunter: Aspect and combat aspect.** A click recasts your last combat
-  aspect, never Cheetah or Pack, and never takes an aspect down. Start a
-  fight with Cheetah or Pack up, and an icon with your combat aspect appears
-  at once: one click puts it up, with an optional sound.
+- **Hunter: Aspect reminder and aspect bar.** A red outline when there is
+  an aspect problem: no aspect up, or a fight with Cheetah or Pack up
+  (Speed-Running mode allows Cheetah). One click puts your last combat
+  aspect up, with an optional sound at combat start. An aspect bar swaps
+  aspects with one click and shows which one is up.
 - **Warrior: Battle Shout, Overpower, and Revenge.** A Battle Shout
   reminder, and a sound the moment Overpower or Revenge
   becomes usable, also in combat.
 - **Ammo for any bow, gun, or crossbow** (Hunters, Warriors, and Rogues): the
-  count, red and pulsing when low, and "Equip your arrows" when none are
-  equipped. It counts in combat too.
+  count, red and pulsing when low, and a reminder to equip your ammo when
+  none is equipped. It counts in combat too.
 - **Each buff its own icon**, always shown, in a place you choose that never
   moves: the buff with its time left while it is up, a red border you click
   to cast when it is missing, yellow and flashing before it runs out, moved
@@ -60,7 +61,7 @@ your own below.
 | Mage | **Arcane Intellect** (also for group members who use mana), **Armor** (Frost, Ice, or Mage Armor), **Dampen or Amplify Magic** (off at first; either counts, a click recasts the last one) |
 | Warlock | In a group where you aren't the tank, a message on screen while the Voidwalker's Torment or Suffering is on autocast (from Dyre's Toolkit 2.9.0 or later when it is installed); **Demon Armor** (Demon Skin counts before you learn it); **Pet (your demon)**: red while you have no demon, also in combat, and a click summons the last demon you summoned, else the Imp (not after a Demonic Sacrifice, nor while mounted) |
 | Warrior | **Battle Shout** (it reaches your party; watched on you). Unlike long buffs it shows only when needed: missing, or in its last 60 seconds (its own **Remind before it runs out**, 5-120 s), out of combat and in it (in combat timed from your own casts); it needs rage, which runs out soon after a fight |
-| Hunter | In a group where you aren't the tank, a message on screen while your pet's Growl is on autocast (from Dyre's Toolkit 2.9.0 or later when it is installed). **Aspect**: any aspect counts; a click recasts the last combat aspect you cast (Hawk, Monkey, Wild, or Beast), never Cheetah or Pack, else Hawk, else Monkey; **Pet**: red while you have no pet or it is dead, also in combat (not while mounted); a click calls it, or revives it when it is dead, and a right-click revives it |
+| Hunter | In a group where you aren't the tank, a message on screen while your pet's Growl is on autocast (from Dyre's Toolkit 2.9.0 or later when it is installed). **Aspect**: a red outline only when there is a problem (no aspect up; in a fight, Cheetah or Pack up), in Normal, Speed-Running, or Disabled mode; a click recasts the last combat aspect you cast (Hawk, Monkey, Viper, Wild, or Beast), never Cheetah or Pack, else Hawk, else Monkey; **Pet**: red while you have no pet or it is dead, also in combat (not while mounted); a click calls it, or revives it when it is dead, and a right-click revives it |
 | Druid | **Mark of the Wild** (also for your group), **Thorns** (on your group's tank, else on you) |
 | Priest | **Power Word: Fortitude** (also for your group), **Inner Fire**, and as options **Divine Spirit** (group members who use mana) and **Shadow Protection** (your group) |
 | Paladin | **Righteous Fury** (on you; solo, or as your group's tank: the Tank role, or a raid's main tank; or with **Always show Righteous Fury** switched on; blessings are left to AddOns such as PallyPower). In a group where you aren't the tank, a message on screen while it is on. And the seal timer below |
@@ -91,15 +92,21 @@ group switch, and your last armor) once; icon places start fresh.
   you: no friendly target, or yourself targeted). Battle Shout keeps its own
   time in seconds.
 - Your armor icon recasts the one you used last, else your best.
-- **Hunters: combat aspect.** When a fight starts while Aspect of the
-  Cheetah or the Pack is up, an icon shows your last combat aspect (else
-  Hawk, else Monkey); a click casts it and the icon goes away. It is set up
-  before the fight (AddOns cannot change it during one), so it shows the
-  moment combat starts. It sits on the Aspect icon, so moving and sizing
-  that icon moves and sizes it too. Cast a combat aspect yourself
-  and it dims; it never turns invisible. An optional sound plays at combat start (its own switch
-  and choice). Aspect clicks cast with "!", so they never take an aspect
-  down that is already up.
+- **Hunters: the Aspect reminder.** It shows only when there is a
+  problem, with a red outline and your last combat aspect (else Hawk, else
+  Monkey): no aspect up, in or out of combat, or a fight with Aspect of the
+  Cheetah or the Pack up. Cheetah or Pack out of combat is travel, so
+  nothing shows. **Aspect** under **Reminders** picks the mode: **Normal**
+  (default), **Speed-Running** (Cheetah is fine in a fight, for killing
+  fast in the open world; no aspect or Pack still shows it), or
+  **Disabled**. A click casts your last combat aspect with "!", so it never
+  takes an aspect down. It is set up before the fight (AddOns cannot change
+  it during one). In a fight, a click on it or on an aspect bar button
+  hides it at once; a combat aspect cast from your action bar dims it and
+  takes the outline away (it never turns invisible). If you cancel an
+  aspect during a fight, it shows when the fight ends. An optional sound
+  plays when a fight starts with a problem (its own switch and choice).
+  **Aspect reminder: size** (50-200%) and **opacity** size it.
 - **Thorns follows the tank.** In a party or raid with a member in the Tank
   role, Thorns watches that tank, and a click casts it on them (with several,
   the first in group order who is alive, online, in sight, and in range).
@@ -121,6 +128,22 @@ group switch, and your last armor) once; icon places start fresh.
 - The game does not let AddOns read buffs in combat, so your group's buffs
   are checked again after a fight. The icons hide on a flight path, and come
   back when you land.
+
+## Aspect bar (Hunters)
+
+A bar with a button for each aspect you know: Hawk, Monkey, Viper (where the
+game has it), Beast, Wild, Cheetah, and Pack, in that order. Click one to
+swap to that aspect. A click never turns an aspect off, so clicking the one
+that is up does nothing. The aspect that is up has a gold border; in combat
+the border follows the aspects you cast, because the game does not let
+AddOns read buffs then. An aspect or rank you learn in combat shows after
+the fight. The bar hides while you are dead or on a flight path and shows
+while mounted.
+
+It is on at first. **Enable** under **Aspect bar** in `/dbr` turns it off; **Vertical** stacks the buttons top to bottom, and **Aspect bar:
+size** and **opacity** size it. It sits under your buff icons at first; move
+it with `/dbr unlock`. A click on an aspect bar button in a fight also
+hides or shows the Aspect reminder.
 
 ## Seal timer (Paladins)
 
@@ -285,9 +308,9 @@ you can turn them off in MTF or WTF.
 
 | Command | What it does |
 |---|---|
-| `/dbr`, `/dbr options` | Opens the settings (out of combat): Reminders, Consumables, Chimes, Proc Chimes, and Cast Chimes |
+| `/dbr`, `/dbr options` | Opens the settings (out of combat): Reminders, Aspect bar (Hunters), Consumables, Chimes, Proc Chimes, and Cast Chimes |
 | `/dbr unlock`, `/dbr lock` | Unlocks every Dyre's AddOn's frames to drag them, and locks them again |
-| `/dbr reset` | Moves the buff icons, the Consumables bar, and the seal timer back to their default places |
+| `/dbr reset` | Moves the buff icons, the aspect bar, the Consumables bar, and the seal timer back to their default places |
 | `/dbr debug` | Diagnostics: each reminder, who lacks it, what a click casts, and any spell IDs the client does not know; the seal timer; each chime spell, Dyre's Sounds, and the latest chime events; and each proc, its spell IDs, and whether it is confirmed in game |
 | `/dbr probe on`, `/dbr probe off` | A test aid: chat lines when a Warrior's, Rogue's, or Hunter's reactive abilities (Overpower, Revenge, Execute, Riposte, Mongoose Bite, Counterattack) become usable or glow; off by default |
 

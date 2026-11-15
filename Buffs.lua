@@ -55,11 +55,17 @@ DBR.BUFFS = {
             spells = {604, 8450, 8451, 10173, 10174, 1008, 8455, 10169, 10170}, prefer = {604, 1008}},
     },
     -- Any aspect counts as up (author); a click recasts the last combat aspect
-    -- you cast (Hawk, Monkey, Wild, Beast), else Hawk, else Monkey.
+    -- you cast (Hawk, Monkey, Viper, Wild, Beast), else Hawk, else Monkey.
+    -- combatAspect (John, 1.8.0): shown only when there is a problem (no
+    -- aspect; in combat, Pack, or Cheetah unless speedOk in Speed-Running),
+    -- with its own size (Reminders.lua). TBC's Hawk 27044, Viper 34074, and
+    -- Wild 27045 count too.
     HUNTER = {
         {key = "aspect", label = "Aspect", on = true,
-            spells = {13165, 14318, 14319, 14320, 14321, 14322, 25296, 13163, 20043, 20190, 13161, 5118, 13159},
-            prefer = {13165, 13163}, forget = {5118, 13159}, bang = true, combatAspect = true},
+            spells = {13165, 14318, 14319, 14320, 14321, 14322, 25296, 27044, 13163, 34074, 20043, 20190, 27045,
+                13161, 5118, 13159},
+            prefer = {13165, 13163}, forget = {5118, 13159}, bang = true, combatAspect = true,
+            speedOk = {5118}},
         -- Call Pet; a click calls it, or revives it when it is dead (a
         -- right-click always revives).
         {key = "hunterPet", label = "Pet", on = true, pet = "hunter", spells = {883}, revive = 982},
