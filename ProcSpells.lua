@@ -9,8 +9,10 @@ local _, DBR = ...
 -- in the client; spells are its Classic IDs (author: start with Classic's).
 -- An ID counts only when the client names it buff, and the real ID is read
 -- once the buff is on you out of combat, saved, and used from then on, so a
--- Forever ID that differs corrects itself (Forever changed some spells: Seal
--- of Fury, found in client). None is confirmed in client yet (TESTING.md).
+-- Forever ID that differs would correct itself. A safeguard only: no Classic
+-- ID checked in client has changed on Forever so far (Polymorph, Conjure
+-- Water and Food ranks 1-3); Seal of Fury is a new Forever spell, not a
+-- changed one (John, 2026-11-16). None is confirmed in client yet (TESTING.md).
 -- on is the default switch (author: Mage Clearcasting off, the game already
 -- plays a sound for it; Flurry off); sound is a Dyre's Sounds file sound.
 --
@@ -69,8 +71,9 @@ DBR.DEFAULT_CAST_SOUND = "voice"
 -- Seconds before every cast chime (author: "add a .75 second delay ... and
 -- debounce it (powershifting)"; 1.5.0: "the half-second delay on cast chimes
 -- means we do NOT have to disable the built-in sounds ... Make sure all cast
--- chimes have the same delay"). Forms are also debounced; casts are not.
-DBR.CAST_CHIME_DELAY = 0.75
+-- chimes have the same delay"; 2026-11-17: "Can we reduce the delay by about
+-- 75%?": 0.75 s to 0.2 s). Forms are also debounced; casts are not.
+DBR.CAST_CHIME_DELAY = 0.2
 DBR.CAST_SPEECH = "Meep meep"
 DBR.CAST_SOUNDS = {
     DRUID = {

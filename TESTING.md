@@ -403,9 +403,10 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       Dyre's Sounds 0.1.1, the sound sits on its own row under the switch.
 - [ ] As a Mage: Blink and Frost Nova chime half a second before they are
       ready, in and out of combat; a higher rank of Frost Nova chimes too;
-      Cold Snap cancels Frost Nova's chime; Text to Speech says "Blink ready";
-      the "Chime early" slider moves the chime; "Enable" under Chimes off
-      silences them while the buff reminders keep working.
+      Text to Speech says "Blink ready"; the "Chime early" slider moves the
+      chime; "Enable" under Chimes off silences them while the buff reminders keep working.
+- [ ] Frost Mage (talent): Cold Snap cancels Frost Nova's chime. Frost
+      only: not checked in client; not a release blocker (John, 2026-11-16).
 - [ ] On each other class: `/dbr debug` shows `name=` for every chime spell,
       and a spell on by default chimes after a cast in combat. As a Rogue,
       Preparation cancels Sprint's chime.
@@ -442,6 +443,13 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       `debug combo` line shows whether the count reads as secret; if so,
       each point plays one mid note and a finisher plays the spend sound
       (`/dbr probe` to confirm the events).
+- [ ] Cast chime delay 0.2 s (John, 2026-11-17: "reduce the delay by
+      about 75%"; was 0.75 s): Bear Form, Cat Form, and Sprint chime about
+      0.2 s after the shift or cast. Check that the chime does not clash
+      with the game's own spell sound (the 0.75 s wait was there so the
+      game's sounds could stay on), and that a powershift macro (Cat,
+      caster, Cat) still chimes once: shifts more than 0.2 s apart now
+      chime each.
 - [ ] Cast Chimes, 1.4.0: with a Text to Speech voice set up, a Hunter's
       Aspect of the Cheetah and a Rogue's Sprint say "Meep meep" about 0.75 s
       after they are cast (1.5.0: after the game's own sound), in and out of combat. A Druid shifting into Travel Form
@@ -480,9 +488,10 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       Nightfall sound setting from Warlock Tools Forever"; with WTF's
       Nightfall still on, note whether you hear it twice (until WTF stands
       aside for DBR).
-- [ ] Winter's Chill Chimes, Unreleased, Classic Era, a Mage with the
-      Winter's Chill talent and Dyre's Sounds 1.4.0: the settings show a
-      "Winter's Chill Chimes" section with "Enable" (on) and "Note set".
+- [ ] Winter's Chill Chimes, 1.9.0, Classic Era, a Mage with the
+      Winter's Chill talent and Dyre's Sounds 1.4.0. Frost only: not
+      checked in client; not a release blocker (John, 2026-11-16). The
+      settings show a "Winter's Chill Chimes" section with "Enable" (on) and "Note set".
       Frostbolt a target dummy or mob until 5 stacks: the bassoon climbs 1 to
       4, then the held F at 5. Further Frostbolts at 5 stacks: nothing. Let
       it run out: nothing. "Note set" Sax: it plays the held high Bb, then
@@ -494,8 +503,9 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       `name=Winter's Chill` means the name match made it chime; report
       which one you see.
 - [ ] Winter's Chill probe, WoW: Forever, a Mage with Winter's Chill (for
-      John; it decides the Forever chime): `/dbr probe on`. Note the line
-      `probe target sound 12579 on target: added=... stacks=...` (yes or
+      John; it decides the Forever chime). Frost only: not checked in
+      client; not a release blocker (John, 2026-11-16). `/dbr probe on`.
+      Note the line `probe target sound 12579 on target: added=... stacks=...` (yes or
       refused). Target a dummy, cast Frostbolt until Winter's Chill shows on
       it: do you hear the proc sound (Dyre's Sounds' "magical") when it goes
       on, and again on each stack? Leave combat with it still on the

@@ -680,7 +680,7 @@ spells that make a warning apply. Ask the author before changing
   sax1), which keeps Sax and those sounds. DBR 1.7.0's release follows
   Dyre's Sounds 1.4.0.
 
-### Winter's Chill stack chimes (built, Unreleased; John, 2026-11-15)
+### Winter's Chill stack chimes (built, 1.9.0; John, 2026-11-15)
 
 John: "we need a chime for Winter's Chill procs", then "We should use a
 similar escalating chime as combo points (Rogue/Druid) - and it takes up to 5
@@ -747,12 +747,13 @@ stacks so it fits."
   Charge 16979 (talent, `whenKnown`, on, orccharge), Enrage 5229 (on,
   rageattack), Demoralizing Roar (off, orcangry), Challenging Roar (off,
   crowdcharge), Bash and Frenzied Regeneration (off, orcfury and
-  raspyshout). Casts: each waits the same 0.75 s, undebounced. Travel Form and the aspects have no
+  raspyshout). Casts: each waits the same 0.2 s, undebounced. Travel Form and the aspects have no
   cooldown in Classic; Sprint and Dash are also cooldown chimes.
 - A form chimes on `UPDATE_SHAPESHIFT_FORM` when the active form (the
   `GetShapeshiftFormInfo` entry that is active; its fourth value is the
   spell, as the pinned Blizzard_ActionBar/Shared/StanceBar.lua:70 reads it)
-  changes to a new one, `CAST_CHIME_DELAY` (0.75 s, ProcSpells.lua) later
+  changes to a new one, `CAST_CHIME_DELAY` (0.2 s, ProcSpells.lua; 0.75 s until
+  John, 2026-11-17: "reduce the delay by about 75%") later
   and only if that form is still active then (author: "add a .75 second
   delay ... and debounce it (powershifting)"): every change, leaving too,
   bumps a token that cancels the pending chime, so Cat, caster, Cat chimes

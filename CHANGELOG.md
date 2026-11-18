@@ -5,6 +5,12 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.9.1
+
+### Other changes
+
+- Cast chimes (Druid forms, travel spells, and the others) now play 0.2 seconds after the cast or shift, not 0.75 seconds. A powershift still chimes once, for the form you settle in.
+
 ## 1.9.0
 
 ### Features

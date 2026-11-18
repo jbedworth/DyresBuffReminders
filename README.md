@@ -253,10 +253,10 @@ A sound the moment a proc appears on you, so you can use it, also in combat:
 ## Cast chimes
 
 A sound just after you cast a travel spell or shift into a Druid form, also
-in combat: every cast chime waits 0.75 seconds, so it follows the game's own
-spell sound instead of playing over it. Druid: shifting into **Travel Form** ("Meep meep"), **Bear** or
+in combat: every cast chime waits 0.2 seconds, just after the game's own
+spell sound starts. Druid: shifting into **Travel Form** ("Meep meep"), **Bear** or
 **Dire Bear Form** ("Rawr"), **Cat Form** ("Meow"), **Aquatic Form**
-("Splash"), or **Moonkin Form** ("Hoot hoot"), 0.75 seconds after you shift
+("Splash"), or **Moonkin Form** ("Hoot hoot"), 0.2 seconds after you shift
 and only if you are still in that form (powershifting chimes once), never
 when you leave a form;
 **Dash** (off at first). Hunter: **Aspect of the Cheetah** (on) and **Aspect

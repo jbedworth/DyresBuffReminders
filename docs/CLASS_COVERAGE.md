@@ -9,8 +9,10 @@ the in-client results in TESTING.md.
 ## Sources and how sure we are
 
 - **Classic 1.12** is the base: spell names, ranks, and reagents. Classic
-  IDs are a starting point only; Forever renumbers some spells (Seal of Fury,
-  found in client).
+  IDs are a starting point only; Forever adds new spells with new IDs (Seal
+  of Fury, found in client; it did not exist in Classic). No Classic ID
+  checked in client has changed on Forever so far (Polymorph, Conjure Water
+  and Food ranks 1-3; John, 2026-11-16).
 - **Blizzard's WoW Forever Beta Development Notes** (official forum thread
   https://us.forums.blizzard.com/en/wow/t/2360696, Sept 24 and Oct 1 read
   directly; Oct 8 and Oct 15/16 read as a summary). Marked **[B]**.
