@@ -5,6 +5,17 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.11.0
+
+### Features
+
+- **Show buffs only when needed** (off at first): a buff that is up hides out of combat and is faint in combat, until it is about to run out; then it shows in full with the yellow flashing border, and a missing buff in full with the red border, as before. In combat DBR cannot see a buff that drops early (dispelled or cancelled): it shows at its warning time.
+- **Faint look in combat**, 15% (default) or 25%, your choice. Battle Shout uses it too, with **Show buffs only when needed** on or off; a Warrior can choose it with the switch off.
+
+### Fixes
+
+- Battle Shout is faint in combat while it is up, not invisible, so its button is never clickable while you cannot see it.
+
 ## 1.10.0
 
 ### Features

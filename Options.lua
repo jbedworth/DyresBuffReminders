@@ -710,6 +710,42 @@ local function AddSharedLead(master, Enabled)
     Nest(leadSlider, master, Enabled)
 end
 
+-- "Show buffs only when needed" (John, 2026-11-17: opt-in, off by default),
+-- and its faint look in combat: 15% or 25%, the player's choice.
+local function AddOnlyNeeded(master, Enabled)
+    local switch = Flag("DBR_ONLY_NEEDED", "Show buffs only when needed", nil, "onlyNeeded", false,
+        "Off: each buff's icon shows all the time. On: a buff that is up hides out of combat and is faint in "
+            .. "combat, until it is about to run out (Remind before it runs out); then it shows in full with a "
+            .. "yellow flashing border. A missing buff always shows in full with a red border. In combat DBR "
+            .. "cannot see a buff that drops early (dispelled or cancelled): it shows at its warning time.",
+        DBR.RefreshReminders)
+    Nest(switch, master, Enabled)
+    if type(Settings.CreateDropdown) ~= "function" or type(Settings.CreateControlTextContainer) ~= "function" then
+        return
+    end
+    -- A short buff (Battle Shout) is faint in combat with the switch off too
+    -- (John, 2026-11-17: "faint always"), so its class can choose with it off.
+    local shortBuff = false
+    for _, reminder in ipairs(DBR.ClassReminders()) do
+        shortBuff = shortBuff or reminder.combatWindow == true
+    end
+    local setting = Settings.RegisterProxySetting(category, "DBR_FAINT", Settings.VarType.Number,
+        "Faint look in combat", DBR.DEFAULT_FAINT, function() return DBR.db.faintPercent end,
+        function(value) DBR.db.faintPercent = DBR.SanitizeFaint(value) end)
+    local function Choices()
+        local container = Settings.CreateControlTextContainer()
+        for _, percent in ipairs(DBR.FAINT_CHOICES) do
+            container:Add(percent, percent .. "%")
+        end
+        return container:GetData()
+    end
+    Nest(Settings.CreateDropdown(category, setting, Choices, "How faint a buff that is up looks in combat, "
+        .. "outside its warning time: 15% or 25% (two looks to test; one may go later). Never invisible: the "
+        .. "icon still takes clicks. Battle Shout uses it always, with the switch on or off. Applies from the "
+        .. "next fight."), switch,
+        function() return DBR.db.enabled and (DBR.db.onlyNeeded or shortBuff) end)
+end
+
 -- A buff switch's tooltip: what it shows, and for a tank buff whom it watches.
 local function BuffTooltip(reminder)
     local text = "Show " .. reminder.label .. ": red border while it is missing, yellow and flashing before it "
@@ -822,6 +858,7 @@ function DBR.InitializeOptions()
     if shared then
         AddSharedLead(master, Enabled)
     end
+    AddOnlyNeeded(master, Enabled)
     AddReminderSizes()
     AddAspectBarSection()
     AddConsumablesSection()

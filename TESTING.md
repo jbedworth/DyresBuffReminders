@@ -171,7 +171,7 @@ out of combat; `/dbr debug` then shows `status=confirmed` and `learned=`.
       toolkit's grid; `/dbr lock` locks them all.
 - [ ] Without Dyre's Toolkit, or with one older than 2.0: one login line
       naming CurseForge, and no DBR frames.
-- [ ] Profile, Unreleased, with Dyre's Toolkit 2.10.0 or newer: on
+- [ ] Profile, 1.10.0, with Dyre's Toolkit 2.10.0 or newer: on
       character A, change some DBR settings (a buff off, Remind before,
       a proc's sound, Chimes off, an icon's place and size). Log in
       character B (another class if you can), out of combat: on the
@@ -250,12 +250,22 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       outlined, a click on a button casts nothing, and a drag moves it; at
       first it sits under the Aspect and Pet icons, clear of them and of the
       Consumables bar. **Vertical** stacks it downward.
+- [ ] Show buffs only when needed, 1.11.0 (a Mage with Arcane
+      Intellect up, more than 3 minutes left): switch it on. Out of
+      combat the icon and the game's buff icon in its place hide. In a
+      fight both show faint (15%); a click on the faint icon still casts.
+      At 3 minutes left they show in full with the yellow flashing border;
+      when it runs out, in full with the red border. "Faint look in combat"
+      25%: in the next fight they show at 25%. Switch it off: as before.
+      With a group member lacking it before the fight: in full in combat.
 - [ ] Warrior: Battle Shout shows while it is off, and a click
       casts it (with rage). Out of combat it shows from 60 seconds left; its own
       "Remind before it runs out" changes that. While up with more than 60 s
-      left it does not show, in or out of combat; in combat it appears at
-      60 s left (timed by DBR) and a recast hides it again. A drop in combat
-      shows only at the 60 s mark (accepted).
+      left it does not show out of combat; in combat it is faint (15%, or
+      25% with "Faint look in combat"; never invisible, also with "Show buffs
+      only when needed" off) and shows in full at 60 s left (timed by DBR); a
+      recast makes it faint again. A drop in combat shows in full only at the
+      60 s mark (accepted).
       In combat, a dodge brings the Overpower sound and
       a block, dodge, or parry the Revenge sound, once per window; switching
       each off under Proc Chimes silences it. `/dbr probe off` if the probe is on.
@@ -317,7 +327,7 @@ One class at a time. Reload after each copy (`/reload` loads new files).
 - [ ] Paladin: Righteous Fury shows red while off; a click casts it; no group
       count.
 - [ ] Classic Era, in combat: a Warrior casts Battle Shout mid-fight: its
-      reminder drops at once (and comes back at 60 s left, as on Forever).
+      reminder goes faint at once (and in full at 60 s left, as on Forever).
       A Mage's Arcane Intellect dispelled or cancelled mid-fight: its red
       reminder at once, and a click recasts it; a recast covers it again.
 - [ ] Paladin seal timer on Classic Era: as below, the same behavior;

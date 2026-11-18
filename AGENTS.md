@@ -258,9 +258,35 @@ spells that make a warning apply. Ask the author before changing
   short buff (only Battle Shout now): its slot is transparent out of combat
   and its icon hidden while up outside its lead; in combat DBR's own timer
   (expiry from the last out-of-combat read, reset by your own cast,
-  `duration` 120 without a read) opens it at the lead, by alpha. A drop in
+  `duration` 120 without a read) opens it at the lead, by alpha; outside it,
+  faint (`db.faintPercent`), never 0. Until 2026-11-17 it was alpha 0
+  (author: "I can live with that", a click on the invisible icon cast it);
+  John changed it then: "Yes, faint always". A drop in
   combat shows at the window time (author: accepted for Battle Shout). The
   seal timer is its own design, unchanged.
+- "Show buffs only when needed" (1.11.0; John, 2026-11-17: "Opt-in, off
+  by default, and faint"): `db.onlyNeeded`, default false. On (and locked),
+  `Windowed(reminder)` is true for every buff with an aura slot (not a pet,
+  not the Aspect reminder), so each follows Battle Shout's window: the same
+  drivers, `ScheduleWindow` (now with the buff's duration, for the shared
+  percent lead), `StartWindows`, `OwnCast`, `EndWindows`; nothing is
+  duplicated. Out of the window in combat it is faint, `db.faintPercent`
+  / 100, never 0 (the standing rule: an icon that takes clicks is never
+  invisible); Battle Shout the same, with the setting on or off (John,
+  2026-11-17, "faint always"; `FaintAlpha` does not read `onlyNeeded`).
+  "Faint look in combat": 15 (default) or 25, `DBR.FAINT_CHOICES`, the
+  player's choice (John, 2026-11-18: "The 15 and 25 are fine, let's keep it
+  user-set"; first a test, "let's try it two ways"). Its
+  dropdown is greyed with the switch off, except for a class with a
+  `combatWindow` buff (a Warrior), whose Battle Shout uses it then. A group
+  member lacking it before the fight (`icon.othersNeed`) keeps it in full:
+  DBR times only the watched unit; a group-version cast in combat fades it.
+  The slot's out-of-combat alpha is set only on a change
+  (`SetSlotHidden`), so with the setting off nothing is touched; every icon
+  faded in combat (`reminders.faded`) is set solid at combat's end, also
+  after the setting changed in combat. PLAYER_REGEN_DISABLED is registered
+  whenever there is an aura container. In the toolkit profile as every other
+  key.
 - Always shown (author, 1.2.0: "If it's always there, it might not be as
   jarring"): each buff widget has a Blizzard AuraContainer slot (player
   only, every rank and group-version ID as `includeSpellIDs`, set up only in
@@ -835,7 +861,7 @@ stacks so it fits."
   (author: "that's a stupid thing to test for a shared resource"); refresh
   the copy when CI needs a newer toolkit.
 
-### Dyre's Toolkit profile (built, Unreleased; John, 2026-11-17)
+### Dyre's Toolkit profile (built 1.10.0; John, 2026-11-17)
 
 John: "start working on the global "all Dyre addons settings" syncing with
 DT's profile, so there is one place to go to persist your profile." The
@@ -889,7 +915,8 @@ switching; no account table.
   `DyresBuffRemindersDB`), under the heading "Reminders" (author: the page is
   already "Buff Reminders"): Enable (`DBR_ENABLED`), one switch per class buff with its
   group switch nested under it, Seal timer (Paladins), Remind before a buff
-  runs out, then the sizes (author: "the size settings should be in
+  runs out, Show buffs only when needed (`DBR_ONLY_NEEDED`) with Faint look
+  in combat (`DBR_FAINT`, a dropdown) under it, then the sizes (author: "the size settings should be in
   the area of the thing they are resizing"; no shared "Size and Opacity"
   section): "Reminder icons: size" and opacity for every buff widget,
   "Reset size", then the toolkit's `AddWidgetSettings` for the seal; the

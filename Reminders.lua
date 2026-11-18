@@ -99,8 +99,26 @@ local TIMER_SLACK = 0.05
 DBR.ASPECT_MODE_ORDER = {"normal", "speed", "off"}
 DBR.ASPECT_MODE_LABELS = {normal = "Normal", speed = "Speed-Running", off = "Disabled"}
 
+-- "Show buffs only when needed" (db.onlyNeeded; John, 2026-11-17: "Opt-in,
+-- off by default, and faint"): every buff shows only when needed, as Battle
+-- Shout does (Buffs.lua's combatWindow). In combat, up and outside its lead,
+-- it is faint (db.faintPercent), never 0: the icon still takes clicks. Two
+-- faint looks, the player's choice (John, 2026-11-18: "keep it user-set");
+-- the first is the default.
+DBR.FAINT_CHOICES = {15, 25}
+DBR.DEFAULT_FAINT = DBR.FAINT_CHOICES[1]
+
+function DBR.SanitizeFaint(value)
+    for _, choice in ipairs(DBR.FAINT_CHOICES) do
+        if value == choice then
+            return choice
+        end
+    end
+    return DBR.DEFAULT_FAINT
+end
+
 local reminders = {list = {}, icons = {}, names = {}, spellKeys = {}, spellNames = {}, widgets = {},
-    seen = {}, windows = {}, warns = {}, timed = {}, casts = {}, upNames = {}, travelNames = {}, speedNames = {}}
+    seen = {}, windows = {}, faded = {}, warns = {}, timed = {}, casts = {}, upNames = {}, travelNames = {}, speedNames = {}}
 
 -- The default row a reminder starts in: the upper for any buff that can go on
 -- another player (Buffs.lua's group or others), the lower for self-only ones.
@@ -235,6 +253,8 @@ function DBR.SanitizeReminders(db, sanitizePosition)
     -- 1.1.0's lead was seconds (db.lead): the percent starts at its default.
     db.leadPercent = DBR.SanitizeLead(db.leadPercent)
     db.lead = nil
+    db.onlyNeeded = db.onlyNeeded == true
+    db.faintPercent = DBR.SanitizeFaint(db.faintPercent)
     local leads = type(db.leads) == "table" and db.leads or {}
     db.leads = {}
     local alwaysShow = type(db.alwaysShow) == "table" and db.alwaysShow or {}
@@ -933,6 +953,25 @@ local function Raise(icon, holder, above)
     end
 end
 
+-- Whether a buff shows only when needed (missing or within its lead): a short
+-- one always (combatWindow), every other buff with "Show buffs only when
+-- needed" while locked. Never a pet or the Aspect reminder (no aura slot).
+local function Windowed(reminder)
+    if reminder.pet or reminder.combatAspect then
+        return false
+    end
+    return reminder.combatWindow or (DBR.db.onlyNeeded and DBR.db.locked) or false
+end
+
+-- Out of combat: the aura slot of a buff shown only when needed is
+-- transparent (no countdown while up); only a change is set.
+local function SetSlotHidden(holder, hidden)
+    if holder.slot and holder.slotHidden ~= hidden then
+        holder.slotHidden = hidden
+        holder.slot:SetAlpha(hidden and 0 or 1)
+    end
+end
+
 -- Out of combat: whether the icon shows at all.
 local function SetDriver(icon, driver)
     if icon.driver ~= driver then
@@ -1166,12 +1205,14 @@ function DBR.RefreshReminders()
         local icon = reminders.icons[reminder.key]
         local countable = Countable(reminder)
         icon.countable = countable
-        icon.missing, icon.soon = nil, nil
+        icon.missing, icon.soon, icon.othersNeed = nil, nil, nil
         icon.watching = reminder.tank and UnitLabel(Watched(reminder)) or nil
         icon.texture:SetAlpha(1)
         icon.timeLeft:Hide()
         local holder = reminders.widgets[reminder.key]
         holder:SetShown(countable)
+        local windowed = Windowed(reminder)
+        SetSlotHidden(holder, windowed)
         if reminder.combatAspect then
             RefreshAspectReminder(reminder, icon, countable, canCheck, unlocked)
         elseif unlocked then
@@ -1211,6 +1252,13 @@ function DBR.RefreshReminders()
                 Raise(icon, holder, true)
                 local lacking = #icon.missing > 0
                 local timed = reminders.timed[reminder.key]
+                -- Someone but the unit DBR times needs it: in combat, DBR
+                -- cannot time theirs, so it stays in full.
+                for _, entry in ipairs(missing) do
+                    if entry.unit ~= timed then
+                        icon.othersNeed = true
+                    end
+                end
                 if not lacking and timed ~= "player" then
                     RedAtEnd(icon)
                 else
@@ -1237,7 +1285,8 @@ function DBR.RefreshReminders()
                 ShowIcon(icon, true, nil)
                 ShowTimeLeft(icon, {{soon = true, expires = seen and seen.expires,
                     duration = seen and seen.duration}})
-                SetDriver(icon, SHOWN_DRIVER)
+                -- Only when needed: hidden out of combat while up on them.
+                SetDriver(icon, windowed and COMBAT_ONLY_DRIVER or SHOWN_DRIVER)
                 Raise(icon, holder, true)
                 RedAtEnd(icon)
                 if seen then
@@ -1250,9 +1299,9 @@ function DBR.RefreshReminders()
                 -- armed to recast it on you if it drops.
                 ApplyClick(icon, reminder, ArmedAction(reminder))
                 ShowIcon(icon, true, nil)
-                -- A short buff (combatWindow) shows only when needed: hidden
-                -- out of combat while up; in combat its window decides.
-                local driver = reminder.combatWindow and COMBAT_ONLY_DRIVER or SHOWN_DRIVER
+                -- A buff shown only when needed (Windowed): hidden out of
+                -- combat while up; in combat its window decides.
+                local driver = windowed and COMBAT_ONLY_DRIVER or SHOWN_DRIVER
                 SetDriver(icon, reminders.container and driver or HIDDEN_DRIVER)
                 Raise(icon, holder, false)
                 SetBorder(icon, RED)
@@ -1589,6 +1638,7 @@ local function CreateBuffWidget(reminder, row, index, count)
     -- when there is a problem, so it has none either.
     if reminders.container and not reminder.pet and not aspect then
         holder.slot = CreateSlot(reminder, holder, icon)
+        holder.slotHidden = reminder.combatWindow == true
         holder.warn = CreateWarn(holder, holder.slot)
     end
     DBR.toolkit.CreateWidget({
@@ -1604,14 +1654,23 @@ end
 -- shows only while missing or within its lead. Its time is secret in combat,
 -- so DBR times it: from the last out-of-combat read, reset by your own cast
 -- (readable in combat), with one C_Timer to the window (no polling). Out of
--- the window its icon and slot are transparent (SetAlpha is allowed in combat
--- on a secure button). A drop in combat cannot be seen (AddOns cannot read
--- buffs then), so it shows at the window time (author: accepted for Battle
--- Shout). It counts YOUR casts (author: "a helper to maintain YOUR battle
--- shout's up-time"). The transparent icon still takes clicks (it casts the
--- buff; author: "I can live with that").
+-- the window its icon and slot are faint (SetAlpha is allowed in combat on a
+-- secure button). A drop in combat cannot be seen (AddOns cannot read buffs
+-- then), so it shows at the window time (author: accepted for Battle Shout).
+-- It counts YOUR casts (author: "a helper to maintain YOUR battle shout's
+-- up-time"). Faint, never 0: the icon still takes clicks (it casts the buff).
+-- Until 2026-11-17 it was transparent (author: "I can live with that"); John
+-- changed it then: "Yes, faint always". "Show buffs only when needed" (John,
+-- 2026-11-17) uses the same window for every buff (Windowed). Both use
+-- db.faintPercent (15 or 25), with the setting on or off.
+local function FaintAlpha()
+    return DBR.db.faintPercent / 100
+end
+
 local function WindowAlpha(key, shown)
-    local alpha = shown and 1 or 0
+    local alpha = shown and 1 or FaintAlpha()
+    -- Combat's end sets each one touched here solid again (EndWindows).
+    reminders.faded[key] = true
     reminders.icons[key]:SetAlpha(alpha)
     local holder = reminders.widgets[key]
     if holder and holder.slot then
@@ -1619,11 +1678,13 @@ local function WindowAlpha(key, shown)
     end
 end
 
-local function ScheduleWindow(reminder, expires)
+-- The lead is the buff's own (Battle Shout), else the shared share of its
+-- length (duration, from the last read; else Buffs.lua's).
+local function ScheduleWindow(reminder, expires, duration)
     local key = reminder.key
     local token = (reminders.windows[key] or 0) + 1
     reminders.windows[key] = token
-    local due = expires - LeadSeconds(reminder) - GetTime()
+    local due = expires - LeadSeconds(reminder, duration) - GetTime()
     if due <= TIMER_SLACK then
         WindowAlpha(key, true)
         return
@@ -1644,19 +1705,20 @@ end
 local function WindowReminders()
     local list = {}
     for _, reminder in ipairs(reminders.list) do
-        if reminder.combatWindow and reminders.widgets[reminder.key] and reminders.container then
+        if Windowed(reminder) and reminders.widgets[reminder.key] and reminders.container then
             list[#list + 1] = reminder
         end
     end
     return list
 end
 
--- Combat starts: up and outside its lead, transparent until the window.
+-- Combat starts: up and outside its lead, faint until the
+-- window. Missing, its end unknown, or a group member lacking it: in full.
 local function StartWindows()
     for _, reminder in ipairs(WindowReminders()) do
         local seen = reminders.seen[reminder.key]
-        if seen then
-            ScheduleWindow(reminder, seen.expires)
+        if seen and not reminders.icons[reminder.key].othersNeed then
+            ScheduleWindow(reminder, seen.expires, seen.duration)
         else
             OpenWindow(reminder.key)
         end
@@ -1717,22 +1779,27 @@ local function OwnCast(name)
                     icon.timeLeft:SetCooldown(GetTime(), duration)
                 end
                 ScheduleWarn(reminder, expires, duration)
-                if reminder.combatWindow then
-                    ScheduleWindow(reminder, expires)
+                -- A single-target cast leaves a group member who lacked it
+                -- lacking: then it stays in full.
+                if Windowed(reminder) and (kind == "group" or not icon.othersNeed) then
+                    ScheduleWindow(reminder, expires, duration)
                 end
             end
         end
     end
 end
 
--- Combat ends: the icon solid, the slot transparent again (out of combat
--- the refresh decides).
+-- Combat ends: each icon faded in combat solid, its slot transparent again
+-- while shown only when needed (out of combat the refresh decides). Also one
+-- whose setting changed in combat.
 local function EndWindows()
-    for _, reminder in ipairs(WindowReminders()) do
-        OpenWindow(reminder.key)
-        local holder = reminders.widgets[reminder.key]
-        if holder.slot then
-            holder.slot:SetAlpha(0)
+    for _, reminder in ipairs(reminders.list) do
+        if reminders.faded[reminder.key] then
+            OpenWindow(reminder.key)
+            reminders.faded[reminder.key] = nil
+            local holder = reminders.widgets[reminder.key]
+            holder.slotHidden = nil
+            SetSlotHidden(holder, Windowed(reminder))
         end
     end
 end
@@ -1761,7 +1828,9 @@ local function SetUp()
     if DBR.SetUpWarnings() then
         events:RegisterEvent("PLAYER_REGEN_DISABLED")
     end
-    if #WindowReminders() > 0 then
+    -- Any buff with an aura slot can be shown only when needed (the setting
+    -- can change later), so combat's start is always heard.
+    if reminders.container then
         events:RegisterEvent("PLAYER_REGEN_DISABLED")
     end
     for _, event in ipairs({"UNIT_AURA", "GROUP_ROSTER_UPDATE", "PLAYER_ENTERING_WORLD", "SPELLS_CHANGED",
