@@ -198,6 +198,19 @@ section on DBR's settings page: **Reminder icons** (every buff icon) and
 the seal timer at the end of **Reminders**, the Consumables bar at the end
 of **Consumables**.
 
+## Profile (copy, export, import)
+
+With Dyre's Toolkit 2.10.0 or newer, DBR's settings are part of your
+character's **Dyre's Toolkit profile**, with every other Dyre's AddOn. On
+the Toolkit's settings page (its **Profile** section) you can copy every
+setting from another character, or the Defaults, and export or import them
+as one line of text. A copy applies at once, with no reload, and never in
+combat. Copied: the switches, sounds, leads, the frames' places, sizes, and
+opacity. Not copied (each character keeps its own): the spell each button
+casts last, the cooldown lengths and buff IDs DBR read in game, and the
+debug probe. A copy from another class is fine: DBR keeps a setting for
+every class's buffs. With an older Toolkit, nothing changes.
+
 ## Cooldown chimes
 
 A sound just before your chosen spells are ready again, so you can act the

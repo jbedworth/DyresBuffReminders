@@ -5,7 +5,8 @@ local addonName, DBR = ...
 -- and the cooldown chimes from Dyre's Cooldown Chimes, which merged into it
 -- (author).
 -- This file owns saved settings, the login banner, install and API checks,
--- slash conflict reporting, joining Dyre's Toolkit, the lock, and startup.
+-- slash conflict reporting, joining Dyre's Toolkit and its profile, the lock, and
+-- startup.
 -- All layout (placing, dragging, snapping, sizing, saving places) is the
 -- toolkit's: DBR's frames are its widgets (author's rule, 2026-10-20).
 local DEFAULT_TITLE = "Dyre's Buff Reminders"
@@ -191,6 +192,102 @@ function DBR.SanitizeDB(db)
     return db
 end
 
+-- The Dyre's Toolkit profile (Toolkit 2.10.0, docs/PROFILES.md there; John,
+-- 2026-11-17: "one place to go to persist your profile"). DBR's live settings
+-- stay in DyresBuffRemindersDB; the toolkit keeps the copies, the UI, and the
+-- export line. These top-level keys stay with this character and are never
+-- copied, exported, or imported: locked (the toolkit's account-wide lock,
+-- mirrored), probe (a debug switch), last (the spell each button casts,
+-- remembered from your casts), bars (1.1.0's places, kept only until they
+-- seed the icons).
+local PROFILE_CHARACTER_KEYS = {"locked", "probe", "last", "bars"}
+-- Read in client on this character, nested in settings tables (characterKeys
+-- are top-level only): the cooldown lengths (chimes.learned) and the real
+-- buff IDs (procs.learned). A copy, import, or the Defaults keeps this
+-- character's own.
+local PROFILE_LEARNED = {"chimes", "procs"}
+local profile = {}
+
+local function CopyTable(value)
+    if type(value) ~= "table" then
+        return value
+    end
+    local copy = {}
+    for key, item in pairs(value) do
+        copy[key] = CopyTable(item)
+    end
+    return copy
+end
+
+-- New settings for this character's profile part, repaired as at load.
+function DBR.SanitizeProfile(settings)
+    settings = type(settings) == "table" and settings or {}
+    local live = DBR.db
+    for _, group in ipairs(PROFILE_LEARNED) do
+        local learned = type(live) == "table" and type(live[group]) == "table" and live[group].learned
+        if type(learned) == "table" then
+            if type(settings[group]) ~= "table" then
+                settings[group] = {}
+            end
+            settings[group].learned = CopyTable(learned)
+        end
+    end
+    -- At registration the toolkit runs this only to write a part copied or
+    -- imported while DBR was not loaded here: then it wins over the first
+    -- run's imports from older AddOns.
+    if profile.joining then
+        profile.wrote = true
+    end
+    settings = DBR.SanitizeDB(settings)
+    -- A newer version's keys are dropped (the toolkit's rule for a part).
+    local known = DBR.SanitizeDB({})
+    for _, key in ipairs(PROFILE_CHARACTER_KEYS) do
+        known[key] = true
+    end
+    for key in pairs(settings) do
+        if known[key] == nil then
+            settings[key] = nil
+        end
+    end
+    return settings
+end
+
+-- A copy or import was written into DyresBuffRemindersDB in place: every
+-- part reads its settings again, live (out of combat; the toolkit refuses
+-- a copy in combat).
+function DBR.ApplyProfile()
+    DBR.db.locked = DBR.toolkit.IsLocked() ~= false
+    if type(DBR.toolkit.ReapplyWidgets) == "function" then
+        DBR.toolkit.ReapplyWidgets(addonName)
+    end
+    DBR.RefreshReminders()
+    DBR.RefreshSeal()
+    DBR.RefreshConsumables()
+    DBR.RefreshAspectBar()
+    DBR.ApplyProcSounds()
+    DBR.ApplyWintersChill()
+end
+
+-- With a toolkit older than 2.10.0 nothing changes.
+local function JoinProfile(toolkit)
+    if type(toolkit.RegisterProfilePart) ~= "function" then
+        return
+    end
+    profile.joining = true
+    toolkit.RegisterProfilePart({
+        addon = addonName,
+        title = DEFAULT_TITLE,
+        current = function() return DyresBuffRemindersDB end,
+        sanitize = DBR.SanitizeProfile,
+        characterKeys = PROFILE_CHARACTER_KEYS,
+        refresh = DBR.ApplyProfile,
+    })
+    profile.joining = nil
+    if profile.wrote then
+        DBR.remindersFirstRun, DBR.chimesFirstRun, DBR.procsFirstRun = false, false, false
+    end
+end
+
 -- Another AddOn can register the same slash command; the last one loaded wins.
 -- Returns the other command key, or nil when /dbr is ours alone.
 local function FindSlashConflict()
@@ -355,6 +452,8 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     -- loads, says so, and shows nothing. Called here rather than from each
     -- file's own PLAYER_LOGIN handler, so startup never depends on event
     -- handler order.
+    -- After the saved settings load and before any widget exists.
+    JoinProfile(DBR.toolkit)
     -- Before any widget exists: the toolkit's lock state is DBR's.
     DBR.db.locked = DBR.toolkit.IsLocked() ~= false
     local _, class = UnitClass("player")

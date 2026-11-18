@@ -826,12 +826,56 @@ stacks so it fits."
   with `AddWidgetSettings` per widget; with no page (no settings API), `/dbr`
   says which commands to use.
 - tests/run.lua loads the toolkit's real Core, Layout, Widgets, Settings,
-  and Owners from ../DyresToolkit when that folder is there, else from the
-  copy in tests/toolkit (as in CI). The fixture claims `warn:petTaunt` as
-  Toolkit 2.9.0's Tank.lua does at login; `toolkitBefore29` leaves out
+  Owners, and Profiles from ../DyresToolkit when that folder is there, else
+  from the copy in tests/toolkit (as in CI; refreshed from 2.10.2). The
+  fixture claims `warn:petTaunt` as
+  Toolkit 2.9.0's Tank.lua does at login; `toolkitBefore210` leaves out
+  Profiles.lua; `toolkitBefore29` leaves out
   Owners.lua and the claim, `lateClaim` lets a test claim after login. No test compares the copy with the toolkit
   (author: "that's a stupid thing to test for a shared resource"); refresh
   the copy when CI needs a newer toolkit.
+
+### Dyre's Toolkit profile (built, Unreleased; John, 2026-11-17)
+
+John: "start working on the global "all Dyre addons settings" syncing with
+DT's profile, so there is one place to go to persist your profile." The
+design is the toolkit's (../DyresToolkit/docs/PROFILES.md; John,
+2026-11-15): one profile per character, owned by the toolkit; DBR's live
+settings stay in DyresBuffRemindersDB; no DBR Profile section, no
+switching; no account table.
+
+- Core.lua `JoinProfile`, at PLAYER_LOGIN after the saved settings load and
+  before any widget: `RegisterProfilePart{addon, title, current =
+  DyresBuffRemindersDB, sanitize = DBR.SanitizeProfile, characterKeys,
+  refresh = DBR.ApplyProfile}`, only when the toolkit has
+  `RegisterProfilePart` (2.10.0); with an older toolkit nothing changes,
+  and the minimum stays 2.0.
+- In the profile: every other key of DyresBuffRemindersDB, as SanitizeDB
+  makes it: `enabled`, `spells`, `groups`, `leads`, `leadPercent`,
+  `alwaysShow`, `warnings`, `aspectMode`, `combatAspect`, `buffs` and
+  `warningPop` (places, sizes, opacity), `seal`, `consumables`,
+  `aspectBar`, `chimes`, `procs`, `casts`, `combo`, `wintersChill`.
+- characterKeys (never copied, exported, or imported): `locked` (the
+  toolkit's account-wide lock, mirrored), `probe` (a debug switch), `last`
+  (the spell each button casts, remembered from your casts, and class
+  spells), `bars` (1.1.0's places, kept only until they seed the icons).
+- Read in client, nested, so not characterKeys (the engine skips top-level
+  keys only): `chimes.learned` (cooldown lengths) and `procs.learned` (real
+  buff IDs). `SanitizeProfile` puts this character's own back before
+  `SanitizeDB`, also for the Defaults. They still travel in an export line,
+  but an import never applies them.
+- `SanitizeProfile` is SanitizeDB (every class's keys, so another class's
+  part is fine), then drops top-level keys SanitizeDB does not make (a
+  newer version's). It never errors. Run at registration, it means a part
+  copied or imported while DBR was not loaded here: then the first run's
+  imports (MTF, WTF, DCC) are skipped, so the profile wins.
+- `ApplyProfile` (live, no reload): the lock again, `ReapplyWidgets` (place,
+  size, opacity from the same store tables), `RefreshReminders`,
+  `RefreshSeal`, `RefreshConsumables`, `RefreshAspectBar`, `ApplyProcSounds`
+  (the aura sounds again), `ApplyWintersChill`. The chimes, cast chimes, and
+  combo chimes read the settings when they play. The toolkit refuses a copy
+  in combat and tells the settings pages to read their values again.
+  Nothing needs a reload.
 
 ### Commands and settings
 
@@ -872,7 +916,7 @@ stacks so it fits."
   ProcSpells.lua, Procs.lua, Probe.lua, Options.lua, loaded in that order. Commands
   parses `/dbr`; Core owns saved
   settings and their repair, the login banner, install and API checks, slash
-  conflict reporting, joining Dyre's Toolkit, the lock, and startup;
+  conflict reporting, joining Dyre's Toolkit and its profile, the lock, and startup;
   Buffs holds the buff lists; Reminders the bars and icons; Seals the Paladin seal
   timer; Consumables the Consumables bar (ammo); AspectBar the Hunter aspect bar; ChimeSpells the chime lists; Chimes the chimes and Dyre's Sounds;
   ProcSpells the proc lists; Procs the proc sounds; Probe the debug-only

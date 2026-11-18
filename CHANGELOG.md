@@ -5,6 +5,12 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.10.0
+
+### Features
+
+- Your DBR settings, frame places and sizes, and sounds are now part of your Dyre's Toolkit profile: on the Toolkit's settings page you can copy them from another character, or the Defaults, and export or import them as a line of text. A copy applies at once, with no reload. Each character keeps its own last-cast spells (what each button casts) and the cooldown lengths and buff IDs DBR read in game. This needs Dyre's Toolkit 2.10.0 or newer; with an older Toolkit nothing changes.
+
 ## 1.9.1
 
 ### Other changes

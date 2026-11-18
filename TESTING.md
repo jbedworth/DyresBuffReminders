@@ -171,6 +171,17 @@ out of combat; `/dbr debug` then shows `status=confirmed` and `learned=`.
       toolkit's grid; `/dbr lock` locks them all.
 - [ ] Without Dyre's Toolkit, or with one older than 2.0: one login line
       naming CurseForge, and no DBR frames.
+- [ ] Profile, Unreleased, with Dyre's Toolkit 2.10.0 or newer: on
+      character A, change some DBR settings (a buff off, Remind before,
+      a proc's sound, Chimes off, an icon's place and size). Log in
+      character B (another class if you can), out of combat: on the
+      Toolkit's page, Profile, "Copy settings from" A, Copy. With no
+      reload: the DBR page shows A's values, the icons move and resize,
+      a buff turned off hides, and the proc sound follows. Chat says
+      "Profile copied." (no reload popup). B's buttons still cast B's last
+      spells. Copy "Defaults": the same, back to the defaults. Export on
+      A, Import on B: the same result. In combat, Copy says "Settings
+      change out of combat." and nothing changes.
 
 One class at a time. Reload after each copy (`/reload` loads new files).
 

@@ -33,7 +33,9 @@ end
 local RUNTIME_FILES = tocFiles()
 -- Dyre's Toolkit's files the tests load. Not the minimap, which needs the
 -- embedded libraries.
-local TOOLKIT_FILES = {"Core.lua", "Layout.lua", "Widgets.lua", "Settings.lua", "Owners.lua"}
+local TOOLKIT_FILES = {"Core.lua", "Layout.lua", "Widgets.lua", "Settings.lua", "Owners.lua", "Profiles.lua"}
+-- Profiles.lua came with Toolkit 2.10.0 (RegisterProfilePart).
+local TOOLKIT_PROFILES = "Profiles.lua"
 -- Owners.lua came with Toolkit 2.5.0; the Pet Taunt warning's claim with 2.9.0.
 local TOOLKIT_OWNERS = "Owners.lua"
 -- The real toolkit in ../DyresToolkit when it is there; else the copy in
@@ -364,6 +366,8 @@ local function fixture(options)
         return data and data.name
     end
     env.UnitExists = function(unit) return state.units[unit] ~= nil end
+    -- The toolkit profile's key is "Name - Realm".
+    env.GetRealmName = function() return "Forever" end
     env.UnitGUID = function(unit) return unit == "player" and "Player-1-0001" or nil end
     -- Classic Era (options.era): its project ID, and the combat log's current
     -- event (state.cleu, the list CombatLogGetCurrentEventInfo returns).
@@ -1018,13 +1022,16 @@ local function fixture(options)
     if not options.noToolkit then
         state.toolkitNS = {InitializeMinimap = function() end, InFamily = function() return false end}
         for _, path in ipairs(TOOLKIT_FILES) do
-            if not (options.toolkitBefore29 and path == TOOLKIT_OWNERS) then
+            if not (options.toolkitBefore29 and path == TOOLKIT_OWNERS)
+                and not (options.toolkitBefore210 and path == TOOLKIT_PROFILES) then
                 local chunk = assert(loadfile(TOOLKIT_DIR .. path))
                 setfenv(chunk, env)
                 chunk("DyresToolkit", state.toolkitNS)
             end
         end
         state.toolkit = env.DyresToolkit
+        -- The toolkit's profile (Profiles.lua, 2.10.0): Copy, Export, Import.
+        state.profile = state.toolkitNS.profile
         function state.claimPetTaunt()
             return state.toolkit.ClaimOwner("warn:petTaunt", "DyresToolkit", 50)
         end
@@ -5759,6 +5766,176 @@ test("probe: without the aura sound API it says so; another class gets no target
     for _, entry in pairs(warrior.auraSounds) do
         equal(entry.info.unitToken, "player")
     end
+end)
+
+-- Dyre's Toolkit profile (Toolkit 2.10.0) ------------------------------------------------
+
+local PROFILE_KEY = "Me - Forever"
+local function savedPart(state, key)
+    local entry = state.env.DyresToolkitDB.profiles[key or PROFILE_KEY]
+    return entry and entry.parts[ADDON]
+end
+-- A Mage with this character's own keys and data read in client.
+local function profileMage(extra)
+    local options = {known = {[INTELLECT] = true, [FROST_ARMOR] = true, [ICE_ARMOR] = true}, newerSounds = SOUNDS,
+        db = {last = {mageArmor = "Ice Armor"}, probe = false, chimes = {learned = {blink = 13}},
+            procs = {spells = {mageclearcasting = true}, learned = {mageclearcasting = 99999}},
+            buffs = {arcaneIntellect = {scale = 100}}}}
+    for key, value in pairs(extra or {}) do options[key] = value end
+    return fixture(options)
+end
+-- Another character's part: a Druid's choices, its own keys, and its data.
+local function druidPart()
+    return {enabled = true, leadPercent = 5, probe = true, locked = false, last = {mageArmor = "Molten Armor"},
+        bars = {self = {position = {point = "CENTER", relativePoint = "CENTER", x = 1, y = 1}}},
+        spells = {arcaneIntellect = false, markOfTheWild = false},
+        buffs = {arcaneIntellect = {scale = 150, opacity = 60,
+            position = {point = "CENTER", relativePoint = "CENTER", x = 40, y = -30}}},
+        chimes = {enabled = false, lead = 1, learned = {blink = 7}},
+        procs = {enabled = false, learned = {mageclearcasting = 5}},
+        consumables = {enabled = false}, combo = {noteSet = "sax"}, futureKey = {a = 1}}
+end
+local function playerSounds(state)
+    local count = 0
+    for _, entry in pairs(state.auraSounds) do
+        if entry.info.unitToken == "player" then count = count + 1 end
+    end
+    return count
+end
+test("profile: DBR joins the toolkit's profile; the copy leaves out this character's keys", function()
+    local state = profileMage()
+    local found = false
+    for _, addon in ipairs(state.toolkit.ProfileParts()) do found = found or addon == ADDON end
+    equal(found, true, "registered")
+    local part = savedPart(state)
+    equal(type(part), "table", "the toolkit keeps a copy")
+    for _, key in ipairs({"locked", "probe", "last", "bars"}) do
+        equal(part[key], nil, key .. " stays with this character")
+    end
+    equal(part.leadPercent, 10)
+    equal(part.buffs.arcaneIntellect.scale, 100)
+    -- An older toolkit (no RegisterProfilePart): DBR works as before, no error.
+    local old = profileMage({toolkitBefore210 = true})
+    equal(old.toolkit.RegisterProfilePart, nil)
+    equal(old.dbr.available, true)
+    equal(old.env.DyresToolkitDB.profiles, nil, "no profile")
+    equal(old.find("rror"), nil)
+end)
+test("profile: sanitize({}) gives DBR's defaults; junk, partial, or newer parts are repaired", function()
+    local state = profileMage()
+    local fresh = state.dbr.SanitizeDB(nil)
+    local defaults = state.dbr.SanitizeProfile({})
+    for key, value in pairs(fresh) do
+        if key ~= "chimes" and key ~= "procs" then
+            equal(same(defaults[key], value), true, "default " .. key)
+        end
+    end
+    for key in pairs(defaults) do
+        equal(fresh[key] ~= nil, true, "no extra key " .. key)
+    end
+    equal(defaults.chimes.lead, fresh.chimes.lead)
+    equal(same(defaults.chimes.spells, fresh.chimes.spells), true)
+    equal(same(defaults.procs.spells, fresh.procs.spells), true)
+    equal(same(defaults.procs.sounds, fresh.procs.sounds), true)
+    equal(defaults.chimes.learned.blink, 13, "this character's cooldowns read in client stay")
+    equal(defaults.procs.learned.mageclearcasting, 99999, "and its real buff IDs")
+    for _, junk in ipairs({{enabled = "yes", chimes = "x", procs = 4, buffs = {arcaneIntellect = "big"},
+            spells = {arcaneIntellect = 3}, seal = false, combo = {noteSet = "nope"}, leadPercent = 0 / 0},
+            {leadPercent = 15}, druidPart(), {}}) do
+        local clean = state.dbr.SanitizeProfile(junk)
+        equal(type(clean.chimes.spells), "table")
+        equal(type(clean.procs.sounds), "table")
+        equal(type(clean.buffs.arcaneIntellect), "table")
+        equal(type(clean.seal.enabled), "boolean")
+        equal(clean.leadPercent == clean.leadPercent, true, "a number, not NaN")
+        equal(clean.combo.noteSet ~= "nope", true)
+    end
+    equal(state.dbr.SanitizeProfile({leadPercent = 15}).leadPercent, 15, "a partial part keeps what it has")
+end)
+test("profile: a copy from a Druid changes DBR live, with no reload, and keeps this character's keys", function()
+    local state = profileMage({toolkitDB = {snapToGrid = false,
+        profiles = {["Alt - Forever"] = {class = "Druid", parts = {[ADDON] = druidPart()}, pending = {}}}}})
+    local db = state.dbr.db
+    local store = db.buffs.arcaneIntellect
+    local holder = state.widget("arcaneIntellect")
+    equal(playerSounds(state) > 0, true, "the proc sound is registered")
+    equal(state.icon("arcaneIntellect"):IsShown(), true)
+    local ok, reload = state.profile:CopyFrom("Alt - Forever")
+    equal(ok, true)
+    equal(#reload, 0, "live: no reload asked")
+    equal(db.leadPercent, 5)
+    equal(db.chimes.enabled, false)
+    equal(db.chimes.lead, 1)
+    equal(db.combo.noteSet, "sax")
+    equal(db.futureKey, nil, "a newer version's key is dropped")
+    equal(db.buffs.arcaneIntellect == store, true, "the widget's store is the same table")
+    equal(store.scale, 150)
+    equal(store.opacity, 60)
+    equal(holder:GetScale(), 1.5, "the widget's new size, live")
+    equal(store.position.x, 40)
+    equal(playerSounds(state), 0, "procs off: the aura sounds are removed, live")
+    equal(state.icon("arcaneIntellect"):IsShown(), false, "Arcane Intellect off: its icon hides, live")
+    -- This character's own keys and data read in client.
+    equal(db.last.mageArmor, "Ice Armor")
+    equal(db.probe, false)
+    equal(db.locked, true)
+    equal(db.bars, nil)
+    equal(db.chimes.learned.blink, 13)
+    equal(db.procs.learned.mageclearcasting, 99999)
+    equal(savedPart(state).leadPercent, 5, "the toolkit's copy follows")
+    -- The Defaults: a clean slate, live; the same keys and data stay.
+    ok, reload = state.profile:CopyFrom(state.toolkit.PROFILE_DEFAULTS)
+    equal(ok, true)
+    equal(#reload, 0)
+    equal(db.leadPercent, 10)
+    equal(store.scale, 100)
+    equal(holder:GetScale(), 1)
+    equal(playerSounds(state), 0, "Clearcasting is off by default")
+    equal(state.icon("arcaneIntellect"):IsShown(), true)
+    equal(db.last.mageArmor, "Ice Armor")
+    equal(db.procs.learned.mageclearcasting, 99999)
+end)
+test("profile: export and import; a bad line, a bad part, or combat changes nothing", function()
+    local from = profileMage()
+    from.dbr.db.leadPercent = 15
+    from.dbr.db.chimes.lead = 2
+    local text = from.profile:Export()
+    equal(text:find("|", 1, true), nil)
+    local to = profileMage({db = {last = {mageArmor = "Frost Armor"}}})
+    local db = to.dbr.db
+    local ok, reload = to.profile:Import(text)
+    equal(ok, true)
+    equal(#reload, 0)
+    equal(db.leadPercent, 15)
+    equal(db.chimes.lead, 2)
+    equal(db.last.mageArmor, "Frost Armor", "an import keeps this character's keys")
+    local before = copy(db)
+    ok = to.profile:Import("DYRE2:profile:garbage:0")
+    equal(ok, nil)
+    equal(same(db, before), true, "a damaged line: nothing changed")
+    -- Another AddOn's part that fails: all or nothing.
+    to.toolkit.RegisterProfilePart({addon = "DyresBroken", current = function() return {} end,
+        sanitize = function() error("broken") end})
+    ok = to.profile:CopyFrom(to.toolkit.PROFILE_DEFAULTS)
+    equal(ok, nil, "a part that fails refuses the whole copy")
+    equal(same(db, before), true, "nothing changed")
+    local clean = profileMage()
+    clean.combat = true
+    ok = clean.profile:CopyFrom(clean.toolkit.PROFILE_DEFAULTS)
+    equal(ok, nil, "never in combat")
+    equal(clean.dbr.db.last.mageArmor, "Ice Armor")
+    equal(same(db, before), true)
+end)
+test("profile: a part copied while DBR was not loaded here is written at login, before the first run's imports", function()
+    local mtf = {reminders = {enabled = true, spells = {intellect = false}}}
+    local state = fixture({known = {[INTELLECT] = true}, globals = {MageToolsForeverDB = mtf},
+        toolkitDB = {snapToGrid = false, profiles = {[PROFILE_KEY] = {class = "Mage", parts = {},
+            pending = {[ADDON] = {leadPercent = 5, spells = {arcaneIntellect = true}}}}}}})
+    local db = state.dbr.db
+    equal(db.leadPercent, 5, "the waiting part")
+    equal(db.spells.arcaneIntellect, true, "the profile wins over Mage Tools Forever's settings")
+    equal(state.count("Copied your buff reminder settings"), 0, "no first-run import")
+    equal(state.env.DyresToolkitDB.profiles[PROFILE_KEY].pending[ADDON], nil)
 end)
 
 for index, entry in ipairs(tests) do
