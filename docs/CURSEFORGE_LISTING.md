@@ -49,7 +49,7 @@ Each buff has its own icon, in a place you choose that never moves. While a buff
 - **Red:** missing (it ran out, was dispelled, or was cancelled). This shows at once, also in combat, and a click recasts it on you.
 - **Yellow and flashing:** about to run out. **Remind before a buff runs out** sets how early, as a share of the buff's own length (0-20%, 10% at first: 3 minutes before a 30-minute buff ends). Also in combat; your own recast resets it.
 - **No border:** it is up.
-- **Show buffs only when needed** (off at first): a buff that is up hides out of combat and is faint in combat (15% or 25%, your choice) until it is about to run out; missing or running out, it shows in full.
+- **Show only when needed**, per buff (on at first): a buff that is up is hidden, in and out of combat, until it is about to run out; missing or running out, it shows in full. **Visibility when not needed** (0% to 80%) shows it faint instead, and the switch off shows it always.
 
 ### Which buffs
 - **Druid:** Mark of the Wild (also for your group) and Thorns. In a group with a member set to the Tank role, Thorns watches that tank and a click casts it on them; solo, as the tank yourself, or with no tank in reach, it watches you. While the tank has Thorns, its icon shows the tank's time left, yellow before it runs out and red when it does, also in combat.
@@ -59,7 +59,7 @@ Each buff has its own icon, in a place you choose that never moves. While a buff
 - **Priest:** Power Word: Fortitude (also for your group) and Inner Fire; Divine Spirit and Shadow Protection as options.
 - **Hunter and Warlock, in a group where you aren't the tank:** a message on screen while your pet's taunt (Growl, Torment, Suffering) is on autocast. With Dyre's Toolkit 2.9.0 or later, the toolkit shows it instead, so it never shows twice.
 - **Warlock:** Demon Armor (Demon Skin counts), and a Pet reminder: no demon, also mid-fight, and one click summons your last one (not after a Demonic Sacrifice).
-- **Warrior:** Battle Shout, which shows only when it is missing or in its last minute (you choose the seconds), also in combat (faint while up in a fight, never invisible); it needs rage, so cast it while you still have some after a fight.
+- **Warrior:** Battle Shout, which shows only when it is missing or in its last minute (you choose the seconds), also in combat (hidden while up, or faint if you choose); it needs rage, so cast it while you still have some after a fight.
 
 Every rank counts, and only buffs you know show. Rogues and Shamans have no buff reminders yet.
 

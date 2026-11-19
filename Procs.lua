@@ -1,4 +1,4 @@
-local _, DBR = ...
+local addonName, DBR = ...
 
 -- Proc sounds (author-approved, played the way WTF plays Nightfall): a sound
 -- the moment a proc buff appears on you, also in combat. AddOn code cannot
@@ -25,6 +25,39 @@ local procs = {list = {}, handles = {}, deferred = false, available = false, usa
 -- The proc sounds of a class, in settings order; none for a class without a list.
 function DBR.ClassProcs(classFile)
     return DBR.PROC_SOUNDS[classFile] or {}
+end
+
+-- The Dyre's AddOn that now plays a proc buff's sound itself, with its proc
+-- arcs, through Dyre's Toolkit's proc engine (Toolkit 2.11.0, Procs.lua;
+-- John, 2026-11-18), else nil. Its RegisterProcs claims "proc:<key>" (the
+-- keys are these) at the class AddOn's priority, so DBR steps aside and a
+-- proc never sounds twice. A feature test, not a version test: a toolkit
+-- without PROC_KIND_PREFIX or KindOwner changes nothing. A reactive ability
+-- is no aura and never steps aside.
+function DBR.ProcOwner(proc)
+    local toolkit = DBR.toolkit
+    if type(proc) ~= "table" or proc.reactive or type(proc.key) ~= "string" or type(toolkit) ~= "table"
+        or type(toolkit.PROC_KIND_PREFIX) ~= "string" or type(toolkit.KindOwner) ~= "function" then
+        return nil
+    end
+    local owner = toolkit.KindOwner(toolkit.PROC_KIND_PREFIX .. proc.key)
+    if type(owner) ~= "string" or owner == addonName then
+        return nil
+    end
+    return owner
+end
+
+-- An owner's title as it joined Dyre's Toolkit, else its folder name.
+function DBR.ProcOwnerTitle(owner)
+    local toolkit = DBR.toolkit
+    if type(toolkit) == "table" and type(toolkit.AddOns) == "function" then
+        for _, info in ipairs(toolkit.AddOns()) do
+            if type(info) == "table" and info.addon == owner and type(info.title) == "string" then
+                return info.title
+            end
+        end
+    end
+    return owner
 end
 
 -- Whether the client can play aura sounds at all.
@@ -133,7 +166,8 @@ function DBR.ApplyProcSounds()
     end
     local trigger = Enum and Enum.UnitAuraSoundTrigger and Enum.UnitAuraSoundTrigger.Added or 0
     for _, proc in ipairs(procs.list) do
-        local sound = not proc.reactive and settings.spells[proc.key] and (library.AuraSound(settings.sounds[proc.key])
+        local sound = not proc.reactive and settings.spells[proc.key] and not DBR.ProcOwner(proc)
+            and (library.AuraSound(settings.sounds[proc.key])
             or library.AuraSound(proc.sound or DBR.DEFAULT_PROC_SOUND))
         if sound then
             procs.registered[proc.key] = {}
@@ -172,7 +206,7 @@ local function Learn()
     end
     local grew = false
     for _, proc in ipairs(procs.list) do
-        local aura = not proc.reactive and settings.spells[proc.key]
+        local aura = not proc.reactive and settings.spells[proc.key] and not DBR.ProcOwner(proc)
             and C_UnitAuras.GetAuraDataBySpellName("player", proc.buff, AURA_FILTER)
         -- A secret answer is never tested or indexed.
         if not DBR.IsSecret(aura) and aura then
@@ -216,6 +250,17 @@ local function CheckReactive()
     end
 end
 
+-- A proc's owner changed (a class AddOn claims at its own PLAYER_LOGIN,
+-- which can come after DBR's): the sounds again, out of combat; in combat
+-- after it (and after an encounter, as always).
+local function ProcOwnerChanged()
+    if InCombatLockdown() then
+        procs.deferred = true
+        return
+    end
+    DBR.ApplyProcSounds()
+end
+
 local events = CreateFrame("Frame")
 events:SetScript("OnEvent", function(_, event, unit)
     if event == "SPELL_UPDATE_USABLE" then
@@ -248,6 +293,15 @@ function DBR.InitializeProcs(classFile)
         return
     end
     procs.available = true
+    local toolkit = DBR.toolkit
+    if type(toolkit) == "table" and type(toolkit.PROC_KIND_PREFIX) == "string"
+        and type(toolkit.OnOwnerChanged) == "function" then
+        for _, proc in ipairs(procs.list) do
+            if not proc.reactive then
+                toolkit.OnOwnerChanged(toolkit.PROC_KIND_PREFIX .. proc.key, ProcOwnerChanged)
+            end
+        end
+    end
     events:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
     events:RegisterEvent("PLAYER_REGEN_ENABLED")
     if #procs.list > 0 then
@@ -328,12 +382,12 @@ function DBR.ReportProcsDebug(classFile)
             end
             local learned = settings and settings.learned[proc.key]
             local registered = procs.registered and procs.registered[proc.key]
-            DBR.Report(string.format("debug procs %s on=%s sound=%s ids=%s learned=%s registered=%s status=%s",
+            DBR.Report(string.format("debug procs %s on=%s sound=%s ids=%s learned=%s registered=%s status=%s owner=%s",
                 proc.key, tostring(settings and settings.spells[proc.key]),
                 tostring(settings and settings.sounds[proc.key]),
                 table.concat(named, ","), tostring(learned),
                 registered and #registered > 0 and table.concat(registered, ",") or "none",
-                learned and "confirmed" or "unverified"))
+                learned and "confirmed" or "unverified", DBR.ProcOwner(proc) or "none"))
         end
     end
 end

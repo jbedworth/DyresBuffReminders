@@ -250,21 +250,24 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       outlined, a click on a button casts nothing, and a drag moves it; at
       first it sits under the Aspect and Pet icons, clear of them and of the
       Consumables bar. **Vertical** stacks it downward.
-- [ ] Show buffs only when needed, 1.11.0 (a Mage with Arcane
-      Intellect up, more than 3 minutes left): switch it on. Out of
-      combat the icon and the game's buff icon in its place hide. In a
-      fight both show faint (15%); a click on the faint icon still casts.
-      At 3 minutes left they show in full with the yellow flashing border;
-      when it runs out, in full with the red border. "Faint look in combat"
-      25%: in the next fight they show at 25%. Switch it off: as before.
-      With a group member lacking it before the fight: in full in combat.
+- [ ] Show only when needed, 1.12.0 (a Mage with Arcane Intellect
+      up, more than 3 minutes left; the switch under Arcane Intellect is
+      on at first): out of combat the icon and the game's buff icon in its
+      place hide. In a fight both stay hidden; a click on the icon's place
+      still casts. A 1.11.0 save with 15% shows 0% on the slider. At 3
+      minutes left they show in full with the yellow flashing border; when
+      it runs out, in full with the red border. "Visibility when not
+      needed" 25%: out of combat at once, and in the next fight, both show
+      at 25%, the same. Switch Arcane Intellect's "Show only when needed"
+      off: always in full. With a group member lacking it before the
+      fight: in full in combat.
 - [ ] Warrior: Battle Shout shows while it is off, and a click
       casts it (with rage). Out of combat it shows from 60 seconds left; its own
       "Remind before it runs out" changes that. While up with more than 60 s
-      left it does not show out of combat; in combat it is faint (15%, or
-      25% with "Faint look in combat"; never invisible, also with "Show buffs
-      only when needed" off) and shows in full at 60 s left (timed by DBR); a
-      recast makes it faint again. A drop in combat shows in full only at the
+      left it is hidden (or at "Visibility when not needed"), in and out of
+      combat, and shows in full at 60 s left (in combat timed by DBR); a
+      recast hides it again. A click on its hidden place casts it. Its
+      "Show only when needed" off: always in full. A drop in combat shows in full only at the
       60 s mark (accepted).
       In combat, a dodge brings the Overpower sound and
       a block, dodge, or parry the Revenge sound, once per window; switching
@@ -327,7 +330,7 @@ One class at a time. Reload after each copy (`/reload` loads new files).
 - [ ] Paladin: Righteous Fury shows red while off; a click casts it; no group
       count.
 - [ ] Classic Era, in combat: a Warrior casts Battle Shout mid-fight: its
-      reminder goes faint at once (and in full at 60 s left, as on Forever).
+      reminder hides at once (and in full at 60 s left, as on Forever).
       A Mage's Arcane Intellect dispelled or cancelled mid-fight: its red
       reminder at once, and a click recasts it; a recast covers it again.
 - [ ] Paladin seal timer on Classic Era: as below, the same behavior;
@@ -509,6 +512,14 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       Nightfall sound setting from Warlock Tools Forever"; with WTF's
       Nightfall still on, note whether you hear it twice (until WTF stands
       aside for DBR).
+- [ ] Proc cues, 1.12.0, with Dyre's Toolkit's proc engine (2.11.0) and
+      a Warlock Tools Forever that registers Nightfall with it: DBR's
+      Nightfall row under Proc Chimes is greyed, and its tooltip says
+      "Played by Warlock Tools Forever with its proc arcs". Get Nightfall:
+      one sound (the toolkit's), not two. `/dbr debug`: the nightfall line
+      ends `owner=WarlockToolsForever` and shows `registered=none`. Without
+      Warlock Tools Forever (or with an older toolkit): DBR plays it, as
+      before, `owner=none`.
 - [ ] Winter's Chill Chimes, 1.9.0, Classic Era, a Mage with the
       Winter's Chill talent and Dyre's Sounds 1.4.0. Frost only: not
       checked in client; not a release blocker (John, 2026-11-16). The

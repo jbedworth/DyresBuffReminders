@@ -138,6 +138,28 @@ local function AddProc(proc, library, procsSwitch)
         tooltip = "Play a sound the moment " .. proc.label .. " becomes usable, also in combat."
         filter = nil
     end
+    -- Another Dyre's AddOn can play it with its proc arcs (Toolkit 2.11.0's
+    -- proc engine), also after this page is built: then the row is greyed and
+    -- its tooltip names that AddOn; read each time the row draws or shows.
+    local plain = tooltip
+    local toolkit = DBR.toolkit
+    local canYield = not proc.reactive and type(toolkit) == "table" and type(toolkit.PROC_KIND_PREFIX) == "string"
+    if canYield then
+        tooltip = function()
+            local owner = DBR.ProcOwner(proc)
+            if owner then
+                return plain .. "\n\nPlayed by " .. DBR.ProcOwnerTitle(owner) .. " with its proc arcs, so this "
+                    .. "switch is greyed out."
+            end
+            return plain
+        end
+    end
+    local function Live(row)
+        if canYield and type(row) == "table" and type(row.AddModifyPredicate) == "function" then
+            row:AddModifyPredicate(function() return not DBR.ProcOwner(proc) end)
+        end
+        return row
+    end
     local setting = Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, proc.label, proc.on,
         function() return DBR.db.procs.spells[proc.key] end,
         function(value)
@@ -146,7 +168,7 @@ local function AddProc(proc, library, procsSwitch)
         end)
     local function ProcsOn() return DBR.db.procs.enabled end
     if not library or (type(Settings.CreateDropdown) ~= "function" and not HasCheckboxDropdown(library)) then
-        Nest(Settings.CreateCheckbox(category, setting, tooltip), procsSwitch, ProcsOn)
+        Nest(Live(Settings.CreateCheckbox(category, setting, tooltip)), procsSwitch, ProcsOn)
         return
     end
     local sound = Settings.RegisterProxySetting(category, variable .. "_SOUND", Settings.VarType.String, "Sound",
@@ -167,12 +189,12 @@ local function AddProc(proc, library, procsSwitch)
             library.Choices(filter), "Sound", soundTooltip)
         layout:AddInitializer(row)
         library.SetupCheckboxMenu(row, filter)
-        Nest(row, procsSwitch, ProcsOn)
+        Nest(Live(row), procsSwitch, ProcsOn)
         return
     end
-    local switch = Settings.CreateCheckbox(category, setting, tooltip)
+    local switch = Live(Settings.CreateCheckbox(category, setting, tooltip))
     Nest(switch, procsSwitch, ProcsOn)
-    local dropdown = Settings.CreateDropdown(category, sound, library.Choices(filter), soundTooltip)
+    local dropdown = Live(Settings.CreateDropdown(category, sound, library.Choices(filter), soundTooltip))
     library.SetupMenu(dropdown, filter)
     Nest(dropdown, switch, function() return DBR.db.procs.enabled and DBR.db.procs.spells[proc.key] end)
 end
@@ -710,40 +732,24 @@ local function AddSharedLead(master, Enabled)
     Nest(leadSlider, master, Enabled)
 end
 
--- "Show buffs only when needed" (John, 2026-11-17: opt-in, off by default),
--- and its faint look in combat: 15% or 25%, the player's choice.
-local function AddOnlyNeeded(master, Enabled)
-    local switch = Flag("DBR_ONLY_NEEDED", "Show buffs only when needed", nil, "onlyNeeded", false,
-        "Off: each buff's icon shows all the time. On: a buff that is up hides out of combat and is faint in "
-            .. "combat, until it is about to run out (Remind before it runs out); then it shows in full with a "
-            .. "yellow flashing border. A missing buff always shows in full with a red border. In combat DBR "
-            .. "cannot see a buff that drops early (dispelled or cancelled): it shows at its warning time.",
-        DBR.RefreshReminders)
-    Nest(switch, master, Enabled)
-    if type(Settings.CreateDropdown) ~= "function" or type(Settings.CreateControlTextContainer) ~= "function" then
-        return
-    end
-    -- A short buff (Battle Shout) is faint in combat with the switch off too
-    -- (John, 2026-11-17: "faint always"), so its class can choose with it off.
-    local shortBuff = false
-    for _, reminder in ipairs(DBR.ClassReminders()) do
-        shortBuff = shortBuff or reminder.combatWindow == true
-    end
+-- "Visibility when not needed" (John, 2026-11-18): one slider for every buff
+-- whose "Show only when needed" is on; 0 hides it.
+local function AddNotNeededAlpha(master, Enabled)
     local setting = Settings.RegisterProxySetting(category, "DBR_FAINT", Settings.VarType.Number,
-        "Faint look in combat", DBR.DEFAULT_FAINT, function() return DBR.db.faintPercent end,
-        function(value) DBR.db.faintPercent = DBR.SanitizeFaint(value) end)
-    local function Choices()
-        local container = Settings.CreateControlTextContainer()
-        for _, percent in ipairs(DBR.FAINT_CHOICES) do
-            container:Add(percent, percent .. "%")
-        end
-        return container:GetData()
+        "Visibility when not needed", DBR.DEFAULT_FAINT, function() return DBR.db.faintPercent end,
+        function(value)
+            DBR.db.faintPercent = DBR.SanitizeFaint(value)
+            DBR.RefreshReminders()
+        end)
+    local slider = Settings.CreateSlider(category, setting,
+        SliderOptions(DBR.FAINT_MIN, DBR.FAINT_MAX, DBR.FAINT_STEP, true),
+        "How a buff with \"Show only when needed\" looks while it is up and not about to run out, in and out "
+            .. "of combat: 0% hides it (default). A hidden icon still takes clicks in combat: a click on its place "
+            .. "casts the buff. Missing or about to run out, it always shows in full.")
+    if type(DBR.toolkit.AddDefaultTick) == "function" then
+        DBR.toolkit.AddDefaultTick(slider, {min = DBR.FAINT_MIN, max = DBR.FAINT_MAX, default = DBR.DEFAULT_FAINT})
     end
-    Nest(Settings.CreateDropdown(category, setting, Choices, "How faint a buff that is up looks in combat, "
-        .. "outside its warning time: 15% or 25% (two looks to test; one may go later). Never invisible: the "
-        .. "icon still takes clicks. Battle Shout uses it always, with the switch on or off. Applies from the "
-        .. "next fight."), switch,
-        function() return DBR.db.enabled and (DBR.db.onlyNeeded or shortBuff) end)
+    Nest(slider, master, Enabled)
 end
 
 -- A buff switch's tooltip: what it shows, and for a tank buff whom it watches.
@@ -812,6 +818,15 @@ function DBR.InitializeOptions()
         if reminder.lead then
             AddBuffLead(reminder, buff)
         end
+        if DBR.CanShowOnlyWhenNeeded(reminder) then
+            local needed = Flag("DBR_NEEDED_" .. key:upper(), "Show only when needed", "needed", key, true,
+                "On: while " .. reminder.label .. " is up and not about to run out, its icon shows at "
+                    .. "\"Visibility when not needed\" (hidden at 0%), in and out of combat. Missing or about "
+                    .. "to run out, it shows in full. Off: always in full. In combat DBR cannot see a buff that "
+                    .. "drops early (dispelled or cancelled): it shows at its warning time.",
+                DBR.RefreshReminders)
+            Nest(needed, buff, function() return DBR.db.enabled and DBR.db.spells[key] end)
+        end
         if reminder.tankOnly then
             local always = Flag("DBR_ALWAYS_" .. key:upper(), "Always show " .. reminder.label, "alwaysShow", key,
                 false, "Show " .. reminder.label .. " even when you are not tanking, and no \"off when not "
@@ -858,7 +873,7 @@ function DBR.InitializeOptions()
     if shared then
         AddSharedLead(master, Enabled)
     end
-    AddOnlyNeeded(master, Enabled)
+    AddNotNeededAlpha(master, Enabled)
     AddReminderSizes()
     AddAspectBarSection()
     AddConsumablesSection()

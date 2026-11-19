@@ -96,7 +96,8 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   see the aspect bar section): the button `DyresBuffRemindersCombatAspect`
   is gone; the Aspect reminder shows in combat with Cheetah or Pack up. Its
   sound at combat start stays (Dyre's Sounds, its own switch, default
-  "talent"). Invisible frames must not take clicks.
+  "talent"). Invisible frames must not take clicks (one exception: the
+  buff icons' Hidden look in combat, below; John, 2026-11-18).
   Warrior (author, 1.2.0): Battle Shout (others, so Group buffs; watched on
   you; 6673, 5242, 6192, 11549, 11550, 11551, 25289). Its own lead
   (Buffs.lua `lead`, author: "I usually don't let BS get below 1 min"):
@@ -253,36 +254,47 @@ spells that make a warning apply. Ask the author before changing
   duration/situational and long duration buffs should behave"): short or
   situational buffs (the seal timer, Battle Shout) show only when needed or
   ticking; long buffs (Mark of the Wild, Thorns, Arcane Intellect, armors,
-  Fortitude, and the like) are always shown, drawn by the engine while up,
-  with our reminder when missing. In Buffs.lua, `combatWindow = true` marks a
-  short buff (only Battle Shout now): its slot is transparent out of combat
-  and its icon hidden while up outside its lead; in combat DBR's own timer
+  Fortitude, and the like) were always shown. Since 2026-11-18 every buff
+  shows only when needed by default (per-buff switch, below);
+  `combatWindow = true` in Buffs.lua (only Battle Shout) now only marks the
+  short buff with its own lead. A buff shown only when needed has its slot
+  at "Visibility when not needed" out of combat and its icon hidden (0) or
+  at that alpha while up outside its lead; in combat DBR's own timer
   (expiry from the last out-of-combat read, reset by your own cast,
   `duration` 120 without a read) opens it at the lead, by alpha; outside it,
-  faint (`db.faintPercent`), never 0. Until 2026-11-17 it was alpha 0
-  (author: "I can live with that", a click on the invisible icon cast it);
-  John changed it then: "Yes, faint always". A drop in
+  `db.faintPercent` / 100 (0, the default, to 80). Until 2026-11-17
+  it was alpha 0 (author: "I can live with that", a click on the invisible
+  icon cast it); 1.11.0 made it faint ("Yes, faint always"). Players asked
+  for the old look ("Previous version had it perfect"), and John, 2026-11-18,
+  waived the "never alpha 0 on a clickable secure button" rule for it:
+  "waive it; default Hidden, apply to all". In combat AddOn code cannot Hide
+  a secure button or turn its mouse off, so the hidden icon still takes
+  clicks and casts the buff (accepted). A drop in
   combat shows at the window time (author: accepted for Battle Shout). The
   seal timer is its own design, unchanged.
-- "Show buffs only when needed" (1.11.0; John, 2026-11-17: "Opt-in, off
-  by default, and faint"): `db.onlyNeeded`, default false. On (and locked),
-  `Windowed(reminder)` is true for every buff with an aura slot (not a pet,
-  not the Aspect reminder), so each follows Battle Shout's window: the same
-  drivers, `ScheduleWindow` (now with the buff's duration, for the shared
-  percent lead), `StartWindows`, `OwnCast`, `EndWindows`; nothing is
-  duplicated. Out of the window in combat it is faint, `db.faintPercent`
-  / 100, never 0 (the standing rule: an icon that takes clicks is never
-  invisible); Battle Shout the same, with the setting on or off (John,
-  2026-11-17, "faint always"; `FaintAlpha` does not read `onlyNeeded`).
-  "Faint look in combat": 15 (default) or 25, `DBR.FAINT_CHOICES`, the
-  player's choice (John, 2026-11-18: "The 15 and 25 are fine, let's keep it
-  user-set"; first a test, "let's try it two ways"). Its
-  dropdown is greyed with the switch off, except for a class with a
-  `combatWindow` buff (a Warrior), whose Battle Shout uses it then. A group
+- "Show only when needed", per buff (John, 2026-11-18: "A yes, per buff.
+  But default all short and long term buffs to on/enabled by default";
+  replaces 1.11.0's one opt-in switch `db.onlyNeeded`, which is dropped,
+  so every buff starts on): `db.needed[key]`, default true, for every buff
+  with an aura slot (`DBR.CanShowOnlyWhenNeeded`: not a pet, not the Aspect
+  reminder), a checkbox (`DBR_NEEDED_<KEY>`) under its buff's switch. On
+  (and locked), `Windowed(reminder)` is true, so it follows Battle Shout's
+  window: the same drivers, `ScheduleWindow` (with the buff's duration, for
+  the shared percent lead), `StartWindows`, `OwnCast`, `EndWindows`;
+  nothing is duplicated. Off: always in full. "Visibility when not needed"
+  (`DBR_FAINT`, a slider under Enable; `db.faintPercent`, 0 to 80 in 5s,
+  default 0; John: "consistent alpha both in and out of combat"): while up
+  outside its lead the icon and its slot are at that alpha, in and out of
+  combat. Out of combat at 0 the icon has the combat-only driver (hidden,
+  no clicks); above 0 the shown driver and that alpha. 80 at most (John:
+  100 would be the switch off). It replaced 1.11.0's "Faint look in
+  combat" (15 or 25). 1.11.0 saved 15 for everyone, so a save without
+  `db.faintHidden` moves 15 to 0 once (25 stays), then sets it; profiles go
+  through the same repair. A group
   member lacking it before the fight (`icon.othersNeed`) keeps it in full:
   DBR times only the watched unit; a group-version cast in combat fades it.
   The slot's out-of-combat alpha is set only on a change
-  (`SetSlotHidden`), so with the setting off nothing is touched; every icon
+  (`SetSlotAlpha`), so with the switch off nothing is touched; every icon
   faded in combat (`reminders.faded`) is set solid at combat's end, also
   after the setting changed in combat. PLAYER_REGEN_DISABLED is registered
   whenever there is an aura container. In the toolkit profile as every other
@@ -632,6 +644,28 @@ spells that make a warning apply. Ask the author before changing
 - Settings: a "Proc Chimes" section (author: renamed from "Procs") (switch "Enable", `DBR_PROCS_ENABLED`) after the chimes, for a class with
   procs: Enable, then one row per proc (switch and sound, aura filter),
   with the same two-row fallback as the chimes.
+- Steps aside for the toolkit's proc cues (1.12.0; John, 2026-11-18, one
+  sound per proc): Dyre's Toolkit's proc engine (planned 2.11.0, its
+  Procs.lua) lets a class Tools AddOn show a proc with arcs and a sound
+  (WTF: Nightfall, Decimation; MTF: Missile Barrage). Its `RegisterProcs`
+  claims the Owners kind `PROC_KIND_PREFIX .. key` ("proc:nightfall") at
+  priority 10; the keys match `PROC_SOUNDS`. `DBR.ProcOwner(proc)` is that
+  owner when it is not DBR: then `ApplyProcSounds` registers no aura sound
+  for it, `Learn` skips it, its row (switch, or the switch-and-sound row)
+  gets an `AddModifyPredicate` (greyed), and its tooltip (a function, read
+  when it shows: Settings.InitTooltip calls one) adds "Played by <title>
+  with its proc arcs" (`DBR.ProcOwnerTitle`: the title it joined the
+  toolkit with, else its folder). Settings still save. A feature test, as
+  the Pet Taunt yield: without `PROC_KIND_PREFIX` (no Procs.lua) or
+  `KindOwner`, nothing changes. Reactive abilities (Overpower, Revenge) are
+  no auras and never step aside. The class AddOn claims at its own
+  PLAYER_LOGIN, maybe after DBR's: `OnOwnerChanged` per aura proc applies
+  the sounds again, out of combat (in combat `procs.deferred`, applied at
+  PLAYER_REGEN_ENABLED; an encounter waits as always). `/dbr debug` prints
+  `owner=<addon>` (or `none`) per aura proc. Tests: tests/toolkit (CI) has
+  no Procs.lua, so the fixture sets `PROC_KIND_PREFIX` itself there and loads
+  ../DyresToolkit/Procs.lua when present; `toolkitBefore211` has neither;
+  `procClaims` and `claimProc` claim as `RegisterProcs` does.
 
 ### Combo point chimes (built 1.6.0; author: "mimic the Hear Kitty addon in DBR")
 
@@ -914,9 +948,9 @@ switching; no account table.
 - One settings page (vertical layout, proxy settings on
   `DyresBuffRemindersDB`), under the heading "Reminders" (author: the page is
   already "Buff Reminders"): Enable (`DBR_ENABLED`), one switch per class buff with its
-  group switch nested under it, Seal timer (Paladins), Remind before a buff
-  runs out, Show buffs only when needed (`DBR_ONLY_NEEDED`) with Faint look
-  in combat (`DBR_FAINT`, a dropdown) under it, then the sizes (author: "the size settings should be in
+  group switch and its "Show only when needed" (`DBR_NEEDED_<KEY>`) nested
+  under it, Seal timer (Paladins), Remind before a buff runs out,
+  Visibility when not needed (`DBR_FAINT`, a slider), then the sizes (author: "the size settings should be in
   the area of the thing they are resizing"; no shared "Size and Opacity"
   section): "Reminder icons: size" and opacity for every buff widget,
   "Reset size", then the toolkit's `AddWidgetSettings` for the seal; the

@@ -5,6 +5,18 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.12.0
+
+### Features
+
+- **Show only when needed** is now a switch under each buff, on for every buff at first (it replaces the one **Show buffs only when needed** switch). Turn it off for a buff to always see its icon in full; Battle Shout can be turned off too.
+- **Visibility when not needed** (replaces **Faint look in combat**): one slider, 0% (hidden, the default) to 80%, for how a buff that is up looks, the same in and out of combat. If you had 15% (1.11.0's default), it changes to 0% once; 25% stays.
+
+### Fixes
+
+- A buff that is up is hidden again, in and out of combat, until it is about to run out, as Battle Shout was before 1.11.0. Missing or about to run out, it shows in full. A hidden icon still takes clicks in combat: a click on its place casts the buff.
+- A proc that another Dyre's AddOn now shows with its own proc arcs and sound (for example Nightfall in Warlock Tools Forever) no longer plays DBR's sound too: you hear one sound per proc. Its row under **Proc Chimes** is greyed, and its tooltip names that AddOn. With an older Dyre's Toolkit nothing changes.
+
 ## 1.11.0
 
 ### Features

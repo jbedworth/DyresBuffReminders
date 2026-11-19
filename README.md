@@ -55,23 +55,23 @@ your own below.
   click (group members, the tank, the group version). That stays as it is
   through a fight; your group is checked again after it.
 - Unlocked, every icon shows (the buffs that are on, dimmed).
-- **Show buffs only when needed** (off at first) puts every buff on Battle
-  Shout's rule: while it is up, its icon hides out of combat and is faint in
-  combat, until **Remind before a buff runs out** (or a buff's own time); then
-  it shows in full with the yellow flashing border. A missing buff always
-  shows in full with the red border. In combat AddOns cannot read buffs, so
-  DBR times them from the last read and your own casts: a buff that drops
-  early in a fight (dispelled or cancelled) shows at its warning time, and a
-  group member who lacked it before the fight keeps it in full. Faint is
-  never invisible, as the icon still takes clicks: **Faint look in combat**
-  is 15% (default) or 25%, your choice. Battle
-  Shout uses it too, with the switch on or off.
+- **Show only when needed**, a switch under each buff (on at first): while
+  the buff is up, its icon and the game's buff icon in its place show at
+  **Visibility when not needed** (0%, hidden, at first; up to 80%), the same
+  in and out of combat, until **Remind before a buff runs out** (or a buff's
+  own time); then it shows in full with the yellow flashing border. A
+  missing buff always shows in full with the red border. Off, the icon
+  always shows in full. In combat AddOns cannot read buffs, so DBR times
+  them from the last read and your own casts: a buff that drops early in a
+  fight (dispelled or cancelled) shows at its warning time, and a group
+  member who lacked it before the fight keeps it in full. A hidden icon
+  still takes clicks in combat: a click on its place casts the buff.
 
 | Class | Buffs |
 |---|---|
 | Mage | **Arcane Intellect** (also for group members who use mana), **Armor** (Frost, Ice, or Mage Armor), **Dampen or Amplify Magic** (off at first; either counts, a click recasts the last one) |
 | Warlock | In a group where you aren't the tank, a message on screen while the Voidwalker's Torment or Suffering is on autocast (from Dyre's Toolkit 2.9.0 or later when it is installed); **Demon Armor** (Demon Skin counts before you learn it); **Pet (your demon)**: red while you have no demon, also in combat, and a click summons the last demon you summoned, else the Imp (not after a Demonic Sacrifice, nor while mounted) |
-| Warrior | **Battle Shout** (it reaches your party; watched on you). Unlike long buffs it shows only when needed: missing, or in its last 60 seconds (its own **Remind before it runs out**, 5-120 s), out of combat and in it (in combat timed from your own casts; while up in a fight it is faint, never invisible, as it still takes clicks); it needs rage, which runs out soon after a fight |
+| Warrior | **Battle Shout** (it reaches your party; watched on you). Shown only when needed (its own switch): missing, or in its last 60 seconds (its own **Remind before it runs out**, 5-120 s), out of combat and in it (in combat timed from your own casts); it needs rage, which runs out soon after a fight |
 | Hunter | In a group where you aren't the tank, a message on screen while your pet's Growl is on autocast (from Dyre's Toolkit 2.9.0 or later when it is installed). **Aspect**: a red outline only when there is a problem (no aspect up; in a fight, Cheetah or Pack up), in Normal, Speed-Running, or Disabled mode; a click recasts the last combat aspect you cast (Hawk, Monkey, Viper, Wild, or Beast), never Cheetah or Pack, else Hawk, else Monkey; **Pet**: red while you have no pet or it is dead, also in combat (not while mounted); a click calls it, or revives it when it is dead, and a right-click revives it |
 | Druid | **Mark of the Wild** (also for your group), **Thorns** (on your group's tank, else on you) |
 | Priest | **Power Word: Fortitude** (also for your group), **Inner Fire**, and as options **Divine Spirit** (group members who use mana) and **Shadow Protection** (your group) |
@@ -273,6 +273,9 @@ A sound the moment a proc appears on you, so you can use it, also in combat:
   Forever on the first run. From its 0.3.3-beta on, Warlock Tools Forever
   leaves Nightfall to DBR; with an older one still playing it, DBR says so
   once at login.
+- When another Dyre's AddOn shows a proc with its own proc arcs and sound
+  (through Dyre's Toolkit), DBR leaves that proc to it, so you hear one
+  sound. Its row is greyed, and its tooltip names that AddOn.
 
 ## Cast chimes
 

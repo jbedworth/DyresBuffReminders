@@ -38,6 +38,10 @@ local TOOLKIT_FILES = {"Core.lua", "Layout.lua", "Widgets.lua", "Settings.lua", 
 local TOOLKIT_PROFILES = "Profiles.lua"
 -- Owners.lua came with Toolkit 2.5.0; the Pet Taunt warning's claim with 2.9.0.
 local TOOLKIT_OWNERS = "Owners.lua"
+-- Procs.lua comes with Toolkit 2.11.0 (the proc engine, PROC_KIND_PREFIX).
+-- Loaded when the toolkit folder has it; the copy in tests/toolkit (CI) has
+-- not, so the fixture then sets the one constant DBR reads, as Procs.lua does.
+local TOOLKIT_PROCS = "Procs.lua"
 -- The real toolkit in ../DyresToolkit when it is there; else the copy in
 -- tests/toolkit (as in CI).
 local function toolkitDir()
@@ -52,6 +56,14 @@ local function toolkitDir()
 end
 local TOOLKIT_DIR = toolkitDir()
 io.write("# Dyre's Toolkit from ", TOOLKIT_DIR, "\n")
+local HAS_TOOLKIT_PROCS = (function()
+    local file = io.open(TOOLKIT_DIR .. TOOLKIT_PROCS, "rb")
+    if file then
+        file:close()
+        return true
+    end
+    return false
+end)()
 local PAGE = "Buff Reminders"
 
 -- Classic spell names for the IDs in Buffs.lua, as the client would name them.
@@ -717,9 +729,13 @@ local function fixture(options)
             local object = {kind = "checkboxdropdown", data = {name = cbLabel, tooltip = cbTooltip,
                 cbSetting = cbSetting, cbLabel = cbLabel, cbTooltip = cbTooltip, dropdownSetting = dropdownSetting,
                 dropdownOptions = dropdownOptions, dropDownLabel = dropDownLabel, dropDownTooltip = dropDownTooltip}}
+            object.modifyPredicates = {}
             function object:InitFrame() end
             function object:SetParentInitializer(parent, predicate)
                 self.parentInitializer, self.predicate = parent, predicate
+            end
+            function object:AddModifyPredicate(predicate)
+                self.modifyPredicates[#self.modifyPredicates + 1] = predicate
             end
             return object
         end
@@ -1020,7 +1036,10 @@ local function fixture(options)
     -- fixture claims it the same way. options.toolkitBefore29 leaves out
     -- Owners.lua and the claim; options.lateClaim makes the test claim it.
     if not options.noToolkit then
-        state.toolkitNS = {InitializeMinimap = function() end, InFamily = function() return false end}
+        -- The class Tools AddOns are Dyre's AddOns (a TOC with "## Group: DyresToolkit"), so they may claim.
+        local family = {WarlockToolsForever = true, MageToolsForever = true, DyresBuffReminders = true}
+        state.toolkitNS = {InitializeMinimap = function() end,
+            InFamily = function(addon) return family[addon] == true end}
         for _, path in ipairs(TOOLKIT_FILES) do
             if not (options.toolkitBefore29 and path == TOOLKIT_OWNERS)
                 and not (options.toolkitBefore210 and path == TOOLKIT_PROFILES) then
@@ -1029,7 +1048,30 @@ local function fixture(options)
                 chunk("DyresToolkit", state.toolkitNS)
             end
         end
+        -- The proc engine (Toolkit 2.11.0): its Procs.lua when there, else
+        -- its constant; options.toolkitBefore211 has neither.
+        if not options.toolkitBefore211 then
+            if HAS_TOOLKIT_PROCS then
+                local chunk = assert(loadfile(TOOLKIT_DIR .. TOOLKIT_PROCS))
+                setfenv(chunk, env)
+                chunk("DyresToolkit", state.toolkitNS)
+            else
+                env.DyresToolkit.PROC_KIND_PREFIX = "proc:"
+            end
+        end
         state.toolkit = env.DyresToolkit
+        -- A class Tools AddOn plays a proc through the proc engine: it joins
+        -- the toolkit, then RegisterProcs claims "proc:<key>" at 10 (as
+        -- Procs.lua does; its frames are not needed here).
+        function state.claimProc(key, addon, title)
+            addon = addon or "WarlockToolsForever"
+            local titles = {WarlockToolsForever = "Warlock Tools Forever", MageToolsForever = "Mage Tools Forever"}
+            env.DyresToolkit.RegisterAddOn({addon = addon, title = title or titles[addon]})
+            return env.DyresToolkit.ClaimOwner("proc:" .. key, addon, 10)
+        end
+        for key, addon in pairs(options.procClaims or {}) do
+            state.claimProc(key, addon)
+        end
         -- The toolkit's profile (Profiles.lua, 2.10.0): Copy, Export, Import.
         state.profile = state.toolkitNS.profile
         function state.claimPetTaunt()
@@ -1305,7 +1347,8 @@ end)
 -- Mage --------------------------------------------------------------------------------
 
 test("Mage: an icon shows while you lack a buff you know, with a red border", function()
-    local state = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true}})
+    local state = fixture({known = {[INTELLECT] = true, [FROST_ARMOR] = true},
+        db = {needed = {arcaneIntellect = false, mageArmor = false}}})
     local intellect, armor = state.icon("arcaneIntellect"), state.icon("mageArmor")
     equal(visible(intellect), true)
     equal(intellect.glow.shown, true)
@@ -1539,7 +1582,7 @@ test("Druid: Thorns watches you solo and in a group with no tank; a click casts 
     equal(bare.icon("thorns").attributes.unit1, "player", "without the role API: you")
 end)
 test("Druid: in a group with a tank, Thorns watches the tank and a click casts it on them", function()
-    local state = fixture({class = "DRUID", known = {[THORNS] = true}})
+    local state = fixture({class = "DRUID", known = {[THORNS] = true}, db = {needed = {thorns = false}}})
     local thorns = state.icon("thorns")
     state.buff("player", "Thorns")
     state.party({{name = "Stabby", class = "ROGUE"}, {name = "Tanky", class = "WARRIOR", role = "TANK"},
@@ -1566,7 +1609,7 @@ test("Druid: in a group with a tank, Thorns watches the tank and a click casts i
     equal(secret.icon("thorns").attributes.unit1, "player", "a secret role is not read as a tank")
 end)
 test("Druid: Thorns up on the tank shows the tank's time left, yellow, then red at its end, also in combat", function()
-    local state = fixture({class = "DRUID", known = {[THORNS] = true}})
+    local state = fixture({class = "DRUID", known = {[THORNS] = true}, db = {needed = {thorns = false}}})
     local thorns = state.icon("thorns")
     local warn = state.widget("thorns").warn
     state.party({{name = "Tanky", class = "WARRIOR", role = "TANK", buffs = {Thorns = state.now + 601}}})
@@ -2589,7 +2632,7 @@ test("Classic Era: Battle Shout cast in combat drops its reminder; it comes back
     state.buff("player", "Battle Shout", {spellId = 6673, expires = state.now + 120, duration = 120})
     state.cast(6673)
     state.emit("UNIT_AURA", "player")
-    equal(state.icon("battleShout").alpha, 0.15, "cast in combat: the reminder goes faint at once (never 0)")
+    equal(state.icon("battleShout").alpha, 0, "cast in combat: the reminder hides at once (Hidden, the default)")
     equal(eraSlot(state, "battleShout").shown, true, "the buff's slot, read in combat")
     state.advance(60)
     equal(state.icon("battleShout").alpha, 1, "60 s left: back, as on Forever")
@@ -2602,7 +2645,8 @@ test("Classic Era: Battle Shout cast in combat drops its reminder; it comes back
 end)
 
 test("Classic Era: a long buff dropped in combat shows its red reminder at once; a recast covers it again", function()
-    local state = fixture({known = {[INTELLECT] = true}, noAuraContainer = true, classicAuras = true})
+    local state = fixture({known = {[INTELLECT] = true}, noAuraContainer = true, classicAuras = true,
+        db = {needed = {arcaneIntellect = false}}})
     state.buff("player", "Arcane Intellect", {spellId = 1459, expires = state.now + 1800, duration = 1800})
     state.update("UNIT_AURA", "player")
     equal(eraSeen(state, "arcaneIntellect"), false, "up: the slot draws it over the reminder")
@@ -2743,18 +2787,18 @@ test("Warrior: Battle Shout shows only when needed: missing or within its 60 s, 
     state.applyDrivers()
     state.emit("PLAYER_REGEN_DISABLED")
     equal(shout.shown, true, "in combat under its slot...")
-    equal(shout.alpha, 0.15, "...but faint, never 0 (John, 2026-11-17): 90 s left, outside the 60 s window")
-    equal(slot.alpha, 0.15)
+    equal(shout.alpha, 0, "...but hidden by default (John, 2026-11-18): 90 s left, outside the 60 s window")
+    equal(slot.alpha, 0)
     state.advance(29)
-    equal(shout.alpha, 0.15, "61 s left: still outside")
+    equal(shout.alpha, 0, "61 s left: still outside")
     state.advance(1)
     equal(shout.alpha, 1, "60 s left: the window opens, from DBR's own timer")
     equal(slot.alpha, 1, "the game's icon with its time left, and ours under it")
     state.advance(50)
     state.cast(BATTLE_SHOUT)
-    equal(shout.alpha, 0.15, "recast in combat: its full length again (the last read's: 1800 here)")
+    equal(shout.alpha, 0, "recast in combat: its full length again (the last read's: 1800 here)")
     state.advance(1739)
-    equal(shout.alpha, 0.15)
+    equal(shout.alpha, 0)
     state.advance(1)
     equal(shout.alpha, 1, "60 s before the recast's end")
     state.combat = false
@@ -2769,13 +2813,13 @@ test("Warrior: Battle Shout shows only when needed: missing or within its 60 s, 
     missing.emit("PLAYER_REGEN_DISABLED")
     equal(missing.icon("battleShout").alpha, 1, "missing at combat start: shown")
     missing.cast(BATTLE_SHOUT)
-    equal(missing.icon("battleShout").alpha, 0.15, "cast in combat with no earlier read: Classic's 2 minutes")
+    equal(missing.icon("battleShout").alpha, 0, "cast in combat with no earlier read: Classic's 2 minutes")
     missing.advance(60)
     equal(missing.icon("battleShout").alpha, 1, "60 s left of 120")
-    local mage = fixture({known = {[INTELLECT] = true}})
+    local mage = fixture({known = {[INTELLECT] = true}, db = {needed = {arcaneIntellect = false}}})
     mage.buff("player", "Arcane Intellect", mage.now + 3000)
     mage.update("UNIT_AURA", "player")
-    equal(mage.slotOf("arcaneIntellect").alpha, nil, "long buffs: always shown, the slot never transparent")
+    equal(mage.slotOf("arcaneIntellect").alpha, nil, "Show only when needed off: the slot never transparent")
     equal(mage.icon("arcaneIntellect").shown, true)
 end)
 test("Warrior: Overpower and Revenge sound when they turn usable, also in combat, once per window", function()
@@ -3549,7 +3593,7 @@ test("each reminder's bar: Group buffs for what can go on another player, My buf
     equal(count, 15, "every reminder is listed here")
 end)
 test("always shown: the slot draws a buff that is up, in and out of combat; ours under it, armed", function()
-    local state = fixture({known = {[INTELLECT] = true}})
+    local state = fixture({known = {[INTELLECT] = true}, db = {needed = {arcaneIntellect = false}}})
     local icon, slot = state.icon("arcaneIntellect"), state.slotOf("arcaneIntellect")
     local holder = state.widget("arcaneIntellect")
     local container
@@ -3670,9 +3714,9 @@ test("the settings page lists your class's buffs, each group switch under its bu
         end
     end
     equal(table.concat(names, "|"), "Enable|Power Word: Fortitude|Power Word: Fortitude: also your group|"
-        .. "Inner Fire|Divine Spirit|Divine Spirit: also your group|Shadow Protection|"
-        .. "Shadow Protection: also your group|Remind before a buff runs out|"
-        .. "Show buffs only when needed|Faint look in combat|"
+        .. "Show only when needed|Inner Fire|Show only when needed|Divine Spirit|Divine Spirit: also your group|"
+        .. "Show only when needed|Shadow Protection|Shadow Protection: also your group|Show only when needed|"
+        .. "Remind before a buff runs out|Visibility when not needed|"
         .. "Reminder icons: size|Reminder icons: opacity", "a Priest has no consumables: no section, no bar")
     local group = state.row("DBR_GROUP_FORTITUDE")
     equal(group.parentInitializer, state.row("DBR_BUFF_FORTITUDE"))
@@ -4797,6 +4841,121 @@ test("procs: the settings page has a Procs section, one row per proc, aura sound
     for _, other in ipairs({fixture({class = "PRIEST"}), fixture({class = "DRUID", noAuraSounds = true})}) do
         equal(other.row("DBR_PROCS_ENABLED"), nil, "no section without procs or aura sounds")
     end
+end)
+-- Proc cues in Dyre's Toolkit (2.11.0; John, 2026-11-18): a class Tools AddOn plays
+-- its procs with arcs and a sound, so DBR steps aside for those procs.
+local function procRowLive(state, variable)
+    local row = state.row(variable)
+    local live = true
+    for _, predicate in ipairs(row.modifyPredicates or {}) do
+        live = live and predicate()
+    end
+    return row, live
+end
+local function procTooltip(row)
+    local tooltip = row.data and row.data.cbTooltip or row.tooltip
+    if type(tooltip) == "function" then
+        return tooltip()
+    end
+    return tooltip
+end
+local function nightfallOn(options)
+    options = options or {}
+    options.class = "WARLOCK"
+    options.db = {procs = {spells = {nightfall = true}}}
+    return fixture(options)
+end
+test("procs: a proc another Dyre's AddOn plays through the toolkit's proc engine: no DBR sound, row greyed", function()
+    local state = nightfallOn({procClaims = {nightfall = "WarlockToolsForever"}})
+    equal(state.toolkit.KindOwner("proc:nightfall"), "WarlockToolsForever")
+    equal(state.dbr.ProcOwner(state.dbr.ClassProcs("WARLOCK")[1]), "WarlockToolsForever")
+    equal(state.soundIDs(), "", "no aura sound from DBR: one sound per proc")
+    equal(state.auraSoundCount, 0, "never registered")
+    local row, live = procRowLive(state, "DBR_PROC_NIGHTFALL")
+    equal(live, false, "its row is greyed")
+    contains(procTooltip(row), "Played by Warlock Tools Forever with its proc arcs")
+    -- The switch still saves, and still registers nothing.
+    state.settings.DBR_PROC_NIGHTFALL:SetValue(false)
+    state.settings.DBR_PROC_NIGHTFALL:SetValue(true)
+    equal(state.dbr.db.procs.spells.nightfall, true)
+    equal(state.auraSoundCount, 0, "no registration from the settings either")
+    -- Not learned either: the buff on you out of combat.
+    state.buff("player", "Shadow Trance", {spellId = 990017})
+    state.update("UNIT_AURA", "player")
+    equal(state.dbr.db.procs.learned.nightfall, nil, "nothing to learn for a proc DBR does not play")
+    state.slash("debug")
+    contains(state.find("debug procs nightfall"), "owner=WarlockToolsForever")
+    contains(state.find("debug procs nightfall"), "registered=none")
+    -- DBR's own claim (none today) is no yield.
+    local own = nightfallOn()
+    equal(own.toolkit.ClaimOwner("proc:nightfall", "DyresBuffReminders", 10), true)
+    equal(own.toolkit.KindOwner("proc:nightfall"), "DyresBuffReminders")
+    equal(own.dbr.ProcOwner(own.dbr.ClassProcs("WARLOCK")[1]), nil, "DBR's own claim: DBR plays")
+    equal(own.soundIDs(), tostring(SHADOW_TRANCE))
+    own.buff("player", "Shadow Trance", {spellId = 990017})
+    own.update("UNIT_AURA", "player")
+    equal(own.dbr.db.procs.learned.nightfall, 990017, "DBR plays it, so it learns its ID")
+    own.slash("debug")
+    contains(own.find("debug procs nightfall"), "owner=none")
+    -- Only the claimed proc yields: a Druid with only Clearcasting claimed.
+    local druid = fixture({class = "DRUID", db = {procs = {spells = {druidclearcasting = true}}},
+        procClaims = {druidclearcasting = "MageToolsForever"}})
+    equal(druid.soundIDs(), tostring(NATURES_GRACE), "Nature's Grace still DBR's; Clearcasting yields")
+    local _, naturesLive = procRowLive(druid, "DBR_PROC_NATURESGRACE")
+    equal(naturesLive, true)
+    contains(procTooltip(druid.row("DBR_PROC_DRUIDCLEARCASTING")), "Played by Mage Tools Forever")
+end)
+test("procs: a claim after DBR's login yields out of combat, after combat in it; a release plays again, once", function()
+    local state = nightfallOn()
+    equal(state.soundIDs(), tostring(SHADOW_TRANCE), "no claim: DBR plays Nightfall")
+    local row, live = procRowLive(state, "DBR_PROC_NIGHTFALL")
+    equal(live, true, "no claim: the row works")
+    equal(procTooltip(row):find("Played by"), nil)
+    equal(state.claimProc("nightfall"), true)
+    equal(state.soundIDs(), "", "claimed later (the class AddOn's own login): DBR steps aside")
+    _, live = procRowLive(state, "DBR_PROC_NIGHTFALL")
+    equal(live, false, "and greys its row")
+    state.toolkit.SetOwnerEnabled("proc:nightfall", "WarlockToolsForever", false)
+    equal(state.soundIDs(), tostring(SHADOW_TRANCE), "released: DBR plays again")
+    local count = 0
+    for _ in pairs(state.auraSounds) do count = count + 1 end
+    equal(count, 1, "one registration, not two")
+    -- In combat: the change waits for the end of combat.
+    state.combat = true
+    state.toolkit.SetOwnerEnabled("proc:nightfall", "WarlockToolsForever", true)
+    equal(state.soundIDs(), tostring(SHADOW_TRANCE), "in combat: no aura sound change")
+    state.combat = false
+    state.emit("PLAYER_REGEN_ENABLED")
+    equal(state.soundIDs(), "", "after combat: stepped aside")
+    -- During an encounter it waits for its end, as every proc sound change.
+    state.toolkit.SetOwnerEnabled("proc:nightfall", "WarlockToolsForever", false)
+    equal(state.soundIDs(), tostring(SHADOW_TRANCE))
+    state.encounter = true
+    state.toolkit.SetOwnerEnabled("proc:nightfall", "WarlockToolsForever", true)
+    equal(state.soundIDs(), tostring(SHADOW_TRANCE), "no change during an encounter")
+    state.encounter = false
+    state.emit("ADDON_RESTRICTION_STATE_CHANGED")
+    equal(state.soundIDs(), "", "after it")
+end)
+test("procs: an older toolkit (no proc engine) and reactive abilities never step aside", function()
+    local older = nightfallOn({toolkitBefore211 = true})
+    equal(older.toolkit.PROC_KIND_PREFIX, nil, "no Procs.lua")
+    older.toolkit.ClaimOwner("proc:nightfall", "WarlockToolsForever", 10)
+    equal(older.dbr.ProcOwner(older.dbr.ClassProcs("WARLOCK")[1]), nil, "a feature test: no prefix, no yield")
+    equal(older.soundIDs(), tostring(SHADOW_TRANCE), "DBR plays, as before")
+    local row, live = procRowLive(older, "DBR_PROC_NIGHTFALL")
+    equal(live, true)
+    equal(type(row.data and row.data.cbTooltip or row.tooltip), "string", "a plain tooltip")
+    local noOwners = nightfallOn({toolkitBefore29 = true, toolkitBefore211 = true})
+    equal(noOwners.soundIDs(), tostring(SHADOW_TRANCE), "no Owners either: DBR plays")
+    local warrior = fixture({class = "WARRIOR", procClaims = {overpower = "WarlockToolsForever"}})
+    local overpower
+    for _, proc in ipairs(warrior.dbr.ClassProcs("WARRIOR")) do
+        if proc.key == "overpower" then overpower = proc end
+    end
+    equal(warrior.dbr.ProcOwner(overpower), nil, "a reactive ability is no aura: never steps aside")
+    local _, overLive = procRowLive(warrior, "DBR_PROC_OVERPOWER")
+    equal(overLive, true)
 end)
 test("procs: first run on a Warlock copies WTF's Nightfall sound setting, once", function()
     local wtf = {alerts = {nightfall = true, nightfallSound = "magical"}}
@@ -5939,7 +6098,7 @@ test("profile: a part copied while DBR was not loaded here is written at login, 
     equal(state.env.DyresToolkitDB.profiles[PROFILE_KEY].pending[ADDON], nil)
 end)
 
--- Show buffs only when needed (John, 2026-11-17) ----------------------------------------------
+-- Show only when needed (John, 2026-11-17; per buff 2026-11-18) ----------------------------------------------
 
 local function enterCombat(state)
     state.combat = true
@@ -5954,42 +6113,50 @@ end
 local function isRed(icon)
     return icon.glow.shown ~= false and icon.border ~= nil and icon.border[1] == 1 and icon.border[2] == 0.2
 end
-test("only when needed: off by default, and off changes nothing in or out of combat", function()
+test("only when needed: on for every buff by default, Visibility 0; off shows a buff in full, in and out of combat",
+    function()
     local state = fixture({known = {[INTELLECT] = true}})
     local db = state.dbr.db
-    equal(db.onlyNeeded, false, "off by default")
-    equal(db.faintPercent, 15, "15% by default")
+    equal(db.needed.arcaneIntellect, true, "on by default (John, 2026-11-18)")
+    equal(db.needed.mageArmor, true, "long and short buffs alike")
+    equal(db.faintPercent, 0, "Visibility when not needed: 0 by default")
+    equal(db.onlyNeeded, nil, "1.11.0's one switch is gone")
+    local hunter = fixture({class = "HUNTER", known = {[883] = true}})
+    equal(hunter.dbr.db.needed.hunterPet, nil, "a pet reminder has none")
+    equal(hunter.row("DBR_NEEDED_HUNTERPET"), nil)
+    equal(state.row("DBR_NEEDED_ARCANEINTELLECT").parentInitializer, state.row("DBR_BUFF_ARCANEINTELLECT"),
+        "under its buff's switch")
+    equal(state.row("DBR_FAINT").parentInitializer, state.row("DBR_ENABLED"), "one slider for every buff")
+    -- Off for one buff: in full, as before 1.11.0's switch.
+    state.settings.DBR_NEEDED_ARCANEINTELLECT:SetValue(false)
+    equal(db.needed.arcaneIntellect, false)
     local icon, slot = state.icon("arcaneIntellect"), state.slotOf("arcaneIntellect")
     state.buff("player", "Arcane Intellect", state.now + 201)
     state.update("UNIT_AURA", "player")
-    equal(icon.shown, true, "up: shown, as before")
+    equal(icon.shown, true, "up: shown")
+    equal(icon.alpha, 1)
     enterCombat(state)
-    equal(icon.alpha, nil, "never faded in combat")
-    equal(slot.alpha, nil, "the slot never transparent")
+    equal(icon.alpha, 1, "never faded in combat")
     state.advance(20)
-    equal(icon.alpha, nil)
+    equal(icon.alpha, 1)
     state.buff("player", "Arcane Intellect", state.now + 1000)
     leaveCombat(state)
-    equal(icon.alpha, nil)
-    equal(slot.alpha, nil)
+    equal(icon.alpha, 1)
     equal(icon.shown, true)
-    -- Battle Shout keeps its own window with the setting off, faint, never 0
-    -- (John, 2026-11-17: "faint always"), with the faint choice.
-    local warrior = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true}, db = {faintPercent = 25}})
+    equal(slot.alpha == nil or slot.alpha == 1, true, "the slot in full")
+    -- Battle Shout can be off too now.
+    local warrior = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true}, db = {needed = {battleShout = false}}})
     warrior.buff("player", "Battle Shout", warrior.now + 91)
     warrior.update("UNIT_AURA", "player")
+    equal(warrior.icon("battleShout").shown, true, "off: Battle Shout shown while up")
     enterCombat(warrior)
-    equal(warrior.icon("battleShout").alpha, 0.25, "off: Battle Shout faint, at the chosen 25%")
-    equal(warrior.slotOf("battleShout").alpha, 0.25)
-    equal(warrior.row("DBR_FAINT").predicate(), true, "a Warrior can choose it with the switch off")
-    equal(state.row("DBR_FAINT").predicate(), false, "a Mage only with the switch on")
+    equal(warrior.icon("battleShout").alpha, 1, "and in full in combat")
 end)
-test("only when needed, on: up hides out of combat; faint in combat (15%); window full and yellow; missing full and red",
+test("only when needed, on: up hides out of combat and in combat (0%); window full and yellow; missing full and red",
     function()
     local state = fixture({known = {[INTELLECT] = true}})
     local icon, slot = state.icon("arcaneIntellect"), state.slotOf("arcaneIntellect")
     local warn = state.widget("arcaneIntellect").warn
-    state.settings.DBR_ONLY_NEEDED:SetValue(true)
     equal(visible(icon), true, "missing: shown out of combat")
     equal(isRed(icon), true, "with the red border")
     enterCombat(state)
@@ -6003,11 +6170,11 @@ test("only when needed, on: up hides out of combat; faint in combat (15%); windo
     equal(warn.alpha, 0)
     enterCombat(state)
     equal(icon.shown, true, "in combat it is there...")
-    equal(icon.alpha, 0.15, "...but faint, never 0: it still takes clicks")
-    equal(slot.alpha, 0.15, "the game's icon faint too")
+    equal(icon.alpha, 0, "...but hidden: it still takes clicks")
+    equal(slot.alpha, 0, "the game's icon hidden too")
     equal(icon.attributes.spell1, "Arcane Intellect", "armed: a click still casts it")
     state.advance(19)
-    equal(icon.alpha, 0.15, "181 s left: still faint")
+    equal(icon.alpha, 0, "181 s left: still hidden")
     state.advance(1)
     equal(icon.alpha, 1, "180 s left: its warning time, in full, from DBR's own timer")
     equal(slot.alpha, 1)
@@ -6018,57 +6185,81 @@ test("only when needed, on: up hides out of combat; faint in combat (15%); windo
     equal(icon.alpha, 1, "...in full...")
     equal(isRed(icon), true, "...with the red border under the slot that went")
     state.cast(INTELLECT)
-    equal(icon.alpha, 0.15, "recast in combat: faint again for its full length")
+    equal(icon.alpha, 0, "recast in combat: hidden again for its full length")
     state.buff("player", "Arcane Intellect", state.now + 1000)
     leaveCombat(state)
-    equal(icon.alpha, 1, "after combat: solid")
-    equal(icon.shown, false, "and hidden again while up")
+    equal(icon.shown, false, "after combat: hidden again while up")
     equal(slot.alpha, 0)
     -- Within the warning time out of combat: shown, yellow.
     state.buff("player", "Arcane Intellect", state.now + 171)
     state.update("UNIT_AURA", "player")
     equal(visible(icon), true, "170 s left: shown above the slot")
+    equal(icon.alpha, 1, "in full")
     equal(warn.alpha, 1, "yellow and flashing")
     enterCombat(state)
     equal(icon.alpha, 1, "in its warning time at combat start: in full")
-    -- Off again: as before at once (out of combat).
+    -- Off: as before at once (out of combat).
     state.buff("player", "Arcane Intellect", state.now + 1000)
     leaveCombat(state)
-    state.settings.DBR_ONLY_NEEDED:SetValue(false)
+    state.settings.DBR_NEEDED_ARCANEINTELLECT:SetValue(false)
     equal(icon.shown, true, "off: up and shown")
     equal(slot.alpha, 1, "the slot draws it again")
 end)
-test("only when needed, on: the faint look can be 25%; anything else is 15%", function()
-    local state = fixture({known = {[INTELLECT] = true}, db = {onlyNeeded = true, faintPercent = 25}})
-    local icon = state.icon("arcaneIntellect")
-    equal(state.row("DBR_FAINT").parentInitializer, state.row("DBR_ONLY_NEEDED"), "under the switch")
-    local values = {}
-    for _, choice in ipairs(state.row("DBR_FAINT").choices()) do values[#values + 1] = choice.label end
-    equal(table.concat(values, "|"), "15%|25%")
+test("only when needed: Visibility when not needed is the same alpha in and out of combat, 0 to 80% in 5s",
+    function()
+    local state = fixture({known = {[INTELLECT] = true}, db = {faintPercent = 25}})
+    local icon, slot = state.icon("arcaneIntellect"), state.slotOf("arcaneIntellect")
     state.buff("player", "Arcane Intellect", state.now + 1001)
     state.update("UNIT_AURA", "player")
+    equal(icon.shown, true, "25%: shown out of combat...")
+    equal(icon.driver, "show", "(the combat-only driver only at 0)")
+    equal(icon.alpha, 0.25, "...at 25%")
+    equal(slot.alpha, 0.25, "the game's icon too")
     enterCombat(state)
-    equal(icon.alpha, 0.25, "25%")
+    equal(icon.alpha, 0.25, "the same in combat")
+    equal(slot.alpha, 0.25)
     state.buff("player", "Arcane Intellect", state.now + 1000)
     leaveCombat(state)
-    state.settings.DBR_FAINT:SetValue(15)
-    enterCombat(state)
-    equal(icon.alpha, 0.15, "15% from the next fight")
-    equal(fixture({db = {faintPercent = 20}}).dbr.db.faintPercent, 15, "not a choice: 15%")
-    equal(fixture({db = {faintPercent = "25"}}).dbr.db.faintPercent, 15)
-    equal(fixture({db = {onlyNeeded = "yes"}}).dbr.db.onlyNeeded, false)
-    -- Battle Shout, with the setting on: faint too, never 0.
-    local warrior = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true}, db = {onlyNeeded = true}})
+    equal(icon.alpha, 0.25, "and after it")
+    equal(slot.alpha, 0.25)
+    -- Within the warning time: in full.
+    state.buff("player", "Arcane Intellect", state.now + 171)
+    state.update("UNIT_AURA", "player")
+    equal(icon.alpha, 1, "about to run out: in full")
+    -- The slider: live out of combat.
+    state.buff("player", "Arcane Intellect", state.now + 1001)
+    state.update("UNIT_AURA", "player")
+    state.settings.DBR_FAINT:SetValue(60)
+    equal(icon.alpha, 0.6, "60% at once")
+    equal(slot.alpha, 0.6)
+    state.settings.DBR_FAINT:SetValue(0)
+    equal(icon.shown, false, "0%: hidden out of combat")
+    equal(slot.alpha, 0)
+    local sanitize = state.dbr.SanitizeFaint
+    equal(sanitize(20), 20)
+    equal(sanitize(23), 25, "steps of 5")
+    equal(sanitize(100), 80, "80% at most: more is the switch off")
+    equal(sanitize(-5), 0)
+    equal(sanitize("25"), 0)
+    equal(sanitize(0 / 0), 0)
+    -- Thorns up on the tank (ours shows it): 25% too.
+    local druid = fixture({class = "DRUID", known = {[THORNS] = true}, db = {faintPercent = 25}})
+    druid.party({{name = "Tanky", class = "WARRIOR", role = "TANK", buffs = {Thorns = druid.now + 601}}})
+    equal(druid.icon("thorns").shown, true, "up on the tank, 25%: shown...")
+    equal(druid.icon("thorns").alpha, 0.25, "...at 25%")
+    -- Battle Shout at 15%, in combat; its own 60 s window.
+    local warrior = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true},
+        db = {faintPercent = 15, faintHidden = true}})
     warrior.buff("player", "Battle Shout", warrior.now + 91)
     warrior.update("UNIT_AURA", "player")
-    equal(warrior.icon("battleShout").shown, false)
+    equal(warrior.icon("battleShout").alpha, 0.15, "15% out of combat")
     enterCombat(warrior)
-    equal(warrior.icon("battleShout").alpha, 0.15, "on: Battle Shout faint, not 0")
+    equal(warrior.icon("battleShout").alpha, 0.15, "15% in combat")
     warrior.advance(30)
     equal(warrior.icon("battleShout").alpha, 1, "its own 60 s window")
 end)
-test("only when needed, on: a group member lacking it, unlocked, pets and the Aspect reminder stay in full", function()
-    local state = fixture({known = {[INTELLECT] = true}, db = {onlyNeeded = true}})
+test("only when needed: a group member lacking it, unlocked, pets and the Aspect reminder stay in full", function()
+    local state = fixture({known = {[INTELLECT] = true}})
     local icon = state.icon("arcaneIntellect")
     state.buff("player", "Arcane Intellect", state.now + 1001)
     state.party({{name = "Healy", class = "PRIEST"}})
@@ -6078,51 +6269,68 @@ test("only when needed, on: a group member lacking it, unlocked, pets and the As
     state.cast(INTELLECT)
     equal(icon.alpha, 1, "your cast on you leaves Healy lacking: still in full")
     state.cast(BRILLIANCE)
-    equal(icon.alpha, 0.15, "the group version covers everyone: faint")
+    equal(icon.alpha, 0, "the group version covers everyone: hidden")
     leaveCombat(state)
-    local unlocked = fixture({known = {[INTELLECT] = true}, db = {onlyNeeded = true}})
+    local unlocked = fixture({known = {[INTELLECT] = true}})
     unlocked.slash("unlock")
     unlocked.buff("player", "Arcane Intellect", unlocked.now + 1001)
     unlocked.update("UNIT_AURA", "player")
     equal(unlocked.icon("arcaneIntellect").shown, true, "unlocked: every icon shows, to move it")
     enterCombat(unlocked)
-    equal(unlocked.icon("arcaneIntellect").alpha, nil, "unlocked: never faded in combat either")
-    -- Thorns up on the tank: hidden out of combat, faint in combat, in full in its window.
-    local druid = fixture({class = "DRUID", known = {[THORNS] = true}, db = {onlyNeeded = true}})
+    equal(unlocked.icon("arcaneIntellect").alpha, 1, "unlocked: never faded in combat either")
+    -- Thorns up on the tank: hidden out of and in combat, in full in its window.
+    local druid = fixture({class = "DRUID", known = {[THORNS] = true}})
     local thorns = druid.icon("thorns")
     druid.party({{name = "Tanky", class = "WARRIOR", role = "TANK", buffs = {Thorns = druid.now + 601}}})
     equal(thorns.shown, false, "up on the tank: hidden out of combat")
     enterCombat(druid)
-    equal(thorns.alpha, 0.15, "faint in combat")
+    equal(thorns.alpha, 0, "hidden in combat")
     druid.advance(420)
     equal(thorns.alpha, 1, "3 minutes before the tank's runs out: in full")
     equal(druid.widget("thorns").warn.alpha, 1, "and yellow")
-    local hunter = fixture({class = "HUNTER", known = {[883] = true}, db = {onlyNeeded = true}})
+    local hunter = fixture({class = "HUNTER", known = {[883] = true}, db = {faintPercent = 25}})
     enterCombat(hunter)
-    equal(hunter.icon("hunterPet").alpha, nil, "a pet reminder is never faded")
+    equal(hunter.icon("hunterPet").alpha, 1, "a pet reminder is never faded")
 end)
-test("only when needed: in the toolkit profile; a copy turns it on live", function()
+test("only when needed: 1.11.0's saves: every buff on; a saved 15% becomes 0 once; 25% and a later 15% stay",
+    function()
+    local old = fixture({db = {onlyNeeded = false, faintPercent = 15}})
+    equal(old.dbr.db.needed.arcaneIntellect, true, "1.11.0's switch off: every buff on now")
+    equal(old.dbr.db.onlyNeeded, nil)
+    equal(old.dbr.db.faintPercent, 0, "1.11.0 saved 15 for everyone: now 0")
+    equal(old.dbr.db.faintHidden, true)
+    equal(fixture({db = {faintPercent = 25}}).dbr.db.faintPercent, 25, "25% was a choice: it stays")
+    local chosen = fixture({db = {faintPercent = 15, faintHidden = true}})
+    equal(chosen.dbr.db.faintPercent, 15, "15% chosen after the move: it stays")
+    old.settings.DBR_FAINT:SetValue(15)
+    equal(old.dbr.SanitizeDB(old.dbr.db).faintPercent, 15, "a repair later keeps it")
+    equal(old.dbr.SanitizeProfile({faintPercent = 15}).faintPercent, 0, "a 1.11.0 profile copy: 0 too")
+    equal(old.dbr.SanitizeProfile({faintPercent = 15, faintHidden = true}).faintPercent, 15)
+    equal(fixture({db = {needed = {arcaneIntellect = "no"}}}).dbr.db.needed.arcaneIntellect, true, "repaired: on")
+end)
+test("only when needed: in the toolkit profile; a copy turns a buff's switch off live", function()
     local state = profileMage()
     local part = savedPart(state)
-    equal(part.onlyNeeded, false, "in the profile")
-    equal(part.faintPercent, 15)
-    local clean = state.dbr.SanitizeProfile({onlyNeeded = true, faintPercent = 25})
-    equal(clean.onlyNeeded, true)
+    equal(part.needed.arcaneIntellect, true, "in the profile")
+    equal(part.faintPercent, 0)
+    local clean = state.dbr.SanitizeProfile({needed = {arcaneIntellect = false}, faintPercent = 25})
+    equal(clean.needed.arcaneIntellect, false)
+    equal(clean.needed.mageArmor, true)
     equal(clean.faintPercent, 25)
     local alt = druidPart()
-    alt.onlyNeeded, alt.faintPercent = true, 25
+    alt.needed, alt.faintPercent = {arcaneIntellect = false}, 25
     local copy = profileMage({toolkitDB = {snapToGrid = false,
         profiles = {["Alt - Forever"] = {class = "Druid", parts = {[ADDON] = alt}, pending = {}}}}})
     copy.dbr.db.spells.arcaneIntellect = true
     copy.buff("player", "Arcane Intellect", copy.now + 1001)
     copy.update("UNIT_AURA", "player")
-    equal(copy.icon("arcaneIntellect").shown, true)
+    equal(copy.icon("arcaneIntellect").shown, false, "on: hidden while up")
     copy.profile:CopyFrom("Alt - Forever")
-    equal(copy.dbr.db.onlyNeeded, true)
+    equal(copy.dbr.db.needed.arcaneIntellect, false)
     equal(copy.dbr.db.faintPercent, 25)
     copy.dbr.db.spells.arcaneIntellect = true
     copy.dbr.RefreshReminders()
-    equal(copy.icon("arcaneIntellect").shown, false, "up: hidden, live")
+    equal(copy.icon("arcaneIntellect").shown, true, "off: shown, live")
 end)
 
 for index, entry in ipairs(tests) do

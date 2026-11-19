@@ -99,22 +99,33 @@ local TIMER_SLACK = 0.05
 DBR.ASPECT_MODE_ORDER = {"normal", "speed", "off"}
 DBR.ASPECT_MODE_LABELS = {normal = "Normal", speed = "Speed-Running", off = "Disabled"}
 
--- "Show buffs only when needed" (db.onlyNeeded; John, 2026-11-17: "Opt-in,
--- off by default, and faint"): every buff shows only when needed, as Battle
--- Shout does (Buffs.lua's combatWindow). In combat, up and outside its lead,
--- it is faint (db.faintPercent), never 0: the icon still takes clicks. Two
--- faint looks, the player's choice (John, 2026-11-18: "keep it user-set");
--- the first is the default.
-DBR.FAINT_CHOICES = {15, 25}
-DBR.DEFAULT_FAINT = DBR.FAINT_CHOICES[1]
+-- "Show only when needed", per buff (db.needed[key], default on; John,
+-- 2026-11-18: "A yes, per buff. But default all short and long term buffs to
+-- on"): while the buff is up and outside its lead, its icon and the game's
+-- buff icon in its place show at "Visibility when not needed"
+-- (db.faintPercent, 0 to 80%, default 0: hidden), the same alpha in and out
+-- of combat (John: "it should be consistent alpha both in and out of
+-- combat"). Off, the icon always shows in full. 80% at most: more would be
+-- the switch off (John). Players asked for 1.10's invisible Battle Shout
+-- back, so 0 is the default (John: "waive it; default Hidden, apply to
+-- all"). A hidden icon still takes clicks in combat (a click there casts
+-- the buff): in combat AddOn code cannot hide a secure button or turn its
+-- mouse off, only change its alpha. Out of combat at 0 it is hidden.
+DBR.FAINT_MIN, DBR.FAINT_MAX, DBR.FAINT_STEP = 0, 80, 5
+DBR.DEFAULT_FAINT = 0
 
 function DBR.SanitizeFaint(value)
-    for _, choice in ipairs(DBR.FAINT_CHOICES) do
-        if value == choice then
-            return choice
-        end
+    if type(value) ~= "number" or value ~= value then
+        return DBR.DEFAULT_FAINT
     end
-    return DBR.DEFAULT_FAINT
+    value = math.floor(value / DBR.FAINT_STEP + 0.5) * DBR.FAINT_STEP
+    return math.max(DBR.FAINT_MIN, math.min(DBR.FAINT_MAX, value))
+end
+
+-- Whether a buff can be shown only when needed: one with an aura slot (not
+-- a pet, not the Aspect reminder).
+function DBR.CanShowOnlyWhenNeeded(reminder)
+    return not reminder.pet and not reminder.combatAspect
 end
 
 local reminders = {list = {}, icons = {}, names = {}, spellKeys = {}, spellNames = {}, widgets = {},
@@ -253,7 +264,16 @@ function DBR.SanitizeReminders(db, sanitizePosition)
     -- 1.1.0's lead was seconds (db.lead): the percent starts at its default.
     db.leadPercent = DBR.SanitizeLead(db.leadPercent)
     db.lead = nil
-    db.onlyNeeded = db.onlyNeeded == true
+    -- 1.11.0's one switch (db.onlyNeeded) is per buff now, every buff on.
+    db.onlyNeeded = nil
+    local needed = type(db.needed) == "table" and db.needed or {}
+    db.needed = {}
+    -- 1.11.0 saved its default, 15, for everyone: once, 15 becomes 0, the
+    -- new default (a 15 chosen by hand too; 25 stays).
+    if db.faintHidden ~= true and db.faintPercent == 15 then
+        db.faintPercent = 0
+    end
+    db.faintHidden = true
     db.faintPercent = DBR.SanitizeFaint(db.faintPercent)
     local leads = type(db.leads) == "table" and db.leads or {}
     db.leads = {}
@@ -297,6 +317,9 @@ function DBR.SanitizeReminders(db, sanitizePosition)
             end
             if reminder.group then
                 db.groups[key] = groups[key] ~= false
+            end
+            if DBR.CanShowOnlyWhenNeeded(reminder) then
+                db.needed[key] = needed[key] ~= false
             end
             if reminder.lead then
                 db.leads[key] = DBR.SanitizeBuffLead(reminder, leads[key])
@@ -953,23 +976,30 @@ local function Raise(icon, holder, above)
     end
 end
 
--- Whether a buff shows only when needed (missing or within its lead): a short
--- one always (combatWindow), every other buff with "Show buffs only when
--- needed" while locked. Never a pet or the Aspect reminder (no aura slot).
+-- Whether a buff shows only when needed (missing or within its lead): its
+-- own "Show only when needed" while locked (unlocked, every icon shows, to
+-- move it). Never a pet or the Aspect reminder (no aura slot).
 local function Windowed(reminder)
-    if reminder.pet or reminder.combatAspect then
-        return false
-    end
-    return reminder.combatWindow or (DBR.db.onlyNeeded and DBR.db.locked) or false
+    return DBR.CanShowOnlyWhenNeeded(reminder) and DBR.db.locked and DBR.db.needed[reminder.key] ~= false
+        or false
 end
 
--- Out of combat: the aura slot of a buff shown only when needed is
--- transparent (no countdown while up); only a change is set.
-local function SetSlotHidden(holder, hidden)
-    if holder.slot and holder.slotHidden ~= hidden then
-        holder.slotHidden = hidden
-        holder.slot:SetAlpha(hidden and 0 or 1)
+-- "Visibility when not needed", as an alpha.
+local function FaintAlpha()
+    return DBR.db.faintPercent / 100
+end
+
+-- The alpha of a buff's aura slot: "Visibility when not needed" while shown
+-- only when needed, else in full; only a change is set.
+local function SetSlotAlpha(holder, alpha)
+    if holder.slot and holder.slotAlpha ~= alpha then
+        holder.slotAlpha = alpha
+        holder.slot:SetAlpha(alpha)
     end
+end
+
+local function SlotAlpha(reminder)
+    return Windowed(reminder) and FaintAlpha() or 1
 end
 
 -- Out of combat: whether the icon shows at all.
@@ -1212,7 +1242,14 @@ function DBR.RefreshReminders()
         local holder = reminders.widgets[reminder.key]
         holder:SetShown(countable)
         local windowed = Windowed(reminder)
-        SetSlotHidden(holder, windowed)
+        SetSlotAlpha(holder, SlotAlpha(reminder))
+        -- Up and not needed, out of combat: "Visibility when not needed";
+        -- at 0 hidden (no clicks), else shown at that alpha.
+        local faint = windowed and FaintAlpha() or 1
+        local upDriver = faint > 0 and SHOWN_DRIVER or COMBAT_ONLY_DRIVER
+        if not reminder.combatAspect then
+            icon:SetAlpha(1)
+        end
         if reminder.combatAspect then
             RefreshAspectReminder(reminder, icon, countable, canCheck, unlocked)
         elseif unlocked then
@@ -1285,8 +1322,9 @@ function DBR.RefreshReminders()
                 ShowIcon(icon, true, nil)
                 ShowTimeLeft(icon, {{soon = true, expires = seen and seen.expires,
                     duration = seen and seen.duration}})
-                -- Only when needed: hidden out of combat while up on them.
-                SetDriver(icon, windowed and COMBAT_ONLY_DRIVER or SHOWN_DRIVER)
+                -- Only when needed: faint or hidden out of combat while up on them.
+                SetDriver(icon, upDriver)
+                icon:SetAlpha(faint)
                 Raise(icon, holder, true)
                 RedAtEnd(icon)
                 if seen then
@@ -1299,10 +1337,10 @@ function DBR.RefreshReminders()
                 -- armed to recast it on you if it drops.
                 ApplyClick(icon, reminder, ArmedAction(reminder))
                 ShowIcon(icon, true, nil)
-                -- A buff shown only when needed (Windowed): hidden out of
-                -- combat while up; in combat its window decides.
-                local driver = windowed and COMBAT_ONLY_DRIVER or SHOWN_DRIVER
-                SetDriver(icon, reminders.container and driver or HIDDEN_DRIVER)
+                -- A buff shown only when needed (Windowed): faint or hidden
+                -- out of combat while up; in combat its window decides.
+                SetDriver(icon, reminders.container and upDriver or HIDDEN_DRIVER)
+                icon:SetAlpha(faint)
                 Raise(icon, holder, false)
                 SetBorder(icon, RED)
                 local seen = reminders.seen[reminder.key]
@@ -1533,9 +1571,9 @@ local function CreateSlot(reminder, holder, icon)
     layer:SetAllPoints(holder)
     layer:SetFrameLevel(icon:GetFrameLevel() + SLOT_LEVELS_ABOVE)
     NoMouse(layer)
-    -- A short buff's slot is transparent out of combat: shown only when needed.
-    if reminder.combatWindow then
-        layer:SetAlpha(0)
+    -- Shown only when needed: "Visibility when not needed" while up.
+    if Windowed(reminder) then
+        layer:SetAlpha(FaintAlpha())
     end
     local container = DBR.CreateAuraContainer(layer)
     container:SetPoint("CENTER", holder, "CENTER")
@@ -1638,7 +1676,7 @@ local function CreateBuffWidget(reminder, row, index, count)
     -- when there is a problem, so it has none either.
     if reminders.container and not reminder.pet and not aspect then
         holder.slot = CreateSlot(reminder, holder, icon)
-        holder.slotHidden = reminder.combatWindow == true
+        holder.slotAlpha = SlotAlpha(reminder)
         holder.warn = CreateWarn(holder, holder.slot)
     end
     DBR.toolkit.CreateWidget({
@@ -1654,18 +1692,15 @@ end
 -- shows only while missing or within its lead. Its time is secret in combat,
 -- so DBR times it: from the last out-of-combat read, reset by your own cast
 -- (readable in combat), with one C_Timer to the window (no polling). Out of
--- the window its icon and slot are faint (SetAlpha is allowed in combat on a
--- secure button). A drop in combat cannot be seen (AddOns cannot read buffs
--- then), so it shows at the window time (author: accepted for Battle Shout).
--- It counts YOUR casts (author: "a helper to maintain YOUR battle shout's
--- up-time"). Faint, never 0: the icon still takes clicks (it casts the buff).
--- Until 2026-11-17 it was transparent (author: "I can live with that"); John
--- changed it then: "Yes, faint always". "Show buffs only when needed" (John,
--- 2026-11-17) uses the same window for every buff (Windowed). Both use
--- db.faintPercent (15 or 25), with the setting on or off.
-local function FaintAlpha()
-    return DBR.db.faintPercent / 100
-end
+-- the window its icon and slot are hidden or faint (SetAlpha is allowed in
+-- combat on a secure button). A drop in combat cannot be seen (AddOns cannot
+-- read buffs then), so it shows at the window time (author: accepted for
+-- Battle Shout). It counts YOUR casts (author: "a helper to maintain YOUR
+-- battle shout's up-time"). A hidden icon still takes clicks (it casts the
+-- buff). Transparent until 2026-11-17, faint in 1.11.0, transparent again by
+-- default (John, 2026-11-18). "Show buffs only when needed" (John,
+-- 2026-11-17) used the same window for every buff (Windowed); since
+-- 2026-11-18 each buff has its own switch, and all use db.faintPercent.
 
 local function WindowAlpha(key, shown)
     local alpha = shown and 1 or FaintAlpha()
@@ -1789,8 +1824,8 @@ local function OwnCast(name)
     end
 end
 
--- Combat ends: each icon faded in combat solid, its slot transparent again
--- while shown only when needed (out of combat the refresh decides). Also one
+-- Combat ends: each icon faded in combat solid, its slot at "Visibility when
+-- not needed" again while shown only when needed (out of combat the refresh decides). Also one
 -- whose setting changed in combat.
 local function EndWindows()
     for _, reminder in ipairs(reminders.list) do
@@ -1798,8 +1833,8 @@ local function EndWindows()
             OpenWindow(reminder.key)
             reminders.faded[reminder.key] = nil
             local holder = reminders.widgets[reminder.key]
-            holder.slotHidden = nil
-            SetSlotHidden(holder, Windowed(reminder))
+            holder.slotAlpha = nil
+            SetSlotAlpha(holder, SlotAlpha(reminder))
         end
     end
 end
