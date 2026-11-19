@@ -6113,12 +6113,22 @@ end
 local function isRed(icon)
     return icon.glow.shown ~= false and icon.border ~= nil and icon.border[1] == 1 and icon.border[2] == 0.2
 end
-test("only when needed: on for every buff by default, Visibility 0; off shows a buff in full, in and out of combat",
+-- A save with a long buff's "Show only when needed" on (off by default since 2026-11-19).
+local function neededOn(keys, extra)
+    local db = {needed = {}, neededLongOff = true}
+    for _, key in ipairs(keys) do db.needed[key] = true end
+    for key, value in pairs(extra or {}) do db[key] = value end
+    return db
+end
+test("only when needed: on for a short buff, off for a long one by default, Visibility 0; off shows it in full",
     function()
-    local state = fixture({known = {[INTELLECT] = true}})
+    local state = fixture({known = {[INTELLECT] = true}, db = neededOn({"arcaneIntellect"})})
+    equal(fixture({}).dbr.db.needed.arcaneIntellect, false, "a long buff: off by default (John, 2026-11-19, 1a)")
+    equal(fixture({}).dbr.db.needed.mageArmor, false)
+    equal(fixture({class = "WARRIOR"}).dbr.db.needed.battleShout, true, "a short buff: on by default")
+    equal(state.row("DBR_NEEDED_ARCANEINTELLECT").setting.default, false, "the checkbox's default too")
     local db = state.dbr.db
-    equal(db.needed.arcaneIntellect, true, "on by default (John, 2026-11-18)")
-    equal(db.needed.mageArmor, true, "long and short buffs alike")
+    equal(db.needed.arcaneIntellect, true, "turned on, it stays on")
     equal(db.faintPercent, 0, "Visibility when not needed: 0 by default")
     equal(db.onlyNeeded, nil, "1.11.0's one switch is gone")
     local hunter = fixture({class = "HUNTER", known = {[883] = true}})
@@ -6154,7 +6164,7 @@ test("only when needed: on for every buff by default, Visibility 0; off shows a 
 end)
 test("only when needed, on: up hides out of combat and in combat (0%); window full and yellow; missing full and red",
     function()
-    local state = fixture({known = {[INTELLECT] = true}})
+    local state = fixture({known = {[INTELLECT] = true}, db = neededOn({"arcaneIntellect"})})
     local icon, slot = state.icon("arcaneIntellect"), state.slotOf("arcaneIntellect")
     local warn = state.widget("arcaneIntellect").warn
     equal(visible(icon), true, "missing: shown out of combat")
@@ -6207,7 +6217,7 @@ test("only when needed, on: up hides out of combat and in combat (0%); window fu
 end)
 test("only when needed: Visibility when not needed is the same alpha in and out of combat, 0 to 80% in 5s",
     function()
-    local state = fixture({known = {[INTELLECT] = true}, db = {faintPercent = 25}})
+    local state = fixture({known = {[INTELLECT] = true}, db = neededOn({"arcaneIntellect"}, {faintPercent = 25})})
     local icon, slot = state.icon("arcaneIntellect"), state.slotOf("arcaneIntellect")
     state.buff("player", "Arcane Intellect", state.now + 1001)
     state.update("UNIT_AURA", "player")
@@ -6243,7 +6253,7 @@ test("only when needed: Visibility when not needed is the same alpha in and out 
     equal(sanitize("25"), 0)
     equal(sanitize(0 / 0), 0)
     -- Thorns up on the tank (ours shows it): 25% too.
-    local druid = fixture({class = "DRUID", known = {[THORNS] = true}, db = {faintPercent = 25}})
+    local druid = fixture({class = "DRUID", known = {[THORNS] = true}, db = neededOn({"thorns"}, {faintPercent = 25})})
     druid.party({{name = "Tanky", class = "WARRIOR", role = "TANK", buffs = {Thorns = druid.now + 601}}})
     equal(druid.icon("thorns").shown, true, "up on the tank, 25%: shown...")
     equal(druid.icon("thorns").alpha, 0.25, "...at 25%")
@@ -6259,7 +6269,7 @@ test("only when needed: Visibility when not needed is the same alpha in and out 
     equal(warrior.icon("battleShout").alpha, 1, "its own 60 s window")
 end)
 test("only when needed: a group member lacking it, unlocked, pets and the Aspect reminder stay in full", function()
-    local state = fixture({known = {[INTELLECT] = true}})
+    local state = fixture({known = {[INTELLECT] = true}, db = neededOn({"arcaneIntellect"})})
     local icon = state.icon("arcaneIntellect")
     state.buff("player", "Arcane Intellect", state.now + 1001)
     state.party({{name = "Healy", class = "PRIEST"}})
@@ -6271,7 +6281,7 @@ test("only when needed: a group member lacking it, unlocked, pets and the Aspect
     state.cast(BRILLIANCE)
     equal(icon.alpha, 0, "the group version covers everyone: hidden")
     leaveCombat(state)
-    local unlocked = fixture({known = {[INTELLECT] = true}})
+    local unlocked = fixture({known = {[INTELLECT] = true}, db = neededOn({"arcaneIntellect"})})
     unlocked.slash("unlock")
     unlocked.buff("player", "Arcane Intellect", unlocked.now + 1001)
     unlocked.update("UNIT_AURA", "player")
@@ -6279,7 +6289,7 @@ test("only when needed: a group member lacking it, unlocked, pets and the Aspect
     enterCombat(unlocked)
     equal(unlocked.icon("arcaneIntellect").alpha, 1, "unlocked: never faded in combat either")
     -- Thorns up on the tank: hidden out of and in combat, in full in its window.
-    local druid = fixture({class = "DRUID", known = {[THORNS] = true}})
+    local druid = fixture({class = "DRUID", known = {[THORNS] = true}, db = neededOn({"thorns"})})
     local thorns = druid.icon("thorns")
     druid.party({{name = "Tanky", class = "WARRIOR", role = "TANK", buffs = {Thorns = druid.now + 601}}})
     equal(thorns.shown, false, "up on the tank: hidden out of combat")
@@ -6292,10 +6302,24 @@ test("only when needed: a group member lacking it, unlocked, pets and the Aspect
     enterCombat(hunter)
     equal(hunter.icon("hunterPet").alpha, 1, "a pet reminder is never faded")
 end)
-test("only when needed: 1.11.0's saves: every buff on; a saved 15% becomes 0 once; 25% and a later 15% stay",
+test("only when needed: older saves: long buffs off once; a saved 15% becomes 0 once; 25% and a later 15% stay",
     function()
     local old = fixture({db = {onlyNeeded = false, faintPercent = 15}})
-    equal(old.dbr.db.needed.arcaneIntellect, true, "1.11.0's switch off: every buff on now")
+    equal(old.dbr.db.needed.arcaneIntellect, false, "1.11.0's switch: a long buff off")
+    equal(old.dbr.db.neededLongOff, true)
+    local v120 = fixture({class = "WARRIOR", db = {needed = {battleShout = false}}})
+    equal(v120.dbr.db.needed.battleShout, false, "a short buff turned off by hand stays off")
+    local mage120 = fixture({db = {needed = {arcaneIntellect = true, mageArmor = true}}})
+    equal(mage120.dbr.db.needed.arcaneIntellect, false, "1.12.0 turned every buff on: long ones off once")
+    equal(mage120.dbr.db.needed.mageArmor, false)
+    equal(mage120.dbr.SanitizeDB(mage120.dbr.db).needed.arcaneIntellect, false)
+    mage120.settings.DBR_NEEDED_ARCANEINTELLECT:SetValue(true)
+    equal(mage120.dbr.SanitizeDB(mage120.dbr.db).needed.arcaneIntellect, true, "turned on after the move: stays")
+    equal(old.dbr.SanitizeProfile({needed = {arcaneIntellect = true}}).needed.arcaneIntellect, false,
+        "a 1.12.0 profile copy: off too")
+    local kept = old.dbr.SanitizeProfile({needed = {arcaneIntellect = true}, neededLongOff = true})
+    equal(kept.needed.arcaneIntellect, true)
+    equal(kept.neededLongOff, true, "the flag goes with the profile")
     equal(old.dbr.db.onlyNeeded, nil)
     equal(old.dbr.db.faintPercent, 0, "1.11.0 saved 15 for everyone: now 0")
     equal(old.dbr.db.faintHidden, true)
@@ -6306,22 +6330,26 @@ test("only when needed: 1.11.0's saves: every buff on; a saved 15% becomes 0 onc
     equal(old.dbr.SanitizeDB(old.dbr.db).faintPercent, 15, "a repair later keeps it")
     equal(old.dbr.SanitizeProfile({faintPercent = 15}).faintPercent, 0, "a 1.11.0 profile copy: 0 too")
     equal(old.dbr.SanitizeProfile({faintPercent = 15, faintHidden = true}).faintPercent, 15)
-    equal(fixture({db = {needed = {arcaneIntellect = "no"}}}).dbr.db.needed.arcaneIntellect, true, "repaired: on")
+    equal(fixture({db = {needed = {arcaneIntellect = "no"}, neededLongOff = true}}).dbr.db.needed.arcaneIntellect,
+        false, "repaired: its default")
+    equal(fixture({class = "WARRIOR", db = {needed = {battleShout = "no"}}}).dbr.db.needed.battleShout, true)
 end)
 test("only when needed: in the toolkit profile; a copy turns a buff's switch off live", function()
     local state = profileMage()
     local part = savedPart(state)
-    equal(part.needed.arcaneIntellect, true, "in the profile")
+    equal(part.needed.arcaneIntellect, false, "in the profile")
+    equal(part.neededLongOff, true)
     equal(part.faintPercent, 0)
     local clean = state.dbr.SanitizeProfile({needed = {arcaneIntellect = false}, faintPercent = 25})
     equal(clean.needed.arcaneIntellect, false)
-    equal(clean.needed.mageArmor, true)
+    equal(clean.needed.mageArmor, false)
     equal(clean.faintPercent, 25)
     local alt = druidPart()
     alt.needed, alt.faintPercent = {arcaneIntellect = false}, 25
     local copy = profileMage({toolkitDB = {snapToGrid = false,
         profiles = {["Alt - Forever"] = {class = "Druid", parts = {[ADDON] = alt}, pending = {}}}}})
     copy.dbr.db.spells.arcaneIntellect = true
+    copy.dbr.db.needed.arcaneIntellect = true
     copy.buff("player", "Arcane Intellect", copy.now + 1001)
     copy.update("UNIT_AURA", "player")
     equal(copy.icon("arcaneIntellect").shown, false, "on: hidden while up")

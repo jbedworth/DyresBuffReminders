@@ -55,7 +55,10 @@ your own below.
   click (group members, the tank, the group version). That stays as it is
   through a fight; your group is checked again after it.
 - Unlocked, every icon shows (the buffs that are on, dimmed).
-- **Show only when needed**, a switch under each buff (on at first): while
+- **Show only when needed**, a switch under each buff (on at first for
+  Battle Shout, off for long buffs: with it on, a buff dispelled or
+  cancelled in a fight shows only at its warning time or after the fight,
+  as AddOns cannot see it go then; off, it shows at once): while
   the buff is up, its icon and the game's buff icon in its place show at
   **Visibility when not needed** (0%, hidden, at first; up to 80%), the same
   in and out of combat, until **Remind before a buff runs out** (or a buff's

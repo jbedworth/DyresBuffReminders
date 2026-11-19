@@ -250,9 +250,14 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       outlined, a click on a button casts nothing, and a drag moves it; at
       first it sits under the Aspect and Pet icons, clear of them and of the
       Consumables bar. **Vertical** stacks it downward.
+- [ ] Show only when needed, 1.12.1 defaults: a 1.12.0 save shows the
+      switch off under Arcane Intellect (and every long buff) and on under
+      Battle Shout. Off: in a fight, right-click Arcane Intellect off; its
+      icon shows at once, in full with the red border. Turn it on and
+      `/reload`: it stays on.
 - [ ] Show only when needed, 1.12.0 (a Mage with Arcane Intellect
-      up, more than 3 minutes left; the switch under Arcane Intellect is
-      on at first): out of combat the icon and the game's buff icon in its
+      up, more than 3 minutes left; turn on the switch under Arcane
+      Intellect): out of combat the icon and the game's buff icon in its
       place hide. In a fight both stay hidden; a click on the icon's place
       still casts. A 1.11.0 save with 15% shows 0% on the slider. At 3
       minutes left they show in full with the yellow flashing border; when

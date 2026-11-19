@@ -819,11 +819,13 @@ function DBR.InitializeOptions()
             AddBuffLead(reminder, buff)
         end
         if DBR.CanShowOnlyWhenNeeded(reminder) then
-            local needed = Flag("DBR_NEEDED_" .. key:upper(), "Show only when needed", "needed", key, true,
+            local needed = Flag("DBR_NEEDED_" .. key:upper(), "Show only when needed", "needed", key,
+                DBR.NeededDefault(reminder),
                 "On: while " .. reminder.label .. " is up and not about to run out, its icon shows at "
                     .. "\"Visibility when not needed\" (hidden at 0%), in and out of combat. Missing or about "
-                    .. "to run out, it shows in full. Off: always in full. In combat DBR cannot see a buff that "
-                    .. "drops early (dispelled or cancelled): it shows at its warning time.",
+                    .. "to run out, it shows in full. Off: always in full, and a buff dispelled or cancelled in "
+                    .. "a fight shows at once. On, DBR cannot see that in a fight: it shows only at its warning "
+                    .. "time or after the fight.",
                 DBR.RefreshReminders)
             Nest(needed, buff, function() return DBR.db.enabled and DBR.db.spells[key] end)
         end

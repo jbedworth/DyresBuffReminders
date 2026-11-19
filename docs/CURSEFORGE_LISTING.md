@@ -49,7 +49,7 @@ Each buff has its own icon, in a place you choose that never moves. While a buff
 - **Red:** missing (it ran out, was dispelled, or was cancelled). This shows at once, also in combat, and a click recasts it on you.
 - **Yellow and flashing:** about to run out. **Remind before a buff runs out** sets how early, as a share of the buff's own length (0-20%, 10% at first: 3 minutes before a 30-minute buff ends). Also in combat; your own recast resets it.
 - **No border:** it is up.
-- **Show only when needed**, per buff (on at first): a buff that is up is hidden, in and out of combat, until it is about to run out; missing or running out, it shows in full. **Visibility when not needed** (0% to 80%) shows it faint instead, and the switch off shows it always.
+- **Show only when needed**, per buff (on at first for Battle Shout, off for long buffs, so a buff dispelled in a fight shows at once): a buff that is up is hidden, in and out of combat, until it is about to run out; missing or running out, it shows in full. **Visibility when not needed** (0% to 80%) shows it faint instead, and the switch off shows it always.
 
 ### Which buffs
 - **Druid:** Mark of the Wild (also for your group) and Thorns. In a group with a member set to the Tank role, Thorns watches that tank and a click casts it on them; solo, as the tank yourself, or with no tank in reach, it watches you. While the tank has Thorns, its icon shows the tank's time left, yellow before it runs out and red when it does, also in combat.

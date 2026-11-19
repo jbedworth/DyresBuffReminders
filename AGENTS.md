@@ -272,10 +272,16 @@ spells that make a warning apply. Ask the author before changing
   clicks and casts the buff (accepted). A drop in
   combat shows at the window time (author: accepted for Battle Shout). The
   seal timer is its own design, unchanged.
-- "Show only when needed", per buff (John, 2026-11-18: "A yes, per buff.
-  But default all short and long term buffs to on/enabled by default";
-  replaces 1.11.0's one opt-in switch `db.onlyNeeded`, which is dropped,
-  so every buff starts on): `db.needed[key]`, default true, for every buff
+- "Show only when needed", per buff (John, 2026-11-18: "A yes, per buff";
+  replaces 1.11.0's one opt-in switch `db.onlyNeeded`, which is dropped):
+  `db.needed[key]`, default `DBR.NeededDefault`: on for a short buff
+  (`combatWindow`, Battle Shout), off for a long one. 1.12.0 had every buff
+  on (John: "default all short and long term buffs to on"); John reversed
+  it for long buffs on 2026-11-19 ("1a") after Arcane Intellect dropped in a
+  fight and showed only after it: on, our icon sits faint or hidden under
+  the slot, so a drop in combat cannot show (the probe below found no
+  signal). A save without `db.neededLongOff` (1.12.0 and older, and their
+  profiles) sets the long ones off once, then sets the flag. For every buff
   with an aura slot (`DBR.CanShowOnlyWhenNeeded`: not a pet, not the Aspect
   reminder), a checkbox (`DBR_NEEDED_<KEY>`) under its buff's switch. On
   (and locked), `Windowed(reminder)` is true, so it follows Battle Shout's
@@ -646,8 +652,10 @@ spells that make a warning apply. Ask the author before changing
   with the same two-row fallback as the chimes.
 - Steps aside for the toolkit's proc cues (1.12.0; John, 2026-11-18, one
   sound per proc): Dyre's Toolkit's proc engine (planned 2.11.0, its
-  Procs.lua) lets a class Tools AddOn show a proc with arcs and a sound
-  (WTF: Nightfall, Decimation; MTF: Missile Barrage). Its `RegisterProcs`
+  Procs.lua) lets an AddOn show a proc with arcs and a sound. Since John's
+  2026-11-18 choice ("DSU is the right home for our 'spell activation
+  overlays'"), that AddOn is Dyre's Shields Up (Nightfall, Decimation,
+  Missile Barrage, Fingers of Frost); MTF and WTF register none. Its `RegisterProcs`
   claims the Owners kind `PROC_KIND_PREFIX .. key` ("proc:nightfall") at
   priority 10; the keys match `PROC_SOUNDS`. `DBR.ProcOwner(proc)` is that
   owner when it is not DBR: then `ApplyProcSounds` registers no aura sound
@@ -862,6 +870,16 @@ stacks so it fits."
   (`GetAuraDataBySpellName`, "HARMFUL"): spellID, stacks, source, a line only
   when it changes. `/dbr probe off` removes the sounds and the events. Never
   registered outside the probe.
+- The buff drop probe (John, 2026-11-19: "do 3, build the probe"; removed
+  the same day, "remove the probe code"): no signal tells AddOn code in
+  combat which buff dropped. Found in client: `UNIT_AURA` "player" in combat
+  gives `removedAuraInstanceIDs` and `isFullUpdate` as secret values, so the
+  IDs read before combat cannot be matched; the engine's slot button takes
+  no script: HookScript on it, and SetScript on a frame of our own inside
+  it, both fail with "Cannot assign script handler for 'onshow' (blocked by
+  secret aspects)" and taint DBR. Never put a script on or in a slot
+  button. Only the bare fact that some aura was removed is left (not used:
+  it cannot tell which).
 
 ### Dyre's Toolkit (author-approved, 2026-10-19)
 

@@ -5,6 +5,12 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.12.1
+
+### Fixes
+
+- **Show only when needed** is off again for long buffs (Arcane Intellect, Mark of the Wild, armors, and the like), and on for Battle Shout. With it on, a buff that is dispelled or cancelled in a fight stays hidden until its warning time or the end of the fight: in combat the game does not tell AddOns which buff went. Off, the icon shows the moment the buff goes, also in combat. 1.12.0 turned it on for every buff, so this update turns it off once for long buffs; turn it on again for any buff you want hidden while it is up.
+
 ## 1.12.0
 
 ### Features
@@ -15,7 +21,7 @@ missing.
 ### Fixes
 
 - A buff that is up is hidden again, in and out of combat, until it is about to run out, as Battle Shout was before 1.11.0. Missing or about to run out, it shows in full. A hidden icon still takes clicks in combat: a click on its place casts the buff.
-- A proc that another Dyre's AddOn now shows with its own proc arcs and sound (for example Nightfall in Warlock Tools Forever) no longer plays DBR's sound too: you hear one sound per proc. Its row under **Proc Chimes** is greyed, and its tooltip names that AddOn. With an older Dyre's Toolkit nothing changes.
+- A proc that another Dyre's AddOn now shows with its own proc arcs and sound (for example Nightfall in Dyre's Shields Up) no longer plays DBR's sound too: you hear one sound per proc. Its row under **Proc Chimes** is greyed, and its tooltip names that AddOn. With an older Dyre's Toolkit nothing changes.
 
 ## 1.11.0
 

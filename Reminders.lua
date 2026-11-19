@@ -99,9 +99,16 @@ local TIMER_SLACK = 0.05
 DBR.ASPECT_MODE_ORDER = {"normal", "speed", "off"}
 DBR.ASPECT_MODE_LABELS = {normal = "Normal", speed = "Speed-Running", off = "Disabled"}
 
--- "Show only when needed", per buff (db.needed[key], default on; John,
--- 2026-11-18: "A yes, per buff. But default all short and long term buffs to
--- on"): while the buff is up and outside its lead, its icon and the game's
+-- "Show only when needed", per buff (db.needed[key]; John, 2026-11-18: "A
+-- yes, per buff"). Default on for a short buff (combatWindow: Battle Shout),
+-- off for a long one (John, 2026-11-19, "1a", reversing "default all short
+-- and long term buffs to on"): on, a buff dropped in a fight (dispelled or
+-- cancelled) stays hidden until its timed warning, because AddOn code
+-- cannot see it go (found in client, 2026-11-19: UNIT_AURA's removed IDs
+-- are secret in combat, and the engine's slot button takes no script). Off,
+-- the engine's slot goes and our red icon under it shows at once. 1.12.0
+-- turned every buff on, so a save without db.neededLongOff turns the long
+-- ones off once. While the buff is up and outside its lead, its icon and the game's
 -- buff icon in its place show at "Visibility when not needed"
 -- (db.faintPercent, 0 to 80%, default 0: hidden), the same alpha in and out
 -- of combat (John: "it should be consistent alpha both in and out of
@@ -126,6 +133,11 @@ end
 -- a pet, not the Aspect reminder).
 function DBR.CanShowOnlyWhenNeeded(reminder)
     return not reminder.pet and not reminder.combatAspect
+end
+
+-- Its default: on for a short buff only (above).
+function DBR.NeededDefault(reminder)
+    return reminder.combatWindow == true
 end
 
 local reminders = {list = {}, icons = {}, names = {}, spellKeys = {}, spellNames = {}, widgets = {},
@@ -264,10 +276,13 @@ function DBR.SanitizeReminders(db, sanitizePosition)
     -- 1.1.0's lead was seconds (db.lead): the percent starts at its default.
     db.leadPercent = DBR.SanitizeLead(db.leadPercent)
     db.lead = nil
-    -- 1.11.0's one switch (db.onlyNeeded) is per buff now, every buff on.
+    -- 1.11.0's one switch (db.onlyNeeded) is per buff now. 1.12.0 turned
+    -- every buff on: once, the long ones go to their default, off.
     db.onlyNeeded = nil
     local needed = type(db.needed) == "table" and db.needed or {}
+    local longOff = db.neededLongOff ~= true
     db.needed = {}
+    db.neededLongOff = true
     -- 1.11.0 saved its default, 15, for everyone: once, 15 becomes 0, the
     -- new default (a 15 chosen by hand too; 25 stays).
     if db.faintHidden ~= true and db.faintPercent == 15 then
@@ -319,7 +334,11 @@ function DBR.SanitizeReminders(db, sanitizePosition)
                 db.groups[key] = groups[key] ~= false
             end
             if DBR.CanShowOnlyWhenNeeded(reminder) then
-                db.needed[key] = needed[key] ~= false
+                local value = needed[key]
+                if type(value) ~= "boolean" or (longOff and not reminder.combatWindow) then
+                    value = DBR.NeededDefault(reminder)
+                end
+                db.needed[key] = value
             end
             if reminder.lead then
                 db.leads[key] = DBR.SanitizeBuffLead(reminder, leads[key])
