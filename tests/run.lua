@@ -4747,16 +4747,48 @@ test("procs: the game plays a switched-on proc's sound, registered by its buff's
     equal(fixture({class = "PRIEST"}).soundIDs(), "", "no procs for a Priest")
 end)
 test("procs: only IDs the client names as the buff are used", function()
-    local saved = SPELLS[NATURES_GRACE]
-    SPELLS[NATURES_GRACE] = "Something Else"
+    local saved, first = SPELLS[12968], SPELLS[NATURES_GRACE]
+    SPELLS[12968] = "Something Else"
+    SPELLS[NATURES_GRACE] = nil
     local ok, message = pcall(function()
+        local warrior = fixture({class = "WARRIOR"})
+        warrior.settings.DBR_PROC_FLURRY:SetValue(true)
+        equal(warrior.soundIDs(), "12966,12967,12969,12970", "a listed ID with another name is left out")
+        warrior.slash("debug")
+        contains(warrior.find("debug procs flurry"), "12968=Something Else")
         local state = fixture({class = "DRUID"})
-        equal(state.soundIDs(), "", "a listed ID with another name is left out")
-        state.slash("debug")
-        contains(state.find("debug procs naturesgrace"), "ids=16886=Something Else")
-        contains(state.find("debug procs naturesgrace"), "registered=none status=unverified")
+        equal(state.soundIDs(), "", "an ID the client does not know is left out")
+        state.buff("player", "Nature's Grace", {spellId = 990016})
+        state.emit("UNIT_AURA", "player")
+        equal(state.dbr.db.procs.learned.naturesgrace, 990016, "the English name is the fallback")
     end)
-    SPELLS[NATURES_GRACE] = saved
+    SPELLS[12968], SPELLS[NATURES_GRACE] = saved, first
+    equal(ok, true, tostring(message))
+end)
+test("procs: a client in another language registers and reads the buff by its own name", function()
+    local french = {[DRUID_CLEARCASTING] = "Idées claires", [SHADOW_TRANCE] = "Transe de l'ombre",
+        [NATURES_GRACE] = "Grâce de la nature"}
+    local saved = {}
+    for id, text in pairs(french) do
+        saved[id] = SPELLS[id]
+        SPELLS[id] = text
+    end
+    local ok, message = pcall(function()
+        local warlock = fixture({class = "WARLOCK"})
+        warlock.settings.DBR_PROC_NIGHTFALL:SetValue(true)
+        equal(warlock.soundIDs(), tostring(SHADOW_TRANCE), "Nightfall registers under its French name")
+        warlock.buff("player", "Transe de l'ombre", {spellId = 990018})
+        warlock.emit("UNIT_AURA", "player")
+        equal(warlock.dbr.db.procs.learned.nightfall, 990018, "read by its French name")
+        local druid = fixture({class = "DRUID"})
+        druid.settings.DBR_PROC_DRUIDCLEARCASTING:SetValue(true)
+        equal(druid.soundIDs(), DRUID_CLEARCASTING .. "," .. NATURES_GRACE)
+        druid.buff("player", "Idées claires", {spellId = 990017})
+        druid.emit("UNIT_AURA", "player")
+        equal(druid.dbr.db.procs.learned.druidclearcasting, 990017, "Clearcasting read by its French name")
+        equal(druid.soundIDs(), DRUID_CLEARCASTING .. "," .. NATURES_GRACE .. ",990017")
+    end)
+    for id in pairs(french) do SPELLS[id] = saved[id] end
     equal(ok, true, tostring(message))
 end)
 test("procs: out of combat the real buff ID is read, saved, and registered; never in combat", function()
@@ -5724,6 +5756,7 @@ test("Aspect reminder: the sound plays only when combat starts with a problem", 
     leaveCombat(state)
     state.settings.DBR_COMBAT_ASPECT_SOUND:SetValue("magical")
     equal(state.played[#state.played].key, "magical", "choosing a sound plays it")
+    equal(state.played[#state.played].speech, "Aspect of the Cheetah is up")
     local before = #state.played
     aspectUp(state, "Aspect of the Pack")
     enterCombat(state)
@@ -5734,6 +5767,20 @@ test("Aspect reminder: the sound plays only when combat starts with a problem", 
     before = #state.played
     enterCombat(state)
     equal(#state.played, before, "sound switched off")
+end)
+test("Aspect reminder: the sound's preview says the Cheetah's name in the client's language", function()
+    local saved = SPELLS[CHEETAH]
+    local ok, message = pcall(function()
+        SPELLS[CHEETAH] = "Aspect du guépard"
+        local state = hunterFixture()
+        state.settings.DBR_COMBAT_ASPECT_SOUND:SetValue("magical")
+        equal(state.played[#state.played].speech, "Aspect du guépard is up")
+        SPELLS[CHEETAH] = nil
+        state.settings.DBR_COMBAT_ASPECT_SOUND:SetValue("talent")
+        equal(state.played[#state.played].speech, "Aspect of the Cheetah is up", "the English name without one")
+    end)
+    SPELLS[CHEETAH] = saved
+    equal(ok, true, tostring(message))
 end)
 test("Aspect reminder: hidden while dead or on a taxi; debug; a secret aura changes nothing", function()
     local state, icon = hunterFixture()

@@ -112,8 +112,19 @@ function DBR.SanitizeProcs(saved)
     return clean
 end
 
+-- The buff's name in the client's language: the client's name for its first
+-- listed ID (a French client says "Idées claires", not "Clearcasting"), else
+-- the English name in ProcSpells.lua.
+local function BuffName(proc)
+    local name = proc.spells and proc.spells[1] and C_Spell.GetSpellName(proc.spells[1])
+    if type(name) == "string" and not DBR.IsSecret(name) and name ~= "" then
+        return name
+    end
+    return proc.buff
+end
+
 -- The IDs a proc's sound is registered for: its listed IDs the client names
--- as the buff, and the ID read in client.
+-- as the buff (so a renumbered ID is left out), and the ID read in client.
 local function ProcIDs(proc)
     local ids, seen = {}, {}
     local function Add(id)
@@ -122,9 +133,10 @@ local function ProcIDs(proc)
             ids[#ids + 1] = id
         end
     end
+    local buff = BuffName(proc)
     for _, id in ipairs(proc.spells) do
         local name = C_Spell.GetSpellName(id)
-        if name and not DBR.IsSecret(name) and name == proc.buff then
+        if name and not DBR.IsSecret(name) and name == buff then
             Add(id)
         end
     end
@@ -207,7 +219,7 @@ local function Learn()
     local grew = false
     for _, proc in ipairs(procs.list) do
         local aura = not proc.reactive and settings.spells[proc.key] and not DBR.ProcOwner(proc)
-            and C_UnitAuras.GetAuraDataBySpellName("player", proc.buff, AURA_FILTER)
+            and C_UnitAuras.GetAuraDataBySpellName("player", BuffName(proc), AURA_FILTER)
         -- A secret answer is never tested or indexed.
         if not DBR.IsSecret(aura) and aura then
             local id = aura.spellId

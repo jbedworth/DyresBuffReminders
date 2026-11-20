@@ -1506,10 +1506,18 @@ local function CombatStarts()
     end
 end
 
+-- The preview speaks the Cheetah's name in the client's language, as the
+-- combat start does; the English name when the client gives none.
+local CHEETAH = 5118
+
 function DBR.PreviewCombatAspect()
     local library = DBR.SoundLibrary()
     if library then
-        library.Play(DBR.db.combatAspect.sound, "Aspect of the Cheetah is up")
+        local name = C_Spell.GetSpellName(CHEETAH)
+        if type(name) ~= "string" or DBR.IsSecret(name) or name == "" then
+            name = "Aspect of the Cheetah"
+        end
+        library.Play(DBR.db.combatAspect.sound, name .. " is up")
     end
 end
 

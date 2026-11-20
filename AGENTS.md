@@ -348,8 +348,10 @@ spells that make a warning apply. Ask the author before changing
   the six Classic seals and Forever's Seal of Fury (found in client: the
   timer missed it; IDs from ForeverAuras' spell table), plus any learned
   spellbook spell named "Seal of ..." (a new one gets a new container out of
-  combat, since a slot's IDs are fixed). The last seal cast is remembered by
-  name.
+  combat, since a slot's IDs are fixed). That name test is English only
+  (1.12.2, left as it is: no one prefix is known to fit every language,
+  and some write no spaces); the seven listed seals work by ID everywhere.
+  The last seal cast is remembered by name.
 - Classic Era and Anniversary (author, 1.5.0: "paladin seals aren't showing
   up in era"; how seals work must not change): no engine, so AuraEngine.lua
   (copied from WTF with a provenance header, as DSU and MTF) gives the same
@@ -620,7 +622,8 @@ spells that make a warning apply. Ask the author before changing
   (`C_RestrictedActions.IsAddOnRestrictionActive`) and runs again on
   `ADDON_RESTRICTION_STATE_CHANGED`. Without the API the section is hidden.
 - Data in ProcSpells.lua `PROC_SOUNDS`, per class: key, label, buff (the
-  client's buff name), spells (Classic IDs; author: start with Classic's),
+  English buff name, for docs and a fallback), spells (Classic IDs; author:
+  start with Classic's; the first is the buff itself),
   on, sound. Warlock Nightfall (Shadow Trance 17941, off, sound impspell, as
   WTF); Mage Clearcasting 12536 (off: author, the game plays a sound for it);
   Druid Clearcasting 16870 (off, same reason) and Nature's Grace 16886 (on);
@@ -638,6 +641,12 @@ spells that make a warning apply. Ask the author before changing
   DBR reads `GetAuraDataBySpellName(player, buff).spellId` for switched-on
   procs, saves it (`db.procs.learned`), and registers it too. Never read
   auras in combat. `/dbr debug` shows confirmed (learned) or unverified.
+- Every language (author, 1.12.2, "Go for A"; a French player report: the
+  chimes were silent): "the buff" is Procs.lua's `BuffName`, the client's own
+  name for `spells[1]` (not secret, a string; French "Idées claires"), else
+  the English `buff`. Both the ID check and the out-of-combat read use it. So
+  the check guards the other listed IDs (a renumbered one is left out), not
+  `spells[1]` itself.
 - Saved in `db.procs` (enabled, spells, sounds, learned). Sounds must be
   aura sounds (files): menus use filter "aura"; a saved non-file key falls
   back to the default (`magical`, Nightfall's `impspell`). First run (no

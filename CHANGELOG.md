@@ -5,6 +5,13 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.12.2
+
+### Fixes
+
+- Proc Chimes now work on clients in every language, not only English (a French player report).
+- The Hunter Aspect reminder's sound preview now says Aspect of the Cheetah's name in your client's language.
+
 ## 1.12.1
 
 ### Fixes
