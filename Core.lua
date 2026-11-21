@@ -102,7 +102,8 @@ local REQUIRED_NAMESPACE = {
     "ClassChimes", "SoundLibrary", "ReportMissingSounds", "SanitizeChimes", "ImportChimes", "ReportOtherChimes",
     "InitializeChimes", "PreviewChime", "ReportChimesDebug",
     "ClassProcs", "HasProcSounds", "SanitizeProcs", "SanitizeProcSound", "ApplyProcSounds", "PreviewProc",
-    "InitializeProcs", "ImportProcs", "SanitizeCasts", "ClassCasts", "InitializeCasts", "PreviewCast", "SanitizeCombo", "HasComboChimes",
+    "InitializeProcs", "ImportProcs", "SanitizeProcCues", "ImportProcCues", "ApplyProcs", "InitializeProcCues",
+    "SanitizeCasts", "ClassCasts", "InitializeCasts", "PreviewCast", "SanitizeCombo", "HasComboChimes",
     "InitializeCombo", "PreviewCombo", "ReportComboDebug", "HasWintersChill", "SanitizeWintersChill",
     "PreviewWintersChill", "ApplyWintersChill", "InitializeWintersChill", "ReportWintersChillDebug",
     "ReportCastsDebug", "ReportProcsDebug", "OtherProcs", "ReportOtherProcs", "AddOnLoaded",
@@ -180,6 +181,9 @@ function DBR.SanitizeDB(db)
     if DBR.SanitizeProcs and type(DBR.PROC_SOUNDS) == "table" then
         db.procs = DBR.SanitizeProcs(db.procs)
     end
+    if DBR.SanitizeProcCues and type(DBR.PROC_CUES) == "table" then
+        DBR.SanitizeProcCues(db)
+    end
     if DBR.SanitizeCasts and type(DBR.CAST_SOUNDS) == "table" then
         db.casts = DBR.SanitizeCasts(db.casts)
     end
@@ -199,8 +203,8 @@ end
 -- copied, exported, or imported: locked (the toolkit's account-wide lock,
 -- mirrored), probe (a debug switch), last (the spell each button casts,
 -- remembered from your casts), bars (1.1.0's places, kept only until they
--- seed the icons).
-local PROFILE_CHARACTER_KEYS = {"locked", "probe", "last", "bars"}
+-- seed the icons), procIDs (the proc cues' buff IDs read in client, 1.13.0).
+local PROFILE_CHARACTER_KEYS = {"locked", "probe", "last", "bars", "procIDs"}
 -- Read in client on this character, nested in settings tables (characterKeys
 -- are top-level only): the cooldown lengths (chimes.learned) and the real
 -- buff IDs (procs.learned). A copy, import, or the Defaults keeps this
@@ -264,7 +268,9 @@ function DBR.ApplyProfile()
     DBR.RefreshSeal()
     DBR.RefreshConsumables()
     DBR.RefreshAspectBar()
-    DBR.ApplyProcSounds()
+    -- The copy wins over a later first-run import from Dyre's Shields Up.
+    DBR.db.procCuesImported = true
+    DBR.ApplyProcs()
     DBR.ApplyWintersChill()
 end
 
@@ -285,6 +291,7 @@ local function JoinProfile(toolkit)
     profile.joining = nil
     if profile.wrote then
         DBR.remindersFirstRun, DBR.chimesFirstRun, DBR.procsFirstRun = false, false, false
+        DBR.db.procCuesImported = true
     end
 end
 
@@ -475,9 +482,13 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     DBR.ReportMissingSounds(class)
     DBR.ReportOtherChimes(class)
     DBR.InitializeChimes(class)
+    -- DBR had proc settings: before this run, or copied now from WTF.
+    local hadProcs = not DBR.procsFirstRun
     if DBR.procsFirstRun then
-        DBR.ImportProcs(class)
+        hadProcs = DBR.ImportProcs(class) == true
     end
+    -- Proc cues (1.13.0): once, from DSU 1.4 and DBR's own Proc Chimes.
+    DBR.ImportProcCues(hadProcs)
     DBR.InitializeProcs(class)
     DBR.ReportOtherProcs(class)
     DBR.InitializeCasts(class)

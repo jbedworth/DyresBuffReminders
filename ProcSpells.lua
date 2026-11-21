@@ -1,4 +1,4 @@
-local _, DBR = ...
+local addonName, DBR = ...
 
 -- Every proc sound and its defaults, in one place (author-approved:
 -- data-driven, built like the cooldown chimes). Add a class or proc here;
@@ -53,6 +53,88 @@ DBR.PROC_SOUNDS = {
         {key = "overpower", label = "Overpower", reactive = 7384, on = true, sound = "talent"},
         {key = "revenge", label = "Revenge", reactive = 6572, on = true, sound = "magical"},
     },
+}
+
+-- Proc cues (1.13.0; John, 2026-11-20: DBR holds "all buffs/procs ...
+-- chimes and visuals", Dyre's Shields Up shields only; docs/CUE_MODEL.md,
+-- families Proc and Window). With Dyre's Toolkit's proc engine 2
+-- (PROC_ENGINE_VERSION, Toolkit 2.12.0) DBR passes this catalog to
+-- RegisterProcs: an arc each side of you while the proc is up and its sound,
+-- each with its own switch. Without it, PROC_SOUNDS above (Proc Chimes) as
+-- before. Same keys as PROC_SOUNDS and DSU 1.4's catalog, so settings carry
+-- over and Owners "proc:<key>" match.
+--
+-- The proc engine's fields (Toolkit Procs.lua): key, label, buff (English),
+-- class, talents (a player who knows one gets the cue and rows; every rank),
+-- ids (candidate buff IDs; the engine uses one only when the client names it
+-- the buff, and learns the real one out of combat), color, sound, soundOn and
+-- arcOn (false: that switch starts off), stacks, tooltip; usable (an ability,
+-- not a buff, shown while C_Spell.IsSpellUsable says so).
+--
+-- From DSU 1.4.1's Procs.lua (moved, with its notes): Missile Barrage
+-- (talents 400588 and 1326083, TalentsForeverBook; buff 400589, a fact from
+-- MageProcs 1.13.0; 44401 a spare), Fingers of Frost (talent 400647; buff
+-- 400670, 2 charges: stacks = 2, the right arc shows only at both; 44544 a
+-- spare), Nightfall (talents 18094, 18095; Shadow Trance 17941), Decimation
+-- (talent 440870, new on Forever; no source gives its buff ID, so it shows
+-- after the engine has read the ID once out of combat), the Druid (Omen of
+-- Clarity 16864, a trained passive on Forever) and Shaman (Elemental Focus
+-- 16164) Clearcastings, Overpower and Revenge (usable, rank 1 IDs). DBR's own
+-- Proc Chimes before 1.13.0 (sound only by default, arcOn = false; John's
+-- defaults kept: Mage Clearcasting off, the game plays a sound for it; Flurry
+-- off; Nature's Grace on): Arcane Concentration (Classic ranks 11213,
+-- 12574-12577; TalentsForeverBook names 11213 on Forever), Nature's Grace
+-- (16880, TalentsForeverBook), Flurry (Classic ranks 12319, 12971-12974;
+-- TalentsForeverBook names 12319). Sound switches start as Proc Chimes' did
+-- (Nightfall off). No talent or buff ID here is confirmed in client.
+DBR.ARCANE_MISSILES_SPELL = 5143
+DBR.ARCANE_MISSILES_ENGLISH = "Arcane Missiles"
+DBR.MISSILE_BARRAGE_TOOLTIP = "\n\nA macro that catches it, also during a cast:\n"
+-- One art for every proc for now: white lightning the engine tints with each
+-- proc's color, made by scripts/make_arcane_arcs.py to the engine's geometry
+-- (John's own art, from DSU 1.4). New texture files need a full client restart.
+DBR.PROC_ART = {
+    right = "Interface\\AddOns\\" .. addonName .. "\\Textures\\ArcaneArc",
+    left = "Interface\\AddOns\\" .. addonName .. "\\Textures\\ArcaneArcLeft",
+    tint = true,
+}
+DBR.PROC_CUES = {
+    {key = "missilebarrage", label = "Missile Barrage", buff = "Missile Barrage", class = "MAGE",
+        talents = {400588, 1326083}, ids = {400589, 44401}, color = {0.62, 0.8, 1}, sound = "alertselect",
+        macroTooltip = true},
+    {key = "fingersoffrost", label = "Fingers of Frost", buff = "Fingers of Frost", class = "MAGE",
+        talents = {400647}, ids = {400670, 44544}, color = {0.7, 0.95, 1}, sound = "frostyicespell1",
+        stacks = 2,
+        tooltip = "\n\nWith two charges up, both arcs show; when you use one, the right arc goes."},
+    {key = "mageclearcasting", label = "Clearcasting (Arcane Concentration)", buff = "Clearcasting",
+        class = "MAGE", talents = {11213, 12574, 12575, 12576, 12577}, ids = {12536}, color = {0.75, 0.85, 1},
+        sound = "magical", soundOn = false, arcOn = false,
+        tooltip = "Your next damage spell costs no mana."},
+    {key = "nightfall", label = "Nightfall (Shadow Trance)", buff = "Shadow Trance", class = "WARLOCK",
+        talents = {18094, 18095}, ids = {17941}, color = {0.35, 0.95, 0.35}, sound = "impspell", soundOn = false,
+        tooltip = "Shadow Trance: your next Shadow Bolt is instant."},
+    {key = "decimation", label = "Decimation", buff = "Decimation", class = "WARLOCK",
+        talents = {440870}, ids = {}, color = {1, 0.45, 0.1}, sound = "powerup",
+        tooltip = "Soul Fire casts faster and costs no Soul Shard for 10 seconds."},
+    {key = "druidclearcasting", label = "Clearcasting (Omen of Clarity)", buff = "Clearcasting", class = "DRUID",
+        talents = {16864}, ids = {16870}, color = {0.85, 0.95, 1}, sound = "magical", soundOn = false,
+        tooltip = "Your next damage or healing spell or offensive ability costs nothing."},
+    {key = "naturesgrace", label = "Nature's Grace", buff = "Nature's Grace", class = "DRUID",
+        talents = {16880}, ids = {16886}, color = {0.4, 1, 0.5}, sound = "magical", arcOn = false,
+        tooltip = "Your next spell casts faster."},
+    {key = "shamanclearcasting", label = "Clearcasting (Elemental Focus)", buff = "Clearcasting",
+        class = "SHAMAN", talents = {16164}, ids = {16246}, color = {0.3, 0.6, 1}, sound = "magical",
+        soundOn = false, tooltip = "Your next damage spell costs no mana."},
+    {key = "flurry", label = "Flurry", buff = "Flurry", class = "WARRIOR",
+        talents = {12319, 12971, 12972, 12973, 12974}, ids = {12966, 12967, 12968, 12969, 12970},
+        color = {1, 0.6, 0.3}, sound = "magical", soundOn = false, arcOn = false,
+        tooltip = "Your next three swings are faster."},
+    {key = "overpower", label = "Overpower", class = "WARRIOR", usable = 7384, color = {1, 0.35, 0.2},
+        sound = "talent",
+        tooltip = "After your target dodges; dimmed while you lack the rage."},
+    {key = "revenge", label = "Revenge", class = "WARRIOR", usable = 6572, color = {1, 0.8, 0.25},
+        sound = "magical",
+        tooltip = "After you block, dodge, or parry; dimmed while you lack the rage."},
 }
 
 -- Cast chimes (author, 1.4.0: "a sound when Travel Form, Pact of Cheeta and

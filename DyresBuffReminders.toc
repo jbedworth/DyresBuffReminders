@@ -1,8 +1,8 @@
 ## Interface: 16001, 11509
 ## Title: Dyre's Buff Reminders
-## Notes: Reminds you of your class buffs, chimes before your cooldowns are ready, and sounds your procs, in WoW Forever
+## Notes: Reminds you of your class buffs, chimes before your cooldowns are ready, and shows and sounds your procs, in WoW Forever
 ## Author: Dyre
-## Version: 1.12.2
+## Version: 1.13.0
 ## IconTexture: Interface\Icons\Spell_Holy_WordFortitude
 ## Category: Buffs & Debuffs
 ## Dependencies: DyresToolkit

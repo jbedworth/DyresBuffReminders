@@ -24,7 +24,7 @@ tested.
 
 ## Summary
 
-Your class buffs, always in view and one click to cast, with a red border when one drops, also in combat. Reagent and ammo counts, a seal timer, and cooldown, proc, and cast chimes.
+Your class buffs, always in view and one click to cast, with a red border when one drops, also in combat. Reagent and ammo counts, a seal timer, and cooldown, proc, and cast chimes, with proc arcs.
 
 ## Description
 
@@ -35,7 +35,7 @@ Per-file changelogs need no manual text: each CI upload uses the version's
 `CHANGELOG.md` section, through `release-notes.md`.
 
 ```markdown
-**Dyre's Buff Reminders** keeps your class buffs in view, each in its own icon, and casts them with one click. It also counts your ammo and reagents, times your seal, chimes before your cooldowns are ready, and chimes your procs and travel spells. Made for World of Warcraft: Forever.
+**Dyre's Buff Reminders** keeps your class buffs in view, each in its own icon, and casts them with one click. It also counts your ammo and reagents, times your seal, chimes before your cooldowns are ready, shows and sounds your procs, and chimes your travel spells. Made for World of Warcraft: Forever.
 
 **Mage Tools Forever** and **Warlock Tools Forever** rely on it for their buff reminders and chimes, and it works on every class.
 
@@ -82,8 +82,8 @@ Each reagent shows once you know its spell.
 ### Cooldown chimes
 A sound just before your chosen spells are ready again, also in combat, for every class. Every rank of a spell counts, unlike the Cooldown Manager on Forever. Each spell has its own switch and sound (Text to Speech can say "Blink ready"), and **Chime early (seconds)** sets how early. The sounds come from **Dyre's Sounds**, which installs with it.
 
-### Proc chimes
-A sound the moment a proc appears on you, also in combat: Nightfall, Clearcasting, Nature's Grace, and Flurry, plus a Warrior's Overpower and Revenge the moment they become usable. Each has its own switch and sound.
+### Procs
+An arc each side of your character while a proc is up, and a sound the moment it appears, also in combat: Missile Barrage, Fingers of Frost, Nightfall, Decimation, Clearcasting, Nature's Grace, and Flurry, plus a Warrior's Overpower and Revenge while they are usable. Each has its own arc switch, sound switch, and sound. Your proc choices from Dyre's Shields Up carry over once. Needs Dyre's Toolkit 2.12 or later; with an older one, the sounds only.
 
 ### Combo point chimes
 Rogues, and Druids in Cat Form: a rising note as you earn each combo point, a held note at the most, and a sound when you spend them, also in combat. Pick the note set: a comic bassoon climb (the default), a sax scale, or the Full sound for every point. Choose the Full and Spend sounds, or play only the full chime.
@@ -95,7 +95,7 @@ A sound just after you cast a travel spell or shift into a Druid form (0.75 seco
 Unlock with `/dbr unlock` to drag each buff icon, the Consumables bar, and the seal timer; they snap to your other Dyre's frames and to a grid. Each one's size and opacity sit at the end of its own section in `/dbr`: **Reminder icons** (all buff icons) and the seal timer under Reminders, the Consumables bar under Consumables. `/dbr reset` puts them back. Moving and sizing come from **Dyre's Toolkit**, which installs with it. Settings are saved per character.
 
 ### Commands
-- `/dbr` (or `/dbr options`) opens the settings: Reminders, Consumables, Chimes, Proc Chimes, and Cast Chimes.
+- `/dbr` (or `/dbr options`) opens the settings: Reminders, Consumables, Chimes, Procs, and Cast Chimes.
 - `/dbr unlock`, `/dbr lock`, `/dbr reset`, `/dbr debug`.
 - `/buffreminders` works the same, in case another AddOn uses `/dbr`.
 

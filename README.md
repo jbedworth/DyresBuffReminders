@@ -2,7 +2,7 @@
 
 Your class buffs, each in its own icon, cast with one click, with a red
 border when one drops, also in combat; ammo and reagent counts; a Paladin seal
-timer; cooldown chimes; and proc chimes. For World of Warcraft: Forever. Settings are in **Options → AddOns → Dyre's
+timer; cooldown chimes; and proc arcs and sounds. For World of Warcraft: Forever. Settings are in **Options → AddOns → Dyre's
 AddOns → Buff Reminders**, or type `/dbr`. They are saved per character.
 
 - **Druid: Thorns follows your tank.** With a member set to the Tank role,
@@ -31,7 +31,7 @@ AddOns → Buff Reminders**, or type `/dbr`. They are saved per character.
 - Hidden on flight paths; each icon shows the spell a click casts.
 - In combat AddOns cannot read buffs, so group members' buffs (and Thorns on
   the tank) are checked again after the fight; the seal timer, the combat
-  aspect icon, the ammo and reagent counts, the chimes, and the proc sounds
+  aspect icon, the ammo and reagent counts, the chimes, and the procs
   keep working.
 
 ## Buff reminders
@@ -251,34 +251,44 @@ so on).
   Forever. Dyre's Cooldown Chimes is now part of DBR: remove its folder;
   while it is installed, it plays the chimes and DBR plays none.
 
-## Proc sounds
+## Procs
 
-A sound the moment a proc appears on you, so you can use it, also in combat:
+An arc each side of your character while a proc is up, and a sound the
+moment it appears, so you can use it, also in combat. Each proc has its own
+arc switch, sound switch, and sound. The arcs and their art come from Dyre's
+Shields Up, which now shows only shields (1.13.0); this needs Dyre's Toolkit
+2.12 or later.
 
 | Class | Procs |
 |---|---|
-| Warlock | **Nightfall** (Shadow Trance: your next Shadow Bolt is instant), off at first |
-| Mage | **Clearcasting** (Arcane Concentration), off at first: the game already plays a sound for it |
-| Druid | **Nature's Grace**, on; **Clearcasting** (Omen of Clarity), off at first |
-| Shaman | **Clearcasting** (Elemental Focus), off at first |
-| Warrior | **Overpower** and **Revenge**, on: a sound the moment one becomes usable (DBR plays it, so any sound; at most once per 3 seconds each); **Flurry**, off at first |
+| Mage | **Missile Barrage** and **Fingers of Frost** (both arcs and sound); **Clearcasting** (Arcane Concentration): sound only, off at first (the game already plays one) |
+| Warlock | **Nightfall** (Shadow Trance: arcs on, sound off at first) and **Decimation** |
+| Druid | **Clearcasting** (Omen of Clarity): arcs on, sound off at first; **Nature's Grace**: sound only at first |
+| Shaman | **Clearcasting** (Elemental Focus): arcs on, sound off at first |
+| Warrior | **Overpower** and **Revenge**: arcs while usable (dimmed while you lack the rage) and a sound the moment one becomes usable (any sound; at most once per 3 seconds each); **Flurry**: off at first |
 
-- Each proc has its own switch and sound, on one row; only sounds the game
-  can play for a buff are listed (files, not interface sounds or Text to
-  Speech). **Enable** under **Proc Chimes** turns them all off.
-- The game plays the sound itself when the buff appears, because AddOns
-  cannot read your buffs in combat. During a boss encounter the game does not
-  let AddOns change these sounds, so a change you make then applies after it.
+- A proc shows only when you know its talent. Fingers of Frost's right arc
+  goes when you use one of its two charges.
+- The Missile Barrage tooltip has a macro that catches it, also during a
+  cast, with Arcane Missiles in your client's language.
+- The game plays a buff proc's sound itself, because AddOns cannot read
+  your buffs in combat; only sounds the game can play for a buff are listed.
+  During a boss encounter a change you make applies after it.
 - DBR starts from Classic's spell IDs and checks them in game: the first
   time a proc's buff is on you out of combat (for example right after a
   fight), DBR reads its real ID and uses it from then on.
+- **Proc arc size** sets how big the arcs are; `/dbr unlock` moves them.
+- Once, on the first login with this version, DBR copies your proc choices
+  from Dyre's Shields Up (arcs, sounds, the arcs' place and size) and keeps
+  its own Proc Chimes sounds where you had set them. Chat says so.
+- With SpellActivationOverlay loaded, DBR's arcs stay off and the sounds
+  still play; turn on **Show proc arcs with SpellActivationOverlay** to show
+  both (after a `/reload`).
+- With a Dyre's Toolkit older than 2.12, DBR keeps 1.12's **Proc Chimes**:
+  the sounds only, with one **Enable** switch.
 - On a Warlock, your Nightfall sound setting carries over from Warlock Tools
-  Forever on the first run. From its 0.3.3-beta on, Warlock Tools Forever
-  leaves Nightfall to DBR; with an older one still playing it, DBR says so
-  once at login.
-- When another Dyre's AddOn shows a proc with its own proc arcs and sound
-  (through Dyre's Toolkit), DBR leaves that proc to it, so you hear one
-  sound. Its row is greyed, and its tooltip names that AddOn.
+  Forever on the first run. With an older Warlock Tools Forever still
+  playing it, DBR says so once at login.
 
 ## Cast chimes
 
@@ -338,7 +348,7 @@ you can turn them off in MTF or WTF.
 
 | Command | What it does |
 |---|---|
-| `/dbr`, `/dbr options` | Opens the settings (out of combat): Reminders, Aspect bar (Hunters), Consumables, Chimes, Proc Chimes, and Cast Chimes |
+| `/dbr`, `/dbr options` | Opens the settings (out of combat): Reminders, Aspect bar (Hunters), Consumables, Chimes, Procs, and Cast Chimes |
 | `/dbr unlock`, `/dbr lock` | Unlocks every Dyre's AddOn's frames to drag them, and locks them again |
 | `/dbr reset` | Moves the buff icons, the aspect bar, the Consumables bar, and the seal timer back to their default places |
 | `/dbr debug` | Diagnostics: each reminder, who lacks it, what a click casts, and any spell IDs the client does not know; the seal timer; each chime spell, Dyre's Sounds, and the latest chime events; and each proc, its spell IDs, and whether it is confirmed in game |
@@ -359,7 +369,8 @@ sounds on a Warlock (Nightfall) and a Warrior's Revenge.
 
 **Not yet verified in client:** the Priest buffs, the group versions' spell
 IDs and reagents, the Mage and Warlock reagents, and the chime lists of
-classes other than Mage and Warlock. [TESTING.md](TESTING.md) has the
+classes other than Mage and Warlock; the proc arcs in DBR (1.13.0), which
+were checked in Dyre's Shields Up. [TESTING.md](TESTING.md) has the
 checklist.
 
 WowUp users (2.24.0 or later): install from the repository URL; GitHub releases

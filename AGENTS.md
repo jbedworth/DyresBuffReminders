@@ -41,6 +41,24 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   in Dyre's Toolkit (author's rule, 2026-10-20): every DBR frame is a toolkit
   widget, and DBR never moves, scales, or saves a frame itself.
 
+### The cue model (John, 2026-11-20; design in docs/CUE_MODEL.md)
+
+- DBR is the home of every buff and proc cue, arcs and sounds (John: "a
+  better fit for all buffs/procs (procs are really short-term triggered
+  buffs) chimes and visuals"); Dyre's Shields Up keeps only the absorb-shield
+  display. John: "Yes, write it into DBR's design doc and start".
+- Every entry is one trigger with a list of cues (arc, icon, sound, message),
+  each with its own switch and default; settings rows come from the data,
+  grouped by family. Families: Upkeep, Proc, Window, Ready, Counter, Alert,
+  and Feedback. An entry may use only a trigger whose family has a mechanism
+  that works in combat on Forever. Only Upkeep icons are clickable.
+- Boundaries: DBR = you, your group, your abilities; Dyre's Debuff Tracker =
+  your effects on enemies; DSU = absorb shields; Dyre's Toolkit = engines;
+  class Tools AddOns = class-only tools.
+- The model guides new work and the proc move; existing code is not
+  refactored to fit it. docs/CUE_MODEL.md maps every current feature to a
+  family; keep that table current when a feature is added or moved.
+
 ### The reminders (built)
 
 - Buffs.lua holds the lists, by class (author-approved for v1: Mage, Warlock,
@@ -684,6 +702,58 @@ spells that make a warning apply. Ask the author before changing
   ../DyresToolkit/Procs.lua when present; `toolkitBefore211` has neither;
   `procClaims` and `claimProc` claim as `RegisterProcs` does.
 
+### Proc cues (built 1.13.0; John, 2026-11-20)
+
+John: DBR is "a better fit for all buffs/procs (procs are really short-term
+triggered buffs) chimes and visuals ... This lets DSU focus on managing just
+absorption shield rendering", and "I do not want users to have to go to DBR
+to change the chime sounds for Overpower and Revenge, when the visual arc
+toggle lives in DSU". docs/CUE_MODEL.md: families Proc and Window.
+
+- With Dyre's Toolkit's proc engine 2 (`PROC_ENGINE_VERSION >= 2`, Toolkit
+  2.12.0; `DBR.ProcEngine`, a feature test), DBR passes ProcSpells.lua's
+  `PROC_CUES` and `PROC_ART` to `RegisterProcs` at
+  `PROC_OWNER_PRIORITY_HOME` (20; DSU 1.4 claims at 10, so the engine makes an
+  older DSU step aside by itself) with `usableSounds = true`. The engine draws
+  the arcs and plays the sounds only for the owner of "proc:<key>"; its
+  settings rows (`AddProcSettings`, header "Procs") replace the Proc Chimes
+  section. Decided once at login (`DBR.procEngine`); then the Proc Chimes
+  code (above) registers nothing and its reactive check stays off.
+- The catalog: DSU 1.4.1's eight (Missile Barrage, Fingers of Frost with
+  `stacks = 2`, Nightfall, Decimation, the Druid and Shaman Clearcastings,
+  Overpower and Revenge as usable procs), with their notes, plus Proc Chimes'
+  Mage Clearcasting, Nature's Grace, and Flurry with `arcOn = false` (sound
+  only by default, as before). Same keys as Proc Chimes and DSU. Sound
+  defaults are Proc Chimes' (Nightfall off; Overpower "talent", Revenge
+  "magical"). A proc shows only with its talent known (the engine's rule;
+  Proc Chimes had no talent check): the talent IDs are Classic ranks and
+  TalentsForeverBook's, not confirmed in client (TESTING.md).
+- Settings: `db.procCues` (the engine's arc, sound, sounds, position, scale;
+  in the profile) and `db.procIDs` (buff IDs read in client; a profile
+  character key). Without engine 2 both stay as saved, unrepaired, so a
+  toolkit update finds them. `db.procs` (Proc Chimes) stays as it was.
+- One-time import (`ImportProcCues`, flag `db.procCuesImported`), at the
+  first login with engine 2: from `DyresShieldsUpDB` (DSU 1.4's `procs`,
+  `procIDs`, `procsWithSAO`; read only, never written; DSU 1.5 keeps them for
+  this) the arc and sound switches, sounds, the arcs' place and size, learned
+  IDs, and `procsWithSAO`; then DBR's own Proc Chimes (switches, with its
+  Enable off meaning every sound off; sounds; learned IDs) win where DBR had
+  settings (lead: "An existing DBR setting wins"). One chat line when DSU
+  gave something. A profile written at login or copied later marks it done
+  (the profile wins). DSU's data is per character, so a character that never
+  ran DSU gets the defaults.
+- SpellActivationOverlay (from DSU 1.4; John: "We'll plan to coexist"):
+  loaded at login and `db.procsWithSAO` off, DBR still registers (the sounds
+  play, as Proc Chimes did beside it) but gives the engine a store whose arc
+  switches read off and drop writes; the arc rows are greyed; one chat line.
+  The row "Show proc arcs with SpellActivationOverlay" shows only with SAO
+  loaded; a change applies after a /reload.
+- The Missile Barrage tooltip's macro (from DSU 1.4.1) names Arcane Missiles
+  (5143) in the client's language at login, English without a name.
+- Tests: the proc cue tests need ../DyresToolkit with engine 2 (and its
+  Units.lua and Auras.lua); with tests/toolkit (CI) they say "skipped" and
+  pass. Every other test sees an engine before 2 (Proc Chimes).
+
 ### Combo point chimes (built 1.6.0; author: "mimic the Hear Kitty addon in DBR")
 
 - Rogues and Druids (`DBR.COMBO_CLASSES`), a Druid only in Cat Form
@@ -1007,7 +1077,7 @@ switching; no account table.
   conflict reporting, joining Dyre's Toolkit and its profile, the lock, and startup;
   Buffs holds the buff lists; Reminders the bars and icons; Seals the Paladin seal
   timer; Consumables the Consumables bar (ammo); AspectBar the Hunter aspect bar; ChimeSpells the chime lists; Chimes the chimes and Dyre's Sounds;
-  ProcSpells the proc lists; Procs the proc sounds; Probe the debug-only
+  ProcSpells the proc lists; Procs the proc sounds and the proc cues; Probe the debug-only
   reactive-ability probe; Options the settings page.
 - artwork/ holds the logo (SVG source, 1024 and 512 PNG renders) and
   screenshots/ for listings; it is never packaged.
@@ -1018,7 +1088,8 @@ switching; no account table.
 - README.md is the user-facing overview, TESTING.md the verification method,
   source evidence, unverified IDs, and in-client checklist,
   docs/RELEASE_PLAN.md the release process, docs/CURSEFORGE_LISTING.md the
-  CurseForge form text, docs/CLASS_COVERAGE.md the per-class coverage plan, and CHANGELOG.md the per-release change list.
+  CurseForge form text, docs/CLASS_COVERAGE.md the per-class coverage plan,
+  docs/CUE_MODEL.md the cue model (families, triggers, cues), and CHANGELOG.md the per-release change list.
 - Documentation describes purpose, design, rules, and methodology. Do not add
   dated status reports or test-result logs to the docs; CHANGELOG.md is the
   release record. Keep README's claims true.
@@ -1030,7 +1101,11 @@ switching; no account table.
   `## Category: Buffs & Debuffs` stays for when the toolkit is missing (a child
   without its parent shows at the top level) and matches the CurseForge main
   category.
-- No runtime assets. Add none without agreement.
+- Runtime assets: only the proc arcs, Textures/ArcaneArc.tga and
+  ArcaneArcLeft.tga (1.13.0, moved from Dyre's Shields Up with the procs; John,
+  2026-11-20; John's own art, made by scripts/make_arcane_arcs.py). The
+  builder checks them as 32-bit square TGAs (MEDIA_FILES). Add no other
+  without agreement.
 - Git origin: git@github.com:jbedworth/DyresBuffReminders.git (public, as all
   of the author's AddOns). Inspect Git state before acting and preserve user
   work. Text is LF under
@@ -1095,7 +1170,8 @@ switching; no account table.
 - Package only DyresBuffReminders.toc, Commands.lua, Core.lua,
   Buffs.lua, Reminders.lua, AuraEngine.lua, Seals.lua, Consumables.lua, AspectBar.lua, ChimeSpells.lua,
   Chimes.lua,
-  ProcSpells.lua, Procs.lua, Probe.lua, Options.lua, and LICENSE under the top-level
+  ProcSpells.lua, Procs.lua, Probe.lua, Options.lua, Textures/ArcaneArc.tga,
+  Textures/ArcaneArcLeft.tga, and LICENSE under the top-level
   `DyresBuffReminders/` folder, named `DyresBuffReminders-<version>-forever.zip`,
   with the builder's BigWigs-format `release.json` (flavors `forever` and `classic`; the TOC lists Interface `16001, 11509`, and each CurseForge upload names Forever 1.60.1 and Classic Era 1.15.9, `CURSEFORGE_CLASSIC_GAME_VERSION_ID`) attached
   for WowUp.

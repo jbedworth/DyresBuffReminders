@@ -84,6 +84,17 @@ local function WantsSounds(classFile)
     if DBR.db.chimes.enabled and #DBR.ClassChimes(classFile) > 0 then
         return true
     end
+    -- With the proc engine (1.13.0): a proc cue's sound switch.
+    if DBR.ProcEngine and DBR.ProcEngine() then
+        local on = type(DBR.db.procCues) == "table" and type(DBR.db.procCues.sound) == "table"
+            and DBR.db.procCues.sound or {}
+        for _, proc in ipairs(DBR.PROC_CUES) do
+            if proc.class == classFile and on[proc.key] == true then
+                return true
+            end
+        end
+        return false
+    end
     local procs = DBR.db.procs
     if procs and procs.enabled and DBR.ClassProcs then
         for _, proc in ipairs(DBR.ClassProcs(classFile)) do

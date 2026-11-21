@@ -41,6 +41,9 @@ class ReleaseTests(unittest.TestCase):
             (self.source / name).write_bytes((ROOT / name).read_bytes().replace(b"\r\n", b"\n"))
         for name in builder.RUNTIME_FILES:
             (self.source / name).write_bytes(b"local addonName, DBR = ...\n")
+        for name in builder.MEDIA_FILES:
+            (self.source / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.source / name).write_bytes((ROOT / name).read_bytes())
         (self.source / builder.CHANGELOG_NAME).write_bytes(
             (ROOT / builder.CHANGELOG_NAME).read_bytes().replace(b"\r\n", b"\n"))
         self.version = builder._validate_files(self.files())
@@ -406,6 +409,33 @@ class ReleaseTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(result.stdout, "")
                 self.assertFalse((self.source / "dist").exists())
+
+    def test_tga_validator(self):
+        icon = (bytes((0, 0, 2)) + bytes(9) + (64).to_bytes(2, "little")
+                + (64).to_bytes(2, "little") + bytes((32, 0x28)) + bytes(64 * 64 * 4))
+        builder._validate_tga("icon.tga", icon)
+
+        def variant(offset, value):
+            changed = bytearray(icon)
+            changed[offset:offset + len(value)] = value
+            return bytes(changed)
+        for data in (b"", icon[:17], icon[:-1], icon + b"\0",
+                     variant(1, b"\x01"), variant(2, b"\x0a"),
+                     variant(12, (48).to_bytes(2, "little")),
+                     variant(14, (32).to_bytes(2, "little")),
+                     variant(16, b"\x18"), variant(17, b"\x20")):
+            with self.subTest(header=data[:18]), self.assertRaises(ValueError):
+                builder._validate_tga("icon.tga", data)
+
+    def test_package_ships_the_proc_arcs(self):
+        # The proc arcs' art (ProcSpells.lua's DBR.PROC_ART, 1.13.0).
+        self.assertEqual(builder.MEDIA_FILES, ("Textures/ArcaneArc.tga", "Textures/ArcaneArcLeft.tga"))
+        path, _ = self.build()
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+            for name in builder.MEDIA_FILES:
+                self.assertIn("DyresBuffReminders/" + name, names)
+            self.assertEqual(len(names), len(builder.PACKAGE_FILES))
 
 
 if __name__ == "__main__":

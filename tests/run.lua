@@ -64,6 +64,28 @@ local HAS_TOOLKIT_PROCS = (function()
     end
     return false
 end)()
+-- Proc engine 2 (Toolkit 2.12.0, PROC_ENGINE_VERSION in its Procs.lua) and
+-- the toolkit's Auras.lua it draws with. The copy in tests/toolkit has
+-- neither, so the 1.13.0 proc cue tests run only beside ../DyresToolkit.
+-- Units.lua gives the engine IsSecret; Auras.lua its aura containers.
+local TOOLKIT_ENGINE_FILES = {"Units.lua", "Auras.lua"}
+local HAS_PROC_ENGINE = (function()
+    local procs = io.open(TOOLKIT_DIR .. TOOLKIT_PROCS, "rb")
+    if not procs then
+        return false
+    end
+    local found = procs:read("*a"):find("PROC_ENGINE_VERSION = 2", 1, true) ~= nil
+    procs:close()
+    for _, path in ipairs(TOOLKIT_ENGINE_FILES) do
+        local file = io.open(TOOLKIT_DIR .. path, "rb")
+        if file then
+            file:close()
+        else
+            found = false
+        end
+    end
+    return found
+end)()
 local PAGE = "Buff Reminders"
 
 -- Classic spell names for the IDs in Buffs.lua, as the client would name them.
@@ -1058,6 +1080,19 @@ local function fixture(options)
             else
                 env.DyresToolkit.PROC_KIND_PREFIX = "proc:"
             end
+            -- Proc engine 2 (Toolkit 2.12.0) takes DBR's procs over (1.13.0).
+            -- Only options.procEngine keeps it (with the toolkit's Auras.lua,
+            -- which the engine draws with); every other test sees an engine
+            -- before 2, so Proc Chimes as before.
+            if options.procEngine and HAS_PROC_ENGINE then
+                for _, path in ipairs(TOOLKIT_ENGINE_FILES) do
+                    local chunk = assert(loadfile(TOOLKIT_DIR .. path))
+                    setfenv(chunk, env)
+                    chunk("DyresToolkit", state.toolkitNS)
+                end
+            else
+                env.DyresToolkit.PROC_ENGINE_VERSION = nil
+            end
         end
         state.toolkit = env.DyresToolkit
         -- A class Tools AddOn plays a proc through the proc engine: it joins
@@ -1236,7 +1271,7 @@ test("commands are one word, and anything else shows the usage", function()
     for _, text in ipairs({"nope", "unlock now", "debug_reminders"}) do
         state.clear()
         state.slash(text)
-        equal(state.last(), "DBR: Use /dbr (settings: Reminders, Consumables, Chimes, Proc Chimes, Cast Chimes, Combo Point Chimes), "
+        equal(state.last(), "DBR: Use /dbr (settings: Reminders, Consumables, Chimes, Procs, Cast Chimes, Combo Point Chimes), "
             .. "/dbr unlock, /dbr lock, /dbr reset, /dbr debug, or /dbr probe on|off.")
     end
     state.slash("")
@@ -5812,6 +5847,181 @@ test("Aspect reminder: hidden while dead or on a taxi; debug; a secret aura chan
     equal(indicator(icon), true, "no aspect, then a secret read: still shown")
     state.units.player.secretAuras = nil
     equal(fixture({known = {[INTELLECT] = true}}).env.DyresBuffRemindersIcon_aspect, nil, "a Mage: none")
+end)
+
+-- Proc cues (1.13.0, Toolkit 2.12.0's proc engine 2) -----------------------------------------
+-- Only beside ../DyresToolkit with engine 2 (HAS_PROC_ENGINE); the copy in
+-- tests/toolkit (CI) has no Procs.lua, so there these say so and pass.
+local NIGHTFALL_TALENT, OVERPOWER = 18094, 7384
+local function engineTest(name, body)
+    test(name, function()
+        if not HAS_PROC_ENGINE then
+            io.write("# skipped (no proc engine 2 in ", TOOLKIT_DIR, "): ", name, "\n")
+            return
+        end
+        body()
+    end)
+end
+local function cueRow(state, key, part)
+    return state.row(("DYRE_DYRESBUFFREMINDERS_PROC_" .. key .. "_" .. part):upper())
+end
+
+engineTest("proc cues: with engine 2, DBR registers its procs at the home priority; Proc Chimes stay off", function()
+    local state = fixture({class = "WARLOCK", procEngine = true, known = {[NIGHTFALL_TALENT] = true}})
+    equal(state.dbr.procEngine, true, "decided at login")
+    local handle = state.dbr.ProcCuesHandle()
+    equal(type(handle), "table", "a handle for a Warlock")
+    equal(state.toolkit.KindOwner("proc:nightfall"), "DyresBuffReminders")
+    equal(state.dbr.db.procCues.arc.nightfall, true, "the arcs on by default")
+    equal(state.dbr.db.procCues.sound.nightfall, false, "the sound off by default, as Proc Chimes")
+    equal(state.soundIDs(), "", "no sound while it is off")
+    equal(state.row("DBR_PROCS_ENABLED"), nil, "no Proc Chimes section")
+    equal(type(cueRow(state, "nightfall", "arc")), "table", "the engine's arc row")
+    state.settings.DYRE_DYRESBUFFREMINDERS_PROC_NIGHTFALL_SOUND:SetValue(true)
+    equal(state.soundIDs(), "17941", "the engine registers Shadow Trance")
+    equal(state.dbr.db.procs.spells.nightfall, false, "Proc Chimes' own settings are left as they were")
+    state.clear()
+    state.slash("debug")
+    contains(state.find("debug procs engine="), "handle=true")
+    contains(state.find("debug procs Nightfall"), "talent known")
+end)
+
+engineTest("proc cues: a Dyre's Shields Up 1.4 claim at 10 loses to DBR's 20", function()
+    local state = fixture({class = "WARLOCK", procEngine = true, known = {[NIGHTFALL_TALENT] = true},
+        procClaims = {nightfall = "DyresShieldsUp"}})
+    equal(state.toolkit.KindOwner("proc:nightfall"), "DyresBuffReminders")
+    local owns = state.dbr.ProcCuesHandle().Owns("nightfall")
+    equal(owns, true)
+end)
+
+engineTest("proc cues: Overpower is one row with arcs and sound; the engine plays it once, Proc Chimes never", function()
+    local state = fixture({class = "WARRIOR", procEngine = true, known = {[OVERPOWER] = true, [6572] = true}})
+    equal(state.toolkit.KindOwner("proc:overpower"), "DyresBuffReminders", "a usable proc claims too")
+    equal(type(cueRow(state, "overpower", "sound")), "table")
+    equal(state.row("DBR_PROC_OVERPOWER"), nil, "no Proc Chimes row")
+    state.usable = {Overpower = {false, false}, Revenge = {false, false}}
+    state.emit("SPELL_UPDATE_USABLE")
+    state.combat = true
+    state.usable.Overpower = {true, false}
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, 1, "one sound, in combat")
+    equal(state.played[1].key, "talent", "Proc Chimes' Overpower sound")
+    equal(state.played[1].speech, "Overpower")
+    equal(state.dbr.db.procCues.arc.flurry, false, "Flurry: arcs off by default (sound only before)")
+    equal(state.dbr.db.procCues.sound.flurry, false)
+end)
+
+engineTest("proc cues: the first run copies DSU 1.4's choices once; DBR's own Proc Chimes win where it had them", function()
+    local dsu = {procs = {arc = {nightfall = false, decimation = false}, sound = {nightfall = true, decimation = true},
+        sounds = {nightfall = "impspell", decimation = "magical"}, position = {point = "TOP", relativePoint = "TOP", x = 5, y = -40},
+        scale = 125}, procIDs = {nightfall = 990020, decimation = 990021}, procsWithSAO = true}
+    local saved = {procs = {enabled = true, spells = {nightfall = false}, sounds = {nightfall = "magical"},
+        learned = {nightfall = 990030}}}
+    local state = fixture({class = "WARLOCK", procEngine = true, known = {[NIGHTFALL_TALENT] = true, [440870] = true},
+        globals = {DyresShieldsUpDB = dsu}, db = saved})
+    local cues = state.dbr.db.procCues
+    equal(state.count(state.dbr.PROC_CUES_IMPORTED), 1, "one chat line")
+    equal(cues.arc.nightfall, false, "DSU's arc switch")
+    equal(cues.sound.nightfall, false, "DBR's own sound switch wins")
+    equal(cues.sounds.nightfall, "magical", "DBR's own sound wins")
+    equal(cues.sound.decimation, true, "DSU's, where DBR had none")
+    equal(cues.sounds.decimation, "magical")
+    equal(cues.position.x, 5, "the arcs' place")
+    equal(cues.scale, 125, "and size (percent)")
+    equal(state.dbr.db.procIDs.nightfall, 990030, "DBR's learned ID wins")
+    equal(state.dbr.db.procIDs.decimation, 990021, "DSU's learned ID")
+    equal(state.dbr.db.procsWithSAO, true)
+    equal(state.dbr.db.procCuesImported, true)
+    equal(dsu.procs.arc.nightfall, false, "DSU's table is never written")
+    equal(dsu.procs.sound.nightfall, true)
+    cues.arc.nightfall = true
+    local again = fixture({class = "WARLOCK", procEngine = true, known = {[NIGHTFALL_TALENT] = true},
+        globals = {DyresShieldsUpDB = dsu}, db = state.dbr.db})
+    equal(again.find(state.dbr.PROC_CUES_IMPORTED), nil, "once only")
+    equal(again.dbr.db.procCues.arc.nightfall, true, "a later choice stays")
+end)
+
+engineTest("proc cues: a new player with no DSU gets the defaults and no chat line", function()
+    local state = fixture({class = "DRUID", procEngine = true, known = {[16880] = true, [16864] = true}})
+    equal(state.find("Dyre's Shields Up"), nil)
+    local cues = state.dbr.db.procCues
+    equal(cues.arc.naturesgrace, false, "Nature's Grace: sound only by default")
+    equal(cues.sound.naturesgrace, true)
+    equal(cues.arc.druidclearcasting, true)
+    equal(cues.sound.druidclearcasting, false, "Clearcasting's sound off: the game plays one")
+    equal(state.dbr.db.procCuesImported, true)
+    equal(state.soundIDs(), "16886", "Nature's Grace sounds")
+end)
+
+engineTest("proc cues: Proc Chimes switched off as a whole import as every sound off", function()
+    local state = fixture({class = "DRUID", procEngine = true, known = {[16880] = true},
+        db = {procs = {enabled = false, spells = {naturesgrace = true}}}})
+    equal(state.dbr.db.procCues.sound.naturesgrace, false)
+    equal(state.soundIDs(), "")
+end)
+
+engineTest("proc cues: beside SpellActivationOverlay the arcs stay off, the sounds play; procsWithSAO shows both", function()
+    local state = fixture({class = "DRUID", procEngine = true, known = {[16880] = true, [16864] = true},
+        loaded = {SpellActivationOverlay = true}})
+    contains(state.find("SpellActivationOverlay is loaded"), "their sounds still play")
+    equal(state.dbr.ProcArcsSteppedAside(), true)
+    equal(state.soundIDs(), "16886", "the sound still plays")
+    local store = state.dbr.ProcCuesHandle().Store()
+    equal(store.arc.druidclearcasting, false, "every arc reads off")
+    store.arc.druidclearcasting = true
+    equal(state.dbr.db.procCues.arc.druidclearcasting, true, "the saved switch is kept, not written")
+    local row = state.row("DBR_PROCS_WITH_SAO")
+    equal(type(row), "table", "the switch to show both")
+    state.settings.DBR_PROCS_WITH_SAO:SetValue(true)
+    contains(state.find("applies after a /reload"), "proc arc")
+    local both = fixture({class = "DRUID", procEngine = true, known = {[16864] = true},
+        loaded = {SpellActivationOverlay = true}, db = state.dbr.db})
+    equal(both.dbr.ProcArcsSteppedAside(), false, "after a reload: both")
+    equal(both.find("SpellActivationOverlay is loaded"), nil)
+    local plain = fixture({class = "DRUID", procEngine = true, known = {[16864] = true}})
+    equal(plain.row("DBR_PROCS_WITH_SAO"), nil, "no row without SpellActivationOverlay")
+end)
+
+engineTest("proc cues: the Missile Barrage tooltip's macro names Arcane Missiles in the client's language", function()
+    local saved = SPELLS[5143]
+    local ok, message = pcall(function()
+        SPELLS[5143] = "Projectiles des arcanes"
+        local state = fixture({class = "MAGE", procEngine = true, known = {[400588] = true}})
+        equal(state.dbr.MissileBarrageMacro(), "/stopcasting\n/use Projectiles des arcanes")
+        local missiles
+        for _, proc in ipairs(state.dbr.PROC_CUES) do
+            if proc.key == "missilebarrage" then missiles = proc end
+        end
+        contains(missiles.tooltip, "/use Projectiles des arcanes")
+        SPELLS[5143] = nil
+        equal(state.dbr.MissileBarrageMacro(), "/stopcasting\n/use Arcane Missiles", "English without a name")
+    end)
+    SPELLS[5143] = saved
+    equal(ok, true, tostring(message))
+end)
+
+engineTest("proc cues: the profile copies the settings, keeps this character's buff IDs, and a copy ends the import", function()
+    local state = fixture({class = "WARLOCK", procEngine = true, known = {[NIGHTFALL_TALENT] = true},
+        db = {procIDs = {nightfall = 990040}}})
+    local part = state.dbr.SanitizeProfile({procCues = {arc = {nightfall = false}}, procIDs = {nightfall = 1}})
+    equal(part.procCues.arc.nightfall, false, "in the profile")
+    state.dbr.db.procCuesImported = false
+    state.dbr.ApplyProfile()
+    equal(state.dbr.db.procCuesImported, true, "a copy wins over a later import")
+    local known = state.dbr.SanitizeDB({})
+    equal(type(known.procCues), "table")
+    equal(type(known.procIDs), "table")
+    equal(known.procsWithSAO, false)
+end)
+
+test("proc cues: without engine 2, Proc Chimes as before, and the proc cue settings stay as saved", function()
+    local saved = {procCues = {arc = {nightfall = "junk"}}}
+    local state = fixture({class = "WARLOCK", db = saved})
+    equal(state.dbr.procEngine, false)
+    equal(state.dbr.ProcCuesHandle(), nil)
+    equal(type(state.row("DBR_PROCS_ENABLED")), "table", "Proc Chimes' section")
+    equal(state.dbr.db.procCues.arc.nightfall, "junk", "kept for a later toolkit")
+    equal(state.dbr.db.procCuesImported, false, "the import waits for engine 2")
 end)
 
 local failed = 0

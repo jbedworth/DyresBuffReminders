@@ -199,8 +199,50 @@ local function AddProc(proc, library, procsSwitch)
     Nest(dropdown, switch, function() return DBR.db.procs.enabled and DBR.db.procs.spells[proc.key] end)
 end
 
+-- The proc cues (1.13.0, Dyre's Toolkit's proc engine 2): the engine's rows,
+-- a "Procs" header and per proc its arc and sound switches and its sound,
+-- then the arcs' size; then, with SpellActivationOverlay loaded, the switch
+-- to show the arcs beside it (from DSU 1.4; applies after a /reload). While
+-- the arcs step aside for it, each arc switch is greyed.
+local SAO_ROW = "Show proc arcs with SpellActivationOverlay"
+local SAO_TOOLTIP = "SpellActivationOverlay is loaded, so Dyre's proc arcs stay off by default; their sounds "
+    .. "still play. Tick this to show both. It applies after a /reload."
+
+local function AddProcCuesSection()
+    local handle = DBR.ProcCuesHandle()
+    if not handle or type(DBR.toolkit.AddProcSettings) ~= "function" then
+        return
+    end
+    local rows = DBR.toolkit.AddProcSettings(category, layout, handle, {header = "Procs"})
+    if type(rows) == "table" and DBR.ProcArcsSteppedAside() then
+        for _, row in pairs(rows) do
+            if type(row) == "table" and type(row.arc) == "table" and type(row.arc.AddModifyPredicate) == "function" then
+                row.arc:AddModifyPredicate(function() return false end)
+            end
+        end
+    end
+    if not DBR.SpellActivationOverlayLoaded() then
+        return
+    end
+    local setting = Settings.RegisterProxySetting(category, "DBR_PROCS_WITH_SAO", Settings.VarType.Boolean,
+        SAO_ROW, false,
+        function() return DBR.db.procsWithSAO end,
+        function(value)
+            local wanted = value == true
+            if wanted ~= DBR.db.procsWithSAO then
+                DBR.db.procsWithSAO = wanted
+                DBR.Report("Your proc arc choice applies after a /reload.")
+            end
+        end)
+    Settings.CreateCheckbox(category, setting, SAO_TOOLTIP)
+end
+
 -- The proc sounds section, for a class with procs on a client that can play them.
 local function AddProcsSection()
+    if DBR.procEngine then
+        AddProcCuesSection()
+        return
+    end
     local spells = DBR.ClassProcs(DBR.classFile)
     if #spells == 0 or not DBR.HasProcSounds() then
         return

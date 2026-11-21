@@ -48,6 +48,9 @@ class CurseForgeTests(unittest.TestCase):
         (source / "LICENSE").write_bytes(builder.MIT_NOTICE.encode("utf-8"))
         for name in builder.RUNTIME_FILES:
             (source / name).write_bytes(b"local addonName, DBR = ...\n")
+        for name in builder.MEDIA_FILES:
+            (source / name).parent.mkdir(parents=True, exist_ok=True)
+            (source / name).write_bytes((ROOT / name).read_bytes())
         (source / builder.CHANGELOG_NAME).write_bytes(
             f"## {version}\n\n- Test change.\n".encode("utf-8"))
         self.dist = self.base / "dist"

@@ -294,6 +294,12 @@ events:SetScript("OnEvent", function(_, event, unit)
 end)
 
 function DBR.InitializeProcs(classFile)
+    -- Proc engine 2: the proc cues below instead (decided once, at login).
+    DBR.procEngine = DBR.ProcEngine() ~= nil
+    if DBR.procEngine then
+        DBR.InitializeProcCues()
+        return
+    end
     procs.list = DBR.ClassProcs(classFile)
     for _, proc in ipairs(procs.list) do
         if proc.reactive then
@@ -340,6 +346,211 @@ function DBR.ImportProcs(classFile)
     return true
 end
 
+-- Proc cues (1.13.0) --------------------------------------------------------
+-- John, 2026-11-20: DBR is the home of every proc cue, arcs and sounds
+-- (docs/CUE_MODEL.md); Dyre's Shields Up keeps only the shield display. With
+-- Dyre's Toolkit's proc engine 2 (PROC_ENGINE_VERSION, Toolkit 2.12.0) DBR
+-- passes ProcSpells.lua's PROC_CUES to RegisterProcs at
+-- PROC_OWNER_PRIORITY_HOME (above DSU 1.4's 10, so an older DSU steps aside
+-- by itself) with usableSounds (Overpower and Revenge get one row, arcs and
+-- sound, and the Proc Chimes code above stays off). Decided once at login.
+-- Without engine 2, Proc Chimes as before, so an older toolkit fails cleanly.
+-- Settings: db.procCues (the engine's: arc, sound, sounds, position, scale)
+-- and db.procIDs (buff IDs read in client, a profile character key).
+
+DBR.PROC_ENGINE_MIN = 2
+-- The AddOn whose overlays DBR's arcs step aside for (from DSU 1.4: John, "We'll
+-- plan to coexist"): with it loaded, the arcs stay off unless
+-- db.procsWithSAO; the sounds still play, as DBR's Proc Chimes did beside it.
+DBR.SAO_ADDON = "SpellActivationOverlay"
+-- DSU 1.4's per-character saved variables, read once (never written).
+DBR.DSU_DB = "DyresShieldsUpDB"
+DBR.PROC_CUES_IMPORTED = "Copied your proc arcs and sounds from Dyre's Shields Up."
+local SAO_ASIDE = "SpellActivationOverlay is loaded, so Dyre's proc arcs stay off; their sounds still play. "
+    .. "To show both, turn on \"Show proc arcs with SpellActivationOverlay\" in /dbr (after a /reload)."
+
+local cues = {handle = nil, steppedAside = false}
+
+-- Dyre's Toolkit when it has proc engine 2, else nil. A feature test.
+function DBR.ProcEngine()
+    local toolkit = rawget(_G, "DyresToolkit")
+    if type(toolkit) == "table" and type(toolkit.PROC_ENGINE_VERSION) == "number"
+            and toolkit.PROC_ENGINE_VERSION >= DBR.PROC_ENGINE_MIN and type(toolkit.RegisterProcs) == "function"
+            and type(toolkit.SanitizeProcs) == "function" and type(toolkit.SanitizeProcIDs) == "function" then
+        return toolkit
+    end
+    return nil
+end
+
+-- The engine's handle for this character's procs, else nil (no engine, or
+-- no procs for the class).
+function DBR.ProcCuesHandle()
+    return cues.handle
+end
+
+-- The proc cue settings, repaired; Core calls this from SanitizeDB. Without
+-- engine 2 they stay as saved, so a toolkit update finds them again.
+function DBR.SanitizeProcCues(db)
+    local toolkit = DBR.ProcEngine()
+    if toolkit then
+        db.procCues = toolkit.SanitizeProcs(db.procCues, DBR.PROC_CUES)
+        db.procIDs = toolkit.SanitizeProcIDs(db.procIDs, DBR.PROC_CUES)
+    else
+        db.procCues = type(db.procCues) == "table" and db.procCues or {}
+        db.procIDs = type(db.procIDs) == "table" and db.procIDs or {}
+    end
+    db.procsWithSAO = db.procsWithSAO == true
+    db.procCuesImported = db.procCuesImported == true
+end
+
+local function Part(saved, name)
+    return type(saved) == "table" and type(saved[name]) == "table" and saved[name] or {}
+end
+
+-- Once, the first login with engine 2 (1.13.0): the player's choices from
+-- DSU 1.4 (arcs, sounds, the arcs' place and size, learned IDs,
+-- procsWithSAO; read only) and from DBR's own Proc Chimes (sound switches,
+-- sounds, learned IDs), which win where DBR had settings (hadProcs). One chat
+-- line when DSU gave something. Marked done either way.
+function DBR.ImportProcCues(hadProcs)
+    local db = DBR.db
+    if db.procCuesImported or not DBR.ProcEngine() then
+        return false
+    end
+    db.procCuesImported = true
+    local cueSettings, ids = db.procCues, db.procIDs
+    for _, name in ipairs({"arc", "sound", "sounds"}) do
+        cueSettings[name] = type(cueSettings[name]) == "table" and cueSettings[name] or {}
+    end
+    local fromDSU = false
+    local dsu = rawget(_G, DBR.DSU_DB)
+    if type(dsu) == "table" and type(dsu.procs) == "table" then
+        local arc, sound, sounds = Part(dsu.procs, "arc"), Part(dsu.procs, "sound"), Part(dsu.procs, "sounds")
+        local learned = Part(dsu, "procIDs")
+        for _, proc in ipairs(DBR.PROC_CUES) do
+            local key = proc.key
+            if type(arc[key]) == "boolean" then
+                cueSettings.arc[key] = arc[key]
+                fromDSU = true
+            end
+            if type(sound[key]) == "boolean" then
+                cueSettings.sound[key] = sound[key]
+                fromDSU = true
+            end
+            if type(sounds[key]) == "string" then
+                cueSettings.sounds[key] = sounds[key]
+            end
+            if type(learned[key]) == "number" then
+                ids[key] = learned[key]
+            end
+        end
+        if type(dsu.procs.position) == "table" then
+            cueSettings.position = dsu.procs.position
+        end
+        if type(dsu.procs.scale) == "number" then
+            cueSettings.scale = dsu.procs.scale
+        end
+        db.procsWithSAO = dsu.procsWithSAO == true
+    end
+    local legacy = db.procs
+    if hadProcs and type(legacy) == "table" then
+        local spells, sounds, learned = Part(legacy, "spells"), Part(legacy, "sounds"), Part(legacy, "learned")
+        for _, proc in ipairs(DBR.PROC_CUES) do
+            local key = proc.key
+            if type(spells[key]) == "boolean" then
+                cueSettings.sound[key] = legacy.enabled ~= false and spells[key]
+            end
+            if type(sounds[key]) == "string" then
+                cueSettings.sounds[key] = sounds[key]
+            end
+            if type(learned[key]) == "number" then
+                ids[key] = learned[key]
+            end
+        end
+    end
+    DBR.SanitizeProcCues(db)
+    if fromDSU then
+        DBR.Report(DBR.PROC_CUES_IMPORTED)
+    end
+    return fromDSU
+end
+
+-- Whether SpellActivationOverlay is loaded now.
+function DBR.SpellActivationOverlayLoaded()
+    return type(C_AddOns) == "table" and type(C_AddOns.IsAddOnLoaded) == "function"
+        and C_AddOns.IsAddOnLoaded(DBR.SAO_ADDON) == true
+end
+
+-- Whether the arcs stay off this session for SpellActivationOverlay.
+function DBR.ProcArcsSteppedAside()
+    return cues.steppedAside
+end
+
+-- The engine's store while the arcs step aside: every arc switch reads off
+-- and a write to it is dropped; everything else is db.procCues, read each time.
+local ARCS_OFF = setmetatable({}, {__index = function() return false end, __newindex = function() end})
+local ASIDE_STORE = setmetatable({}, {
+    __index = function(_, key)
+        if key == "arc" then
+            return ARCS_OFF
+        end
+        return DBR.db.procCues[key]
+    end,
+    __newindex = function(_, key, value)
+        if key ~= "arc" then
+            DBR.db.procCues[key] = value
+        end
+    end,
+})
+
+-- The Missile Barrage macro, with the client's name for Arcane Missiles (from
+-- DSU 1.4.1: an English macro does nothing on a French client); English when
+-- the client gives no plain name. /use by name casts the highest rank.
+function DBR.MissileBarrageMacro()
+    local name = C_Spell.GetSpellName(DBR.ARCANE_MISSILES_SPELL)
+    if DBR.IsSecret(name) or type(name) ~= "string" or name == "" then
+        name = DBR.ARCANE_MISSILES_ENGLISH
+    end
+    return "/stopcasting\n/use " .. name
+end
+
+local function LocalizeProcTooltips()
+    for _, proc in ipairs(DBR.PROC_CUES) do
+        if proc.macroTooltip then
+            proc.tooltip = DBR.MISSILE_BARRAGE_TOOLTIP .. DBR.MissileBarrageMacro()
+        end
+    end
+end
+
+-- At login, with engine 2: hands the catalog to the engine. A class without
+-- procs gets no handle.
+function DBR.InitializeProcCues()
+    local toolkit = DBR.ProcEngine()
+    LocalizeProcTooltips()
+    cues.steppedAside = DBR.SpellActivationOverlayLoaded() and DBR.db.procsWithSAO ~= true
+    cues.handle = toolkit.RegisterProcs({
+        addon = addonName,
+        procs = DBR.PROC_CUES,
+        art = DBR.PROC_ART,
+        priority = toolkit.PROC_OWNER_PRIORITY_HOME,
+        usableSounds = true,
+        store = cues.steppedAside and function() return ASIDE_STORE end or function() return DBR.db.procCues end,
+        learned = function() return DBR.db.procIDs end,
+    })
+    if cues.handle and cues.steppedAside then
+        DBR.Report(SAO_ASIDE)
+    end
+end
+
+-- After a setting change or a profile copy: the engine's or Proc Chimes'.
+function DBR.ApplyProcs()
+    if cues.handle then
+        cues.handle.Apply()
+    elseif not DBR.procEngine then
+        DBR.ApplyProcSounds()
+    end
+end
+
 -- Other AddOns that play a proc's sound themselves, until they stand aside for
 -- DBR (author: as DBR treats older MTF and WTF chimes, it warns once and keeps
 -- playing). asideFrom: their first version that plays none while DBR 0.3.0
@@ -356,7 +567,12 @@ function DBR.OtherProcs(classFile)
     for _, other in ipairs(DBR.OTHER_PROCS) do
         local saved = rawget(_G, other.db)
         local group = type(saved) == "table" and saved[other.group]
-        if other.class == classFile and settings.enabled and settings.spells[other.proc]
+        -- With the proc engine, the proc cue's sound switch.
+        local on = settings.enabled and settings.spells[other.proc]
+        if DBR.procEngine then
+            on = Part(DBR.db.procCues, "sound")[other.proc] == true
+        end
+        if other.class == classFile and on
             and DBR.AddOnLoaded(other.addon) and not DBR.StandsAside(other)
             and type(group) == "table" and group[other.switch] == true then
             titles[#titles + 1] = other.title
@@ -376,6 +592,16 @@ end
 -- /dbr debug: each proc, its IDs, which the client names as the buff, the ID
 -- read in client, and whether it is confirmed (read in client) or unverified.
 function DBR.ReportProcsDebug(classFile)
+    if DBR.procEngine then
+        local handle = DBR.ProcCuesHandle()
+        DBR.Report(string.format("debug procs engine=%s handle=%s sao=%s steppedAside=%s",
+            tostring(DBR.ProcEngine() and DBR.ProcEngine().PROC_ENGINE_VERSION), tostring(handle ~= nil),
+            tostring(DBR.SpellActivationOverlayLoaded()), tostring(DBR.ProcArcsSteppedAside())))
+        if handle then
+            handle.Report(function(line) DBR.Report("debug procs " .. line) end)
+        end
+        return
+    end
     local settings = DBR.db and DBR.db.procs
     local others = settings and table.concat(DBR.OtherProcs(classFile), ", ") or ""
     DBR.Report(string.format("debug procs enabled=%s available=%s deferred=%s otherProcs=%s",

@@ -25,7 +25,14 @@ RUNTIME_FILES = ("Commands.lua", "Core.lua", "Buffs.lua", "Reminders.lua", "Aura
                  "ChimeSpells.lua", "Chimes.lua", "ProcSpells.lua", "Procs.lua", "Probe.lua",
                  "Options.lua")
 TEXT_FILES = (ADDON + ".toc",) + RUNTIME_FILES + ("LICENSE",)
-PACKAGE_FILES = TEXT_FILES
+# Runtime textures shipped in the package: the proc arcs (1.13.0, from Dyre's
+# Shields Up 1.4), made by scripts/make_arcane_arcs.py. The builder requires
+# uncompressed 32-bit, square, power-of-two TGAs.
+MEDIA_FILES = ("Textures/ArcaneArc.tga", "Textures/ArcaneArcLeft.tga")
+PACKAGE_FILES = TEXT_FILES + MEDIA_FILES
+TGA_HEADER_SIZE = 18
+TGA_TRUECOLOR = 2
+TGA_SIZES = (16, 32, 64, 128, 256)
 # Release metadata: the TOC Interface, CurseForge game version, and the build last
 # targeted. The runtime itself detects features, not builds.
 INTERFACE = 16001
@@ -102,8 +109,28 @@ def _text(name, data):
     return text
 
 
+def _validate_tga(name, data):
+    """Require an uncompressed 32-bit square TGA with power-of-two sides."""
+    if len(data) < TGA_HEADER_SIZE:
+        raise ValueError(f"{name}: TGA header is truncated")
+    id_length, color_map, image_type = data[0], data[1], data[2]
+    width = int.from_bytes(data[12:14], "little")
+    height = int.from_bytes(data[14:16], "little")
+    depth, descriptor = data[16], data[17]
+    if color_map != 0 or image_type != TGA_TRUECOLOR:
+        raise ValueError(f"{name}: require an uncompressed true-color TGA")
+    if width != height or width not in TGA_SIZES:
+        raise ValueError(f"{name}: require square power-of-two TGA dimensions")
+    if depth != 32 or descriptor & 0x0F != 8:
+        raise ValueError(f"{name}: require 32-bit TGA pixels with 8 alpha bits")
+    if len(data) != TGA_HEADER_SIZE + id_length + width * height * 4:
+        raise ValueError(f"{name}: TGA size does not match its header")
+
+
 def _validate_files(files, expected_version=None):
     texts = {name: _text(name, files[name]) for name in TEXT_FILES}
+    for name in MEDIA_FILES:
+        _validate_tga(name, files[name])
     metadata = {}
     loads = []
     for line in texts[ADDON + ".toc"].splitlines():
@@ -260,8 +287,8 @@ def _release_notes(version, changes):
   icon for each class buff missing on you or your group, or about to run out,
   out of combat. Click it to cast the buff. Paladins also get a seal timer.
 - Cooldown chimes for every class: a sound just before your chosen spells are
-  ready again, also in combat, and proc sounds (Clearcasting, Nightfall, and
-  so on). The sounds come from Dyre's Sounds.
+  ready again, also in combat, and proc arcs and sounds (Clearcasting,
+  Nightfall, and so on). The sounds come from Dyre's Sounds.
 - Settings in Options > AddOns, or `/dbr`; `/dbr unlock` to move the icons.
 '''
 

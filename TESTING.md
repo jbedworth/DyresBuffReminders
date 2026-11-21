@@ -23,6 +23,8 @@
 ```sh
 .tools/luarocks-3.13.0-win32/win32/lua5.1/bin/lua5.1.exe tests/run.lua
 .tools/luarocks-3.13.0-win32/win32/lua5.1/bin/luac5.1.exe -p Commands.lua Core.lua Buffs.lua Reminders.lua Seals.lua Consumables.lua ChimeSpells.lua Chimes.lua ProcSpells.lua Procs.lua Probe.lua Options.lua tests/run.lua
+# The proc cue tests (1.13.0) need ../DyresToolkit with proc engine 2; with
+# the copy in tests/toolkit they say "skipped" and pass.
 .tools/python-3.13.7/python.exe -m unittest discover -s tests -p 'test_*.py'
 .tools/actionlint-1.7.12/actionlint.exe .github/workflows/*.yml
 ```
@@ -158,6 +160,15 @@ out of combat; `/dbr debug` then shows `status=confirmed` and `learned=`.
 | Druid Nature's Grace | Nature's Grace | 16886 |
 | Shaman Elemental Focus | Clearcasting | 16246 |
 | Warrior Flurry | Flurry | 12966, 12967, 12968, 12969, 12970 |
+
+With Dyre's Toolkit 2.12's proc engine (1.13.0) a proc shows only when you
+know its talent, so the talent IDs count too (Classic ranks, and the IDs
+TalentsForeverBook names on Forever; none confirmed in client): Arcane
+Concentration 11213, 12574-12577; Nature's Grace 16880; Flurry 12319,
+12971-12974; Nightfall 18094, 18095; Omen of Clarity 16864; Elemental Focus
+16164; from DSU 1.4: Missile Barrage 400588, 1326083; Fingers of Frost
+400647; Decimation 440870. A proc whose talent you have but whose rows do
+not show means a wrong talent ID: report it with `/dbr debug`.
 
 ## In-client checklist
 
@@ -525,6 +536,29 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       ends `owner=WarlockToolsForever` and shows `registered=none`. Without
       Warlock Tools Forever (or with an older toolkit): DBR plays it, as
       before, `owner=none`.
+- [ ] Procs, 1.13.0, with Dyre's Toolkit 2.12.0. The proc arcs are new
+      texture files (Textures/ArcaneArc.tga and ArcaneArcLeft.tga): restart
+      the game client fully after installing; a `/reload` does not load new
+      files of this kind, and the arcs then show as plain crescents or not
+      at all. `/dbr` shows a "Procs" section: per proc of your class, its
+      arc switch, sound switch, and sound, then "Proc arc size"; no "Proc
+      Chimes" section. Get each proc in combat: the arcs show while it is
+      up and go when you use it, and its sound plays once if switched on.
+      Warrior: Overpower and Revenge arcs while usable, dimmed short of
+      rage, and one sound per window (not two). `/dbr debug`: a `debug
+      procs engine=2 handle=true` line, then one line per proc.
+- [ ] Procs, 1.13.0, the one-time copy: on a character that had Dyre's
+      Shields Up 1.4 procs on, the first login says "Copied your proc arcs
+      and sounds from Dyre's Shields Up." once; the arcs stay where DSU had
+      them, at its size; the next login says nothing. With DSU 1.4 still
+      installed, one arc and one sound per proc (DBR's), never two.
+- [ ] Procs, 1.13.0, with SpellActivationOverlay: chat says DBR's arcs stay
+      off; the sounds still play. "Show proc arcs with SpellActivationOverlay"
+      on, then `/reload`: both show.
+- [ ] Procs, 1.13.0, Missile Barrage (Arcane Mage): the arc tooltip's macro
+      names Arcane Missiles; on a non-English client, in its language.
+- [ ] Procs, 1.13.0, with Dyre's Toolkit 2.11: the "Proc Chimes" section as
+      in 1.12, sounds only.
 - [ ] Winter's Chill Chimes, 1.9.0, Classic Era, a Mage with the
       Winter's Chill talent and Dyre's Sounds 1.4.0. Frost only: not
       checked in client; not a release blocker (John, 2026-11-16). The

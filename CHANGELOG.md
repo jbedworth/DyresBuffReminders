@@ -5,6 +5,21 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.13.0
+
+### Features
+
+- **Procs**: an arc each side of your character while a proc is up, and its sound the moment it appears, also in combat, each with its own switch. Dyre's Buff Reminders is now the home of every proc: Missile Barrage, Fingers of Frost, Nightfall, Decimation, and Clearcasting come over from Dyre's Shields Up with their art, and Nature's Grace, Mage Clearcasting, and Flurry keep their sounds (arcs off at first). A Warrior's Overpower and Revenge get arcs while usable and one sound, in one row. Needs Dyre's Toolkit 2.12 or later.
+- On the first login, your proc choices from Dyre's Shields Up (arcs, sounds, the arcs' place and size) and your Proc Chimes sounds carry over once.
+- The Missile Barrage macro in its tooltip names Arcane Missiles in your client's language.
+- With SpellActivationOverlay loaded, DBR's arcs stay off and the sounds still play, unless you turn on "Show proc arcs with SpellActivationOverlay".
+
+### Other changes
+
+- **What moved:** from Dyre's Shields Up into Dyre's Buff Reminders: the arcs and sounds for Missile Barrage, Fingers of Frost, Nightfall, Decimation, Druid and Shaman Clearcasting, Overpower, and Revenge, with their art and your settings. Inside Dyre's Buff Reminders, with Dyre's Toolkit 2.12 or later, the Procs section of the settings page takes the place of the Proc Chimes section.
+- With a Dyre's Toolkit older than 2.12, Proc Chimes stay as in 1.12 (the sounds only).
+- New art files: restart the game fully after this update so the arcs load.
+
 ## 1.12.2
 
 ### Fixes
