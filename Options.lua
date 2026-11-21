@@ -767,7 +767,7 @@ local function AddSharedLead(master, Enabled)
     local leadSlider = Settings.CreateSlider(category, lead, SliderOptions(DBR.LEAD_MIN, DBR.LEAD_MAX, 1, true),
         "Warn this share of a buff's own length before it runs out: its border turns yellow and flashes, so you "
             .. "can recast it in time. 10% of a 30-minute buff is 3 minutes. 0 warns only once it is gone, with "
-            .. "a red border, also in combat.")
+            .. "a glow or red border (Missing buff), also in combat.")
     if type(DBR.toolkit.AddDefaultTick) == "function" then
         DBR.toolkit.AddDefaultTick(leadSlider, {min = DBR.LEAD_MIN, max = DBR.LEAD_MAX, default = DBR.DEFAULT_LEAD})
     end
@@ -794,14 +794,40 @@ local function AddNotNeededAlpha(master, Enabled)
     Nest(slider, master, Enabled)
 end
 
+-- "Missing buff" (John, 2026-11-20): the glow or the red border while a buff
+-- is gone; running out stays yellow.
+local function AddMissingStyle(master, Enabled)
+    local setting = Settings.RegisterProxySetting(category, "DBR_MISSING_STYLE", Settings.VarType.String,
+        "Missing buff", DBR.DEFAULT_MISSING_STYLE, function() return DBR.db.missingStyle end,
+        function(value)
+            if not DBR.MISSING_STYLE_LABELS[value] then
+                return
+            end
+            DBR.db.missingStyle = value
+            DBR.RefreshReminders()
+        end)
+    local function Choices()
+        local container = Settings.CreateControlTextContainer()
+        for _, style in ipairs(DBR.MISSING_STYLE_ORDER) do
+            container:Add(style, DBR.MISSING_STYLE_LABELS[style])
+        end
+        return container:GetData()
+    end
+    local dropdown = Settings.CreateDropdown(category, setting, Choices,
+        "How a reminder shows that its buff is gone: Glow, the action bars' proc glow, or Red border. A buff "
+            .. "about to run out still has a yellow, flashing border and its time left. In combat, while the "
+            .. "buff is up, the glow waits inside the icon under the game's buff icon, so it is smaller there.")
+    Nest(dropdown, master, Enabled)
+end
+
 -- A buff switch's tooltip: what it shows, and for a tank buff whom it watches.
 local function BuffTooltip(reminder)
-    local text = "Show " .. reminder.label .. ": red border while it is missing, yellow and flashing before it "
-        .. "runs out, also in combat. Click it to cast it."
+    local text = "Show " .. reminder.label .. ": a glow or red border (Missing buff) while it is missing, "
+        .. "yellow and flashing before it runs out, also in combat. Click it to cast it."
     -- A tank buff: the key points only (author); README has the rest.
     if reminder.tank then
-        return "Maintains " .. reminder.label .. " on you, or on the group's Tank if there is one. Red when "
-            .. "it's missing, yellow before it runs out."
+        return "Maintains " .. reminder.label .. " on you, or on the group's Tank if there is one. A glow or "
+            .. "red border when it's missing, yellow before it runs out."
     end
     return text
 end
@@ -918,6 +944,7 @@ function DBR.InitializeOptions()
         AddSharedLead(master, Enabled)
     end
     AddNotNeededAlpha(master, Enabled)
+    AddMissingStyle(master, Enabled)
     AddReminderSizes()
     AddAspectBarSection()
     AddConsumablesSection()

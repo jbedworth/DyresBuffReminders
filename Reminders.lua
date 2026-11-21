@@ -67,6 +67,20 @@ local RED = {1, 0.2, 0.2}
 local YELLOW = {1, 1, 0}
 local PULSE_SECONDS = 0.6
 local PULSE_LOW_ALPHA = 0.15
+-- The missing look (John, 2026-11-20, from a player's request: "so the glow
+-- shows instead of the red border"; "glow only for gone", running out stays
+-- yellow): "glow", the action bars' proc glow, or "border", the red border.
+-- Glow is the default (John, in client: "new effect looks good, ship it").
+DBR.MISSING_STYLE_ORDER = {"glow", "border"}
+DBR.MISSING_STYLE_LABELS = {glow = "Glow", border = "Red border"}
+DBR.DEFAULT_MISSING_STYLE = "glow"
+-- The art of ActionButtonSpellAlertTemplate's loop (Blizzard_ActionBar
+-- Shared/ActionButtonSpellAlerts.xml, loaded on Forever and Era): a 6 by 5
+-- flipbook of 30 frames in 1 second, 1.4 times the button on the action bars.
+local GLOW_ATLAS = "UI-HUD-ActionBar-Proc-Loop-Flipbook"
+local GLOW_ROWS, GLOW_COLUMNS, GLOW_FRAMES = 6, 5, 30
+local GLOW_SECONDS = 1
+local GLOW_OUTSIDE = 1.4
 -- The default rows, where 1.1.0's bars were: buffs that can go on another
 -- player above, self-only buffs below; y is above the screen's center.
 local ROWS = {
@@ -290,6 +304,9 @@ function DBR.SanitizeReminders(db, sanitizePosition)
     end
     db.faintHidden = true
     db.faintPercent = DBR.SanitizeFaint(db.faintPercent)
+    if not DBR.MISSING_STYLE_LABELS[db.missingStyle] then
+        db.missingStyle = DBR.DEFAULT_MISSING_STYLE
+    end
     local leads = type(db.leads) == "table" and db.leads or {}
     db.leads = {}
     local alwaysShow = type(db.alwaysShow) == "table" and db.alwaysShow or {}
@@ -839,16 +856,62 @@ local function ShowIcon(icon, shown, count)
     icon.wanted = shown == true
 end
 
+-- Whether the client has the glow's art; else the red border shows.
+local glowArt
+function DBR.GlowArt()
+    if glowArt == nil then
+        local GetAtlasInfo = C_Texture and C_Texture.GetAtlasInfo
+        local info = type(GetAtlasInfo) == "function" and GetAtlasInfo(GLOW_ATLAS) or nil
+        glowArt = info ~= nil
+    end
+    return glowArt
+end
+
+-- Under the aura slot the glow stays inside our icon, so the slot covers it
+-- while the buff is up; elsewhere it is the action bars' size, around it.
+local function SizeAlert(icon)
+    local alert = icon.alert
+    local size = ICON_SIZE * (icon.underSlot and 1 or GLOW_OUTSIDE)
+    if alert and alert.size ~= size then
+        alert.size = size
+        alert:ClearAllPoints()
+        alert:SetPoint("CENTER", icon, "CENTER", 0, 0)
+        alert:SetSize(size, size)
+    end
+end
+
+local function ShowAlert(icon, on)
+    local alert = icon.alert
+    if not alert then
+        return
+    end
+    if on then
+        SizeAlert(icon)
+        alert:Show()
+        if not alert.flip:IsPlaying() then
+            alert.flip:Play()
+        end
+    else
+        alert.flip:Stop()
+        alert:Hide()
+    end
+end
+
 -- Out of combat: our icon's own border, red while missing, else none. Under
--- the aura slot it stays red, so it shows the moment the slot goes.
+-- the aura slot it stays red, so it shows the moment the slot goes. With
+-- "Missing buff" on Glow, the glow shows instead of the red edge; it is a
+-- child of the border frame, so every alpha set on the border drives it too.
 local function SetBorder(icon, color)
     icon.border = color
     icon.redAtEnd = false
     icon.glow:SetShown(color ~= nil)
     icon.glow:SetAlpha(1)
+    local glowing = color == RED and DBR.db.missingStyle == "glow" and DBR.GlowArt()
     if color then
-        icon.glow:SetBackdropBorderColor(color[1], color[2], color[3])
+        icon.glow:SetBackdropBorderColor(color[1], color[2], color[3], glowing and 0 or 1)
     end
+    icon.glowing = glowing or nil
+    ShowAlert(icon, glowing)
 end
 
 -- Watching another unit (a tank buff): no slot draws their buff, so ours
@@ -993,6 +1056,8 @@ local function Raise(icon, holder, above)
     if holder.slot then
         icon:SetFrameLevel(holder.slot:GetFrameLevel() + (above and SLOT_LEVELS_ABOVE or -SLOT_LEVELS_ABOVE + 1))
     end
+    icon.underSlot = holder.slot ~= nil and not above
+    SizeAlert(icon)
 end
 
 -- Whether a buff shows only when needed (missing or within its lead): its
@@ -1467,6 +1532,29 @@ local function CreateIcon(reminder, bar, name, template)
     fade:SetToAlpha(PULSE_LOW_ALPHA)
     fade:SetDuration(PULSE_SECONDS)
     icon.pulse = pulse
+    -- The missing glow (SetBorder), a child of the border frame. Our own
+    -- frame with the template's art, not ActionButtonSpellAlertTemplate: its
+    -- mixin stops the loop on hide and does not start it again, and our icon
+    -- hides and shows by its driver in combat. A plain frame with an engine
+    -- animation: no clicks, no scripts, no OnUpdate.
+    local alert = CreateFrame("Frame", nil, glow)
+    alert:EnableMouse(false)
+    alert:Hide()
+    local art = alert:CreateTexture(nil, "ARTWORK")
+    art:SetAllPoints()
+    art:SetAtlas(GLOW_ATLAS)
+    local flip = alert:CreateAnimationGroup()
+    flip:SetLooping("REPEAT")
+    local book = flip:CreateAnimation("FlipBook")
+    book:SetTarget(art)
+    book:SetFlipBookRows(GLOW_ROWS)
+    book:SetFlipBookColumns(GLOW_COLUMNS)
+    book:SetFlipBookFrames(GLOW_FRAMES)
+    book:SetFlipBookFrameWidth(0)
+    book:SetFlipBookFrameHeight(0)
+    book:SetDuration(GLOW_SECONDS)
+    alert.art, alert.flip = art, flip
+    icon.alert = alert
     icon:Hide()
     return icon
 end
@@ -2300,6 +2388,8 @@ function DBR.ReportRemindersDebug()
             ReportAuraReads(reminder)
         end
     end
+    DBR.Report(string.format("debug missing style=%s glowArt=%s", tostring(DBR.db.missingStyle),
+        tostring(DBR.GlowArt())))
     ReportAspectReminderDebug()
     DBR.ReportWarningsDebug()
 end

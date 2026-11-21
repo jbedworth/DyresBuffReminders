@@ -24,7 +24,7 @@ tested.
 
 ## Summary
 
-Your class buffs, always in view and one click to cast, with a red border when one drops, also in combat. Reagent and ammo counts, a seal timer, and cooldown, proc, and cast chimes, with proc arcs.
+Your class buffs, always in view and one click to cast, with a glow or a red border when one drops, also in combat. Reagent and ammo counts, a seal timer, and cooldown, proc, and cast chimes, with proc arcs.
 
 ## Description
 

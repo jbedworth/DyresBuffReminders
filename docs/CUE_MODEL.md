@@ -81,7 +81,7 @@ Notes per family:
 
 | Feature (AGENTS.md section) | Family | Notes |
 |-----------------------------|--------|-------|
-| Buff reminders: Arcane Intellect, Mage armor, Dampen/Amplify, Battle Shout, Demon Armor, Mark of the Wild, Thorns, Fortitude, Inner Fire, Divine Spirit, Shadow Protection, Righteous Fury | Upkeep | Clickable; group versions; running-out and missing borders; "Show only when needed" |
+| Buff reminders: Arcane Intellect, Mage armor, Dampen/Amplify, Battle Shout, Demon Armor, Mark of the Wild, Thorns, Fortitude, Inner Fire, Divine Spirit, Shadow Protection, Righteous Fury | Upkeep | Clickable; group versions; running-out border; missing glow or red border (1.13.1); "Show only when needed" |
 | Pet reminders (Hunter, Warlock) | Upkeep | Click calls or revives (Hunter), summons (Warlock) |
 | Aspect reminder (Hunter) | Upkeep | The combat-aspect check inside it is an Alert cue (sound at combat start) |
 | Aspect bar (Hunter) | Upkeep | Clickable; gold border on the aspect that is up |

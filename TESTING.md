@@ -261,6 +261,15 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       outlined, a click on a button casts nothing, and a drag moves it; at
       first it sits under the Aspect and Pet icons, clear of them and of the
       Consumables bar. **Vertical** stacks it downward.
+- [ ] Missing buff, 1.13.1 (a Warlock without Demon Armor, out of combat):
+      the icon shows the action bars' proc glow, around the icon, and no red
+      edge. Put Demon Armor on: no glow (the game's buff icon covers ours).
+      Let a buff run into its lead: yellow and flashing with its countdown,
+      no glow. In a fight, right-click a buff off (its "Show only when
+      needed" off): the smaller glow, inside the icon, shows at once and
+      moves. Pets and the Aspect reminder glow too. "Missing buff" Red
+      border: the red border again, at once out of combat. `/dbr debug`
+      says `missing style=glow glowArt=true`.
 - [ ] Show only when needed, 1.12.1 defaults: a 1.12.0 save shows the
       switch off under Arcane Intellect (and every long buff) and on under
       Battle Shout. Off: in a fight, right-click Arcane Intellect off; its

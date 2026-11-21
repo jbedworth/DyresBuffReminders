@@ -243,6 +243,26 @@ spells that make a warning apply. Ask the author before changing
   target you cannot help; another unit, when it is your target; a secret
   answer counts as not). The Aspect reminder has its own red outline
   (1.8.0); the seal timer and ammo are unchanged.
+- Missing buff (built 1.13.1; John, 2026-11-20, from a player: "so the glow
+  shows instead of the red border for buffs missing"; Design A, "glow only for
+  gone", then in client, "new effect looks good, ship it"): `db.missingStyle`,
+  "glow" (default) or "border", a dropdown after "Visibility when not
+  needed"; repaired on load; in the profile. Glow: every red border (buffs,
+  pets, the Aspect reminder) shows the action bars' proc glow instead, and
+  its red edge is clear (alpha 0). Running out stays yellow. The art is
+  `ActionButtonSpellAlertTemplate`'s loop, atlas
+  `UI-HUD-ActionBar-Proc-Loop-Flipbook`, a 6 by 5 flipbook of 30 frames in 1
+  second (Blizzard_ActionBar Shared/ActionButtonSpellAlerts.xml, in the pinned
+  Forever source and Era's; FlipBook setters in SimpleAnimFlipBook docs). Our
+  own frame and FlipBook animation, not the template: its mixin stops the
+  loop on hide and never starts it again (its OnShow is bound as a second
+  OnHide), and our icons hide and show by drivers in combat. The glow is a
+  child of the border frame, so every alpha set on the border (RedAtEnd,
+  your own casts, the Aspect reminder) drives it; no scripts, no mouse. Under
+  the slot (`Raise` below it) it is the icon's size, so the slot covers it
+  while the buff is up; elsewhere 1.4 times, as on the action bars. Without
+  the atlas (`C_Texture.GetAtlasInfo`), the red border. Its look was checked in
+  client by John before 1.13.1.
 - Druid forms (author-approved): buffs with `cancelForm` (Mark of the Wild,
   Thorns) click as a `macrotext` "/cancelform" then "/use [@unit] Name"
   while any form is active (`GetShapeshiftFormInfo`, refreshed on

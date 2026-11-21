@@ -441,6 +441,12 @@ local function fixture(options)
         return action.name, "", action.token == true, false, true, auto, nil
     end
 
+    -- The glow's art, only where a test asks for it (else the red border).
+    if options.glowArt then
+        env.C_Texture = {GetAtlasInfo = function(atlas)
+            if atlas == "UI-HUD-ActionBar-Proc-Loop-Flipbook" then return {width = 64, height = 64} end
+        end}
+    end
     env.C_Spell = {
         GetSpellName = function(id) if SPELLS[id] then return SPELLS[id] end end,
         GetSpellTexture = function(id) return 2000 + id end,
@@ -993,6 +999,12 @@ local function fixture(options)
                 function animation:SetToAlpha(value) self.to = value end
                 function animation:SetDuration(value) self.duration = value end
                 function animation:SetStartDelay(value) self.delay = value end
+                function animation:SetTarget(region) self.target = region end
+                function animation:SetFlipBookRows(value) self.rows = value end
+                function animation:SetFlipBookColumns(value) self.columns = value end
+                function animation:SetFlipBookFrames(value) self.frames = value end
+                function animation:SetFlipBookFrameWidth(value) self.frameWidth = value end
+                function animation:SetFlipBookFrameHeight(value) self.frameHeight = value end
                 group.animation = animation
                 return animation
             end
@@ -1714,10 +1726,11 @@ end)
 test("settings: each buff's tooltip says what it shows; Thorns says whom it watches and casts on", function()
     local state = fixture({class = "DRUID", known = {[THORNS] = true, [MARK] = true}})
     local thorns = state.row("DBR_BUFF_THORNS").tooltip
-    equal(thorns, "Maintains Thorns on you, or on the group's Tank if there is one. Red when it's missing, "
-        .. "yellow before it runs out.")
+    equal(thorns, "Maintains Thorns on you, or on the group's Tank if there is one. A glow or red border "
+        .. "when it's missing, yellow before it runs out.")
     local mark = state.row("DBR_BUFF_MARKOFTHEWILD").tooltip
-    contains(mark, "red border while it is missing, yellow and flashing before it runs out, also in combat")
+    contains(mark, "a glow or red border (Missing buff) while it is missing, yellow and flashing before it runs "
+        .. "out, also in combat")
     equal(mark:find("Tank", 1, true), nil, "only a tank buff names the tank")
     contains(state.row("DBR_GROUP_MARKOFTHEWILD").tooltip, "Your group is checked out of combat only")
 end)
@@ -3483,6 +3496,82 @@ test("the lead is a share of the buff's own length: 60 minutes at 10% is 6 minut
     equal(visible(intellect), false, "per buff and rank: 10% of a 10-minute one is 60 seconds")
 end)
 
+test("Missing buff Glow: the glow shows instead of the red edge only while the buff is gone", function()
+    local state = fixture({glowArt = true, known = {[INTELLECT] = true}})
+    equal(state.dbr.db.missingStyle, "glow", "the default")
+    local intellect = state.icon("arcaneIntellect")
+    local alert = intellect.alert
+    local warn = state.widget("arcaneIntellect").warn
+    equal(alert.parent, intellect.glow, "a child of the border frame: its alpha drives the glow")
+    equal(alert.mouse, false, "it never takes the mouse")
+    equal(next(alert.scripts), nil, "no scripts")
+    equal(alert.flip.looping, "REPEAT")
+    equal(alert.flip.animation.kind, "FlipBook")
+    equal(alert.flip.animation.target, alert.art)
+    equal(alert.flip.animation.frames, 30)
+    equal(intellect.glow.shown, true)
+    equal(intellect.glow.backdropBorder[4], 0, "missing: the red edge is clear")
+    equal(alert.shown, true, "and the glow shows")
+    equal(alert.flip.playing, true)
+    equal(alert.width, 56, "raised above the slot: the action bars' 1.4 times")
+    state.buff("player", "Arcane Intellect", state.now + 600)
+    state.update("UNIT_AURA", "player")
+    equal(alert.shown, true, "up: armed under the slot, for the moment it drops")
+    equal(alert.width, 40, "under the slot: inside the icon, so the slot covers it")
+    equal(intellect.level + 2 < state.slotOf("arcaneIntellect").level, true, "below the slot")
+    state.wait(419)
+    equal(warn.alpha, 1, "running out: the yellow flash, as before")
+    equal(alert.shown, false, "no glow while it runs out")
+    equal(intellect.glow.shown, false)
+    state.units.player.buffs["Arcane Intellect"] = nil
+    state.update("UNIT_AURA", "player")
+    equal(alert.shown, true, "gone: the glow")
+    equal(alert.width, 56)
+    state.settings.DBR_MISSING_STYLE:SetValue("border")
+    equal(state.dbr.db.missingStyle, "border")
+    equal(alert.shown, false, "Red border: no glow")
+    equal(alert.flip.playing, false)
+    equal(intellect.glow.backdropBorder[2], 0.2)
+    equal(intellect.glow.backdropBorder[4], 1, "the red edge again")
+    state.settings.DBR_MISSING_STYLE:SetValue("sparkle")
+    equal(state.dbr.db.missingStyle, "border", "an unknown choice changes nothing")
+end)
+
+test("Missing buff Glow: in combat the drop shows the armed glow; a tank buff's glows from its end", function()
+    local state = fixture({glowArt = true, known = {[INTELLECT] = true}})
+    local intellect = state.icon("arcaneIntellect")
+    state.buff("player", "Arcane Intellect", state.now + 600)
+    state.update("UNIT_AURA", "player")
+    state.combat = true
+    state.update("PLAYER_REGEN_DISABLED")
+    equal(intellect.alert.shown, true, "armed before the fight: the slot going shows it")
+    equal(intellect.glow.alpha, 1)
+    state.combat = false
+    state.update("PLAYER_REGEN_ENABLED")
+end)
+
+test("Missing buff Glow: the red border without the glow's art, and the setting is repaired", function()
+    local state = fixture({known = {[INTELLECT] = true}})
+    local intellect = state.icon("arcaneIntellect")
+    equal(state.dbr.GlowArt(), false, "no C_Texture: no art")
+    equal(intellect.alert.shown, false)
+    equal(intellect.glow.backdropBorder[4], 1, "the red edge")
+    equal(fixture({db = {missingStyle = "border"}}).dbr.db.missingStyle, "border")
+    equal(fixture({db = {missingStyle = 7}}).dbr.db.missingStyle, "glow")
+    state.clear()
+    state.slash("debug")
+    equal(state.find("debug missing style=glow glowArt=false") ~= nil, true)
+end)
+
+test("Missing buff Glow: the player's case, a Warlock's missing Demon Armor, glows", function()
+    local state = fixture({glowArt = true, class = "WARLOCK", known = {[DEMON_ARMOR] = true},
+        db = {needed = {demonArmor = false}}})
+    local armor = state.icon("demonArmor")
+    equal(armor ~= nil, true)
+    equal(armor.alert.shown, true, "the player's report: Demon Armor missing glows")
+    equal(armor.glow.backdropBorder[4], 0)
+end)
+
 test("1.1.0's lead in seconds is repaired to the 10% default", function()
     local old = fixture({db = {lead = 30}}).dbr.db
     equal(old.leadPercent, 10)
@@ -3751,7 +3840,7 @@ test("the settings page lists your class's buffs, each group switch under its bu
     equal(table.concat(names, "|"), "Enable|Power Word: Fortitude|Power Word: Fortitude: also your group|"
         .. "Show only when needed|Inner Fire|Show only when needed|Divine Spirit|Divine Spirit: also your group|"
         .. "Show only when needed|Shadow Protection|Shadow Protection: also your group|Show only when needed|"
-        .. "Remind before a buff runs out|Visibility when not needed|"
+        .. "Remind before a buff runs out|Visibility when not needed|Missing buff|"
         .. "Reminder icons: size|Reminder icons: opacity", "a Priest has no consumables: no section, no bar")
     local group = state.row("DBR_GROUP_FORTITUDE")
     equal(group.parentInitializer, state.row("DBR_BUFF_FORTITUDE"))

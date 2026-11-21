@@ -37,8 +37,9 @@ AddOns → Buff Reminders**, or type `/dbr`. They are saved per character.
 ## Buff reminders
 
 An icon for each of your class buffs, with a border that tells you where it
-stands: red while it is missing, yellow and flashing while it is about to run
-out, none while it is up. Each buff has its own icon in its own place,
+stands: a glow or a red border while it is missing (**Missing buff**: Glow,
+the action bars' proc glow, or Red border), yellow and flashing while it is
+about to run out, none while it is up. Each buff has its own icon in its own place,
 which never moves on its own; one you do not know or have switched off shows
 nothing. They start in two rows: buffs that can go on another player above,
 your own below.
@@ -47,7 +48,7 @@ your own below.
   with its time left, in and out of combat alike, so nothing appears or
   disappears when a fight starts or ends.
 - **When it is missing** (expired, dispelled, or cancelled) the reminder
-  shows there at once with its red border, also in combat, and a click recasts it on
+  shows there at once with its glow or red border, also in combat, and a click recasts it on
   you. In combat the game itself hides the buff's icon (AddOns cannot read
   buffs then), so the reminder underneath shows through.
 - **Out of combat** the reminder also shows while anyone in your group lacks
@@ -63,7 +64,7 @@ your own below.
   **Visibility when not needed** (0%, hidden, at first; up to 80%), the same
   in and out of combat, until **Remind before a buff runs out** (or a buff's
   own time); then it shows in full with the yellow flashing border. A
-  missing buff always shows in full with the red border. Off, the icon
+  missing buff always shows in full with its glow or red border. Off, the icon
   always shows in full. In combat AddOns cannot read buffs, so DBR times
   them from the last read and your own casts: a buff that drops early in a
   fight (dispelled or cancelled) shows at its warning time, and a group

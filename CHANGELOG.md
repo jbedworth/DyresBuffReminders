@@ -5,6 +5,12 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.13.1
+
+### Features
+
+- **Missing buff**: a buff reminder now shows the action bars' proc glow instead of the red border while its buff is gone (a player's request). Prefer the red border? Choose it under Missing buff in the settings. A buff about to run out keeps its yellow, flashing border and countdown.
+
 ## 1.13.0
 
 ### Features
