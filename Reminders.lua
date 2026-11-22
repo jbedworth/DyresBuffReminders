@@ -107,6 +107,12 @@ local GROUP_SPELL_AT = 2
 local REFRESH_DELAY = 0.2
 -- A timer can fire a hair early; this much past the lead time still counts.
 local TIMER_SLACK = 0.05
+-- AddOn restrictions that hide auras out of combat (found in client, 1.13.2:
+-- every boss fight in Dire Maul showed buffs that were up as missing; a
+-- read during the encounter, out of combat, returned nothing, not a secret).
+-- Map is left out: Deadmines has it, and reads there worked (John, in client).
+-- Pinned RestrictedActionsConstantsDocumentation.lua.
+local AURA_RESTRICTIONS = {"Encounter", "ChallengeMode", "PvPMatch"}
 
 -- The Aspect reminder's modes (Buffs.lua's combatAspect; John, 1.8.0):
 -- Normal (default), Speed-Running (Cheetah is fine in combat), Disabled.
@@ -420,6 +426,22 @@ local function TimeLeft(aura)
         return nil
     end
     return expires - GetTime()
+end
+
+-- The first active restriction that hides auras, or nil. Classic Era has
+-- no C_RestrictedActions: never restricted there.
+function DBR.AuraRestriction()
+    if type(C_RestrictedActions) ~= "table" or type(C_RestrictedActions.IsAddOnRestrictionActive) ~= "function"
+        or type(Enum) ~= "table" or type(Enum.AddOnRestrictionType) ~= "table" then
+        return nil
+    end
+    for _, name in ipairs(AURA_RESTRICTIONS) do
+        local kind = Enum.AddOnRestrictionType[name]
+        if kind ~= nil and C_RestrictedActions.IsAddOnRestrictionActive(kind) == true then
+            return name
+        end
+    end
+    return nil
 end
 
 -- Out of combat only. "on", "soon" (runs out within the lead time), or
@@ -1303,8 +1325,10 @@ function DBR.RefreshReminders()
     if not reminders.ready then
         return
     end
-    -- Secure icons change only out of combat.
-    if InCombatLockdown() then
+    -- Secure icons change only out of combat. While a restriction hides
+    -- auras, a read says "missing" for a buff that is up, so everything stays
+    -- as in combat (ours under the slot, armed) until it ends.
+    if InCombatLockdown() or DBR.AuraRestriction() then
         reminders.dirty = true
         return
     end
@@ -1990,6 +2014,10 @@ local function SetUp()
         "PLAYER_CONTROL_LOST", "PLAYER_CONTROL_GAINED"}) do
         events:RegisterEvent(event)
     end
+    -- A restriction's end reads the auras again (the generic refresh below).
+    if type(C_RestrictedActions) == "table" then
+        events:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
+    end
     for _, reminder in ipairs(reminders.list) do
         if reminder.tank then
             for _, event in ipairs(TANK_EVENTS) do
@@ -2353,6 +2381,26 @@ local function ReportAuraReads(reminder)
         expires and string.format("%d", expires - GetTime()) or "none", table.concat(parts, " ")))
 end
 
+-- Every restriction type the client has, so a paste shows which was on.
+local function RestrictionsLine()
+    if type(C_RestrictedActions) ~= "table" or type(C_RestrictedActions.IsAddOnRestrictionActive) ~= "function"
+        or type(Enum) ~= "table" or type(Enum.AddOnRestrictionType) ~= "table" then
+        return "debug restrictions none (no C_RestrictedActions)"
+    end
+    local names = {}
+    for name in pairs(Enum.AddOnRestrictionType) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    local parts = {}
+    for _, name in ipairs(names) do
+        local active = C_RestrictedActions.IsAddOnRestrictionActive(Enum.AddOnRestrictionType[name])
+        parts[#parts + 1] = name .. "=" .. DBR.Describe(active)
+    end
+    return string.format("debug restrictions %s auraHidden=%s", table.concat(parts, " "),
+        tostring(DBR.AuraRestriction()))
+end
+
 function DBR.ReportRemindersDebug()
     if #reminders.list == 0 then
         DBR.Report("debug: no buff reminders for this class.")
@@ -2375,6 +2423,8 @@ function DBR.ReportRemindersDebug()
         if reminder.pet then
             local exists = UnitExists("pet")
             missing = "pet=" .. DBR.Describe(exists) .. " sacrificed=" .. tostring(Sacrificed(reminder))
+        elseif DBR.AuraRestriction() then
+            missing = "not checked during " .. DBR.AuraRestriction()
         elseif not InCombatLockdown() then
             missing = table.concat(MissingNames(Missing(reminder)), ",")
         end
@@ -2390,6 +2440,7 @@ function DBR.ReportRemindersDebug()
     end
     DBR.Report(string.format("debug missing style=%s glowArt=%s", tostring(DBR.db.missingStyle),
         tostring(DBR.GlowArt())))
+    DBR.Report(RestrictionsLine())
     ReportAspectReminderDebug()
     DBR.ReportWarningsDebug()
 end

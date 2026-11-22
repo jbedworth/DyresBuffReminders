@@ -263,6 +263,21 @@ spells that make a warning apply. Ask the author before changing
   while the buff is up; elsewhere 1.4 times, as on the action bars. Without
   the atlas (`C_Texture.GetAtlasInfo`), the red border. Its look was checked in
   client by John before 1.13.1.
+- Boss encounters (built 1.13.2; found in client by John, 2026-11-20: "for
+  every 'named mob' fight, the buffs became visible, like they were off, even
+  though they were up every time", Dire Maul; "build it"): out of combat
+  during an encounter, `GetAuraDataBySpellName` returned nothing (not a
+  secret) for every buff on you, so they read as missing and were raised.
+  While `DBR.AuraRestriction()` names one of Encounter, ChallengeMode, or
+  PvPMatch (`C_RestrictedActions.IsAddOnRestrictionActive`, pinned
+  RestrictedActionsConstantsDocumentation.lua), `RefreshReminders` changes
+  nothing, as in combat: ours stays under the slot, armed, and a buff that
+  really drops shows through. `ADDON_RESTRICTION_STATE_CHANGED` (registered
+  only where `C_RestrictedActions` exists) reads again at its end. Map is not
+  in the list: Deadmines has it and reads there worked (John's paste,
+  `Map true`, Frost Armor found). `/dbr debug` prints every restriction type
+  and `auraHidden`. Encounter as the restriction is inferred from John's
+  pattern, not yet seen in a debug line.
 - Druid forms (author-approved): buffs with `cancelForm` (Mark of the Wild,
   Thorns) click as a `macrotext` "/cancelform" then "/use [@unit] Name"
   while any form is active (`GetShapeshiftFormInfo`, refreshed on

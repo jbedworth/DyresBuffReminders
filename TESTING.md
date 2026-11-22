@@ -270,6 +270,12 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       moves. Pets and the Aspect reminder glow too. "Missing buff" Red
       border: the red border again, at once out of combat. `/dbr debug`
       says `missing style=glow glowArt=true`.
+- [ ] Boss encounters, 1.13.2 (a dungeon with buffs up): pull a named boss;
+      no buff reminder shows while its buff is up, during or just after the
+      fight. `/dbr debug` during the encounter says `Encounter=true
+      auraHidden=Encounter` and `missing=not checked during Encounter`; after
+      it, `Encounter=false auraHidden=nil` and the reminders read again. A
+      buff that drops during the fight still glows.
 - [ ] Show only when needed, 1.12.1 defaults: a 1.12.0 save shows the
       switch off under Arcane Intellect (and every long buff) and on under
       Battle Shout. Off: in a fight, right-click Arcane Intellect off; its

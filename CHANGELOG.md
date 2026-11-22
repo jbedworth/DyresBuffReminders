@@ -5,6 +5,16 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.13.2
+
+### Fixes
+
+- **Boss fights**: buff reminders no longer show buffs that are up as missing during and just after a boss fight. The game hides your buffs from AddOns during a boss encounter, so Dyre's Buff Reminders now waits for the encounter to end before it checks again. A buff that really drops still shows.
+
+### Other changes
+
+- The "Chime early (seconds)" and ammo "Warn at" sliders now show the gold mark at their default value, as the other sliders do.
+
 ## 1.13.1
 
 ### Features

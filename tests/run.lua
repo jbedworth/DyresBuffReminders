@@ -794,6 +794,8 @@ local function fixture(options)
         end
         local function initializer(category, setting, tooltip)
             local object = {setting = setting, tooltip = tooltip, modifyPredicates = {}}
+            -- The row setup the toolkit's gold default mark hooks (AddDefaultTick).
+            function object:InitFrame() end
             function object:SetParentInitializer(parent, predicate)
                 self.parentInitializer, self.predicate = parent, predicate
             end
@@ -2187,6 +2189,11 @@ test("ammo: settings, its widget, and saved settings repaired", function()
     equal(warn.options.minValue, 0)
     equal(warn.options.maxValue, 1000)
     equal(warn.options.step, 50)
+    local tick = warn.dyreDefault
+    equal(tick ~= nil, true, "the toolkit's gold default mark (John: \"set notches on the sliders default values\")")
+    equal(tick.min, state.dbr.AMMO_WARN_MIN)
+    equal(tick.max, state.dbr.AMMO_WARN_MAX)
+    equal(tick.default, state.dbr.DEFAULT_AMMO_WARN)
     equal(state.row("DYRE_DYRESBUFFREMINDERS_CONSUMABLES_SCALE").setting.name, "Consumables: size")
     equal(frame.dyre.widgetKey, "consumables")
     equal(select(1, state.absCenter(frame)), 500 + 150, "beside My buffs")
@@ -3572,6 +3579,64 @@ test("Missing buff Glow: the player's case, a Warlock's missing Demon Armor, glo
     equal(armor.glow.backdropBorder[4], 0)
 end)
 
+-- Found in client (1.13.2): in Dire Maul every boss fight showed buffs that
+-- were up as missing; a read during the encounter, out of combat, returned
+-- nothing. Here the hidden read is a buff the mock no longer has.
+test("Boss encounter: a hidden aura read changes nothing until the encounter ends", function()
+    local state = fixture({glowArt = true, known = {[INTELLECT] = true}})
+    local intellect = state.icon("arcaneIntellect")
+    state.buff("player", "Arcane Intellect", state.now + 3000)
+    state.update("UNIT_AURA", "player")
+    equal(intellect.alert.width, 40, "up: ours waits under the slot")
+    state.encounter = true
+    state.emit("ADDON_RESTRICTION_STATE_CHANGED", 1, 2)
+    state.units.player.buffs["Arcane Intellect"] = nil
+    state.update("UNIT_AURA", "player")
+    equal(intellect.alert.width, 40, "the read says nothing: still under the slot, not raised")
+    equal(#intellect.missing, 0, "not counted as missing")
+    state.clear()
+    state.slash("debug")
+    contains(state.find("debug arcaneIntellect"), "missing=not checked during Encounter")
+    contains(state.find("debug restrictions"), "Encounter=true")
+    contains(state.find("debug restrictions"), "auraHidden=Encounter")
+    -- The buff really dropped during the encounter: the slot empties and the
+    -- armed glow under it shows through (as in combat).
+    equal(intellect.alert.shown, true, "armed: the slot going shows the glow")
+    state.encounter = false
+    state.update("ADDON_RESTRICTION_STATE_CHANGED", 1, 0)
+    equal(intellect.alert.width, 56, "the encounter ended: read again, missing, raised")
+    equal(intellect.missing[1] ~= nil, true)
+    state.buff("player", "Arcane Intellect", state.now + 3000)
+    state.update("UNIT_AURA", "player")
+    equal(intellect.alert.width, 40)
+    state.clear()
+    state.slash("debug")
+    contains(state.find("debug restrictions"), "Encounter=false")
+    contains(state.find("debug restrictions"), "auraHidden=nil")
+end)
+
+test("Boss encounter: the Map restriction alone does not stop the reads", function()
+    local state = fixture({known = {[INTELLECT] = true}})
+    local intellect = state.icon("arcaneIntellect")
+    state.buff("player", "Arcane Intellect", state.now + 3000)
+    state.update("UNIT_AURA", "player")
+    state.env.Enum.AddOnRestrictionType.Map = 4
+    state.env.C_RestrictedActions.IsAddOnRestrictionActive = function(kind) return kind == 4 end
+    equal(state.dbr.AuraRestriction(), nil, "Deadmines: Map only, reads worked (John, in client)")
+    state.units.player.buffs["Arcane Intellect"] = nil
+    state.update("UNIT_AURA", "player")
+    equal(intellect.missing[1] ~= nil, true, "a real drop still counts")
+end)
+
+test("Boss encounter: no C_RestrictedActions (Classic Era) is never restricted", function()
+    local state = fixture({known = {[INTELLECT] = true}, remove = {"C_RestrictedActions"}})
+    equal(state.dbr.AuraRestriction(), nil)
+    equal(state.icon("arcaneIntellect").missing[1] ~= nil, true, "reads as before")
+    state.clear()
+    state.slash("debug")
+    contains(state.find("debug restrictions"), "none (no C_RestrictedActions)")
+end)
+
 test("1.1.0's lead in seconds is repaired to the 10% default", function()
     local old = fixture({db = {lead = 30}}).dbr.db
     equal(old.leadPercent, 10)
@@ -4620,6 +4685,10 @@ test("the settings page: a Chimes section with its own switch, lead, and spells"
     equal(leadAt < switchAt, true, "after the buff reminders")
     local lead = state.row("DBR_CHIME_LEAD")
     equal(lead.parentInitializer, switch)
+    equal(lead.dyreDefault ~= nil, true, "the toolkit's gold default mark")
+    equal(lead.dyreDefault.min, state.dbr.CHIME_LEAD_MIN)
+    equal(lead.dyreDefault.max, state.dbr.CHIME_LEAD_MAX)
+    equal(lead.dyreDefault.default, state.dbr.DEFAULT_CHIME_LEAD)
     local blink = state.row("DBR_CHIME_BLINK")
     equal(blink.kind, "checkboxdropdown", "the switch and the sound on one row")
     equal(state.row("DBR_CHIME_BLINK_SOUND"), blink)

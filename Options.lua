@@ -472,6 +472,10 @@ local function AddChimesSection()
     local leadSlider = Settings.CreateSlider(category, lead,
         SliderOptions(DBR.CHIME_LEAD_MIN, DBR.CHIME_LEAD_MAX, DBR.CHIME_LEAD_STEP),
         "How long before a cooldown ends the chime plays, so you can act the moment it is ready.")
+    if type(DBR.toolkit.AddDefaultTick) == "function" then
+        DBR.toolkit.AddDefaultTick(leadSlider, {min = DBR.CHIME_LEAD_MIN, max = DBR.CHIME_LEAD_MAX,
+            default = DBR.DEFAULT_CHIME_LEAD})
+    end
     Nest(leadSlider, chimesSwitch, function() return DBR.db.chimes.enabled end)
     local spells = DBR.ClassChimes(DBR.classFile)
     if #spells == 0 then
@@ -723,6 +727,10 @@ local function AddConsumablesSection()
         local slider = Settings.CreateSlider(category, warn,
             SliderOptions(DBR.AMMO_WARN_MIN, DBR.AMMO_WARN_MAX, DBR.AMMO_WARN_STEP),
             "The ammo count that turns red and pulses.")
+        if type(DBR.toolkit.AddDefaultTick) == "function" then
+            DBR.toolkit.AddDefaultTick(slider, {min = DBR.AMMO_WARN_MIN, max = DBR.AMMO_WARN_MAX,
+                default = DBR.DEFAULT_AMMO_WARN})
+        end
         Nest(slider, ammoSwitch, function() return saved.enabled and saved.ammo end)
     end
     for _, reagent in ipairs(known) do
