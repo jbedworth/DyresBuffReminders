@@ -41,6 +41,24 @@ local _, DBR = ...
 -- role, or a raid's main tank), or with the player's "Always show" switch.
 -- knownBy: the spells that make it apply, instead of spells.
 DBR.BUFFS = {
+    -- Any weapon imbue counts as up; a click recasts the last imbue you cast
+    -- (Rockbiter, Flametongue, Frostbrand, or Windfury), else Windfury, else
+    -- Rockbiter. weaponEnchant: read via GetWeaponEnchantInfo() rather than
+    -- an aura slot, and shown only while a main-hand weapon is equipped.
+    SHAMAN = {
+        {key = "weaponImbue", label = "Weapon Imbue", on = true,
+            spells = {
+                -- Rockbiter Weapon (Ranks 1-7, TBC 8-9)
+                8017, 8018, 8019, 10399, 16314, 16315, 16316, 25479, 25485,
+                -- Flametongue Weapon (Ranks 1-6, TBC 7)
+                8024, 8027, 8030, 16339, 16341, 16342, 25489,
+                -- Frostbrand Weapon (Ranks 1-5, TBC 6)
+                8033, 8038, 10456, 16355, 16356, 25500,
+                -- Windfury Weapon (Ranks 1-4, TBC 5)
+                8232, 8235, 10486, 16362, 25505,
+            },
+            prefer = {8232, 8017}, weaponEnchant = true, duration = 300},
+    },
     MAGE = {
         {key = "arcaneIntellect", label = "Arcane Intellect", on = true,
             spells = {1459, 1460, 1461, 10156, 10157},
