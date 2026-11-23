@@ -862,53 +862,16 @@ toggle lives in DSU". docs/CUE_MODEL.md: families Proc and Window.
   sax1), which keeps Sax and those sounds. DBR 1.7.0's release follows
   Dyre's Sounds 1.4.0.
 
-### Winter's Chill stack chimes (built, 1.9.0; John, 2026-11-15)
+### Winter's Chill stack chimes (removed 1.13.3; John, 2026-11-22: "Remove it now")
 
-John: "we need a chime for Winter's Chill procs", then "We should use a
-similar escalating chime as combo points (Rogue/Druid) - and it takes up to 5
-stacks so it fits."
-
-- Classic Era only (lead: option C). The talent (ranks 11180, 28592, 28593,
-  28594, 28595) gives your Frost spells a chance to put the debuff 12579 on
-  the target, up to 5 stacks, 15 s (warcraft.wiki.gg and wowpedia
-  "Winter's Chill (Classic)", classicdb spells 12579 and 11180). Data in
-  ProcSpells.lua `WINTERS_CHILL` (class, debuff, most).
-- Detection: the combat log, `SPELL_AURA_APPLIED` (stack 1) and
-  `SPELL_AURA_APPLIED_DOSE` (its 16th value, amount, is the new count; above
-  5 counts as 5), source `UnitGUID("player")` only. The debuff counts by its
-  ID 12579 or by its name (13th value) in the client's language
-  (`C_Spell.GetSpellName(12579)`, read when the log is registered and on
-  `SPELLS_CHANGED`; a secret name is never kept or compared): Classic's log
-  gave spell IDs as 0 (warcraft.wiki.gg "Patch 1.13.2/API changes": they
-  came to the log in 2.4; WoWInterface showthread.php?p=333783, developers
-  matched by name), and no source found says Era got them back (lead,
-  2026-11-15). The talent of that name is never an aura on a mob, so the
-  name is safe. A refresh, `SPELL_AURA_REMOVED_DOSE`, or `SPELL_AURA_REMOVED`
-  plays nothing.
-  `COMBAT_LOG_EVENT_UNFILTERED` is registered only when `DBR.HasWintersChill()`
-  (a Mage, `WOW_PROJECT_ID == WOW_PROJECT_CLASSIC`,
-  `CombatLogGetCurrentEventInfo` and `UnitGUID` present) and only while the
-  switch is on; turning it off unregisters it. The project check is the
-  lead's decision of 2026-11-15, for this feature only: Forever refuses
-  `COMBAT_LOG_EVENT_UNFILTERED`, and no API tells that in advance. Every
-  other feature still gates only on APIs (see "Client and API
-  verification").
-- Sounds: the combo point note sets (`COMBO_SETS`, Bassoon or Sax; "Same as
-  Full" is not offered), through the combo chimes' player (an older Dyre's
-  Sounds plays the sax note, then the chimes' default): stacks 1-4 play the
-  set's notes 1-4, stack 5 its held note (`full`). Text to Speech says
-  "Winter's Chill N". No new sound files.
-- Settings: `db.wintersChill` = {enabled (default on), noteSet (default
-  Bassoon; repaired to it)}. Its own section, "Winter's Chill Chimes", after
-  Combo Point Chimes: "Enable", then "Note set" (choosing one plays the held
-  note). Own section, because Era has no Proc Chimes section (no
-  `C_UnitAuras.AddAuraSound`). The master switch silences it too.
-- `/dbr debug`: `debug wintersChill available= enabled= noteSet= combatLog=
-  name= last=` (last: the subevent, stack, spellID, and name).
-- Forever: not built. Forever's Winter's Chill differs (third-party reports:
-  fewer spells, one stack; no official source), the combat log is refused,
-  and a target's auras are secret in combat. The probe tests the aura sound
-  route first (below).
+Built in 1.9.0 (Classic Era only, from the combat log). Winter's Chill is a
+debuff on mobs, so it moves to Dyre's Debuff Tracker (DDT). Removed: the
+data, the "Winter's Chill Chimes" section, the combat log code, and the
+probe's target debuff part. `db.wintersChill` ({enabled, noteSet}) stays as
+saved, not repaired, so DDT can import it: SanitizeDB leaves it alone, and it
+is a profile characterKey, so a profile copy, import, or the Defaults never
+remove it. Drop it after DDT imports it, in a later release. DBR registers
+no `COMBAT_LOG_EVENT_UNFILTERED` at all now; every feature gates only on APIs.
 
 ### Cast chimes (built 1.4.0; author: "a sound when Travel Form, Pact of Cheeta and Sprint fire off")
 
@@ -973,17 +936,6 @@ stacks so it fits."
   State is kept as text, "secret" for a secret value, so nothing secret is
   compared or printed. At most 20 lines per 10 seconds. It answers the
   phase 2 questions in the notes for the tracker design (reactive abilities).
-- A Mage's probe also tests Winter's Chill on the target for Forever (lead,
-  2026-11-15; `PROBE_TARGET_DEBUFFS`): it registers
-  `C_UnitAuras.AddAuraSound` with `unitToken` "target" for 12579, trigger
-  Added and ApplicationsIncreased (the 70338 docs: `unitToken` is a plain
-  string, but no Blizzard code uses a unit other than the player), with the
-  default proc sound, and prints "added=yes|refused stacks=yes|refused". Out of
-  combat only (on `UNIT_AURA` target, `PLAYER_TARGET_CHANGED`,
-  `PLAYER_REGEN_ENABLED`), it prints the target's Winter's Chill
-  (`GetAuraDataBySpellName`, "HARMFUL"): spellID, stacks, source, a line only
-  when it changes. `/dbr probe off` removes the sounds and the events. Never
-  registered outside the probe.
 - The buff drop probe (John, 2026-11-19: "do 3, build the probe"; removed
   the same day, "remove the probe code"): no signal tells AddOn code in
   combat which buff dropped. Found in client: `UNIT_AURA` "player" in combat
@@ -1046,11 +998,12 @@ switching; no account table.
   makes it: `enabled`, `spells`, `groups`, `leads`, `leadPercent`,
   `alwaysShow`, `warnings`, `aspectMode`, `combatAspect`, `buffs` and
   `warningPop` (places, sizes, opacity), `seal`, `consumables`,
-  `aspectBar`, `chimes`, `procs`, `casts`, `combo`, `wintersChill`.
+  `aspectBar`, `chimes`, `procs`, `casts`, `combo`.
 - characterKeys (never copied, exported, or imported): `locked` (the
   toolkit's account-wide lock, mirrored), `probe` (a debug switch), `last`
   (the spell each button casts, remembered from your casts, and class
-  spells), `bars` (1.1.0's places, kept only until they seed the icons).
+  spells), `bars` (1.1.0's places, kept only until they seed the icons),
+  `procIDs`, `wintersChill` (the removed chime's settings, kept for DDT).
 - Read in client, nested, so not characterKeys (the engine skips top-level
   keys only): `chimes.learned` (cooldown lengths) and `procs.learned` (real
   buff IDs). `SanitizeProfile` puts this character's own back before
@@ -1064,7 +1017,7 @@ switching; no account table.
 - `ApplyProfile` (live, no reload): the lock again, `ReapplyWidgets` (place,
   size, opacity from the same store tables), `RefreshReminders`,
   `RefreshSeal`, `RefreshConsumables`, `RefreshAspectBar`, `ApplyProcSounds`
-  (the aura sounds again), `ApplyWintersChill`. The chimes, cast chimes, and
+  (the aura sounds again). The chimes, cast chimes, and
   combo chimes read the settings when they play. The toolkit refuses a copy
   in combat and tells the settings pages to read their values again.
   Nothing needs a reload.
@@ -1100,6 +1053,17 @@ switching; no account table.
   the "Proc Chimes" section (see above). Section headings appear where the
   client has
   `CreateSettingsListSectionHeaderInitializer`.
+
+### Welcome switch (built 1.13.3; John, 2026-11-23: "toggle off our welcome messages unless there is an error/problem", then "A: one Toolkit switch")
+
+- Dyre's Toolkit 2.14.0's "Welcome messages at login" (`DyresToolkitDB.welcome`,
+  account-wide): when `DyresToolkit.ShowWelcome` is a function and gives false,
+  Core skips the banner and the "Ready" line. Without the function (an older
+  toolkit, or none), they print as before. No DBR switch; the minimum toolkit
+  stays 2.0. Problems always print (missing toolkit, old contract, missing API,
+  mixed install, slash conflict, missing sounds, no reminders for the class).
+  When DBR cannot start, the banner prints too, so the problem line has the
+  version.
 
 ## Project structure
 

@@ -96,7 +96,6 @@ end
 name("Arcane Intellect", 1459, 1460, 1461, 10156, 10157)
 name("Arcane Brilliance", 23028)
 name("Frost Armor", 168, 7300, 7301)
-name("Winter's Chill", 12579)
 name("Ice Armor", 7302, 7320, 10219, 10220)
 name("Mage Armor", 6117, 22782, 22783)
 name("Molten Armor", 30482)
@@ -403,12 +402,6 @@ local function fixture(options)
     -- The toolkit profile's key is "Name - Realm".
     env.GetRealmName = function() return "Forever" end
     env.UnitGUID = function(unit) return unit == "player" and "Player-1-0001" or nil end
-    -- Classic Era (options.era): its project ID, and the combat log's current
-    -- event (state.cleu, the list CombatLogGetCurrentEventInfo returns).
-    if options.era then
-        env.WOW_PROJECT_ID, env.WOW_PROJECT_CLASSIC, env.WOW_PROJECT_MAINLINE = 2, 2, 1
-        env.CombatLogGetCurrentEventInfo = function() return unpack(state.cleu or {}) end
-    end
     env.UnitIsUnit = function(a, b)
         local target = state.units.target
         if a == "target" and target and target.is then a = target.is end
@@ -923,7 +916,7 @@ local function fixture(options)
         function object:GetAttribute(key) return self.attributes[key] end
         function object:IsProtected() return self.protected == true end
         function object:RegisterEvent(event)
-            if event == "COMBAT_LOG_EVENT_UNFILTERED" and not options.era then
+            if event == "COMBAT_LOG_EVENT_UNFILTERED" then
                 error("COMBAT_LOG_EVENT_UNFILTERED is restricted")
             end
             if event == "COMBO_TARGET_CHANGED" and not options.comboTargetEvent then
@@ -1136,6 +1129,13 @@ local function fixture(options)
         end
         -- Toolkit 2.2.1 snaps to the grid by default; these tests drop frames without it.
         env.DyresToolkitDB = options.toolkitDB or {snapToGrid = false}
+        -- Toolkit 2.14.0's "Welcome messages at login": options.welcome is what
+        -- ShowWelcome gives; options.noShowWelcome is a toolkit before 2.14.0.
+        if options.welcome ~= nil then
+            env.DyresToolkit.ShowWelcome = function() return options.welcome end
+        elseif options.noShowWelcome then
+            env.DyresToolkit.ShowWelcome = nil
+        end
     end
     state.dbr = {}
     for _, path in ipairs(options.files or RUNTIME_FILES) do
@@ -1255,6 +1255,35 @@ test("login says the version and author, and that DBR is ready", function()
     equal(state.messages[1], "DBR: Dyre's Buff Reminders " .. state.toc.Version .. " by Dyre")
     equal(state.messages[2], "DBR:   Ready. Type /dbr to open the settings.")
     equal(#state.messages, 2, "nothing else on a Mage")
+end)
+test("welcome: the banner follows Toolkit 2.14.0's switch; problems always show", function()
+    local banner = "DBR: Dyre's Buff Reminders "
+    for _, options in ipairs({{noShowWelcome = true}, {welcome = true}}) do
+        local state = fixture(options)
+        contains(state.messages[1], banner)
+        equal(state.messages[2], "DBR:   Ready. Type /dbr to open the settings.")
+    end
+    local off = fixture({welcome = false})
+    equal(#off.messages, 0, "switch off: no banner, no Ready line")
+    equal(off.dbr.available, true, "DBR still starts")
+    -- A problem still shows with the switch off, the banner with it for the version.
+    local mixed = fixture({welcome = false, files = {"Commands.lua", "Core.lua", "Buffs.lua", "Seals.lua",
+        "ChimeSpells.lua", "Chimes.lua", "ProcSpells.lua", "Procs.lua", "Options.lua"}})
+    contains(mixed.messages[1], banner)
+    contains(mixed.last(), "missing ClassReminders")
+    local shaman = fixture({welcome = false, class = "SHAMAN"})
+    for _, line in ipairs(shaman.messages) do
+        equal(line:find(banner, 1, true), nil, "no banner")
+    end
+    -- The toolkit's own switch, when its files have it (2.14.0).
+    local real = fixture({toolkitDB = {snapToGrid = false, welcome = false}})
+    if type(real.toolkit.ShowWelcome) == "function" then
+        equal(#real.messages, 0, "the toolkit's saved switch off: no banner")
+    end
+    -- No toolkit at all: the banner and the problem, as before.
+    local none = fixture({noToolkit = true})
+    contains(none.messages[1], banner)
+    equal(none.dbr.available, false)
 end)
 test("a mixed install stays off and says what to do", function()
     local state = fixture({files = {"Commands.lua", "Core.lua", "Buffs.lua", "Seals.lua",
@@ -6183,164 +6212,36 @@ test("proc cues: without engine 2, Proc Chimes as before, and the proc cue setti
 end)
 
 local failed = 0
--- Winter's Chill stack chimes (Classic Era) and its Forever probe --------------------------
+-- Winter's Chill chimes removed (1.13.3; John, 2026-11-22: "Remove it now"): it moves to
+-- Dyre's Debuff Tracker, which can import the saved table DBR keeps for it.
 
-local WINTERS_CHILL = 12579
-local ME = "Player-1-0001"
-local function chill(state, subevent, amount, source, spellID, spellName)
-    state.cleu = {state.now, subevent, false, source or ME, "Me", 0, 0, "Creature-0-1", "Boar", 0, 0,
-        spellID or WINTERS_CHILL, spellName or "Winter's Chill", 16, "DEBUFF", amount}
-    state.emit("COMBAT_LOG_EVENT_UNFILTERED")
-end
-local function combatLogFrames(state)
-    local count = 0
+test("Winter's Chill (removed): no section, no combat log, no target probe; the saved table stays", function()
+    local saved = {enabled = false, noteSet = "full", extra = 7}
+    local state = fixture({class = "MAGE", newerSounds = SOUNDS, db = {wintersChill = saved}})
+    for _, heading in ipairs(state.headings) do
+        equal(heading.heading:find("Winter's Chill", 1, true), nil, "no section")
+    end
+    equal(state.row("DBR_WINTERSCHILL_ENABLED"), nil)
     for _, frame in ipairs(state.frames) do
-        if frame.events.COMBAT_LOG_EVENT_UNFILTERED then count = count + 1 end
+        equal(frame.events.COMBAT_LOG_EVENT_UNFILTERED, nil, "no combat log")
     end
-    return count
-end
-local function headingNames(state)
-    local names = {}
-    for _, heading in ipairs(state.headings) do names[#names + 1] = heading.heading end
-    return table.concat(names, ",")
-end
-test("Winter's Chill (Era): a rising note per stack of your own, the held note at 5; nothing else chimes", function()
-    local state = fixture({era = true, class = "MAGE", newerSounds = SOUNDS})
-    equal(combatLogFrames(state), 1, "the combat log, for a Mage on Era with the switch on")
-    chill(state, "SPELL_AURA_APPLIED")
-    for stack = 2, 5 do chill(state, "SPELL_AURA_APPLIED_DOSE", stack) end
-    equal(played(state), "bassoon1,bassoon2,bassoon3,bassoon4,bassoon8", "stacks 1-4 rise, 5 is the held note")
-    equal(state.played[5].speech, "Winter's Chill 5")
-    local before = #state.played
-    chill(state, "SPELL_AURA_REFRESH")
-    chill(state, "SPELL_AURA_REMOVED_DOSE", 4)
-    chill(state, "SPELL_AURA_REMOVED")
-    equal(#state.played, before, "a refresh, a stack that drops, or the end: nothing")
-    chill(state, "SPELL_AURA_APPLIED", nil, "Player-1-0002")
-    chill(state, "SPELL_AURA_APPLIED_DOSE", 2, "Player-1-0002")
-    equal(#state.played, before, "another mage's Winter's Chill: nothing")
-    chill(state, "SPELL_AURA_APPLIED", nil, nil, 12536, "Clearcasting")
-    equal(#state.played, before, "another spell: nothing")
-    chill(state, "SPELL_AURA_APPLIED_DOSE", 7)
-    equal(played(state, before + 1), "bassoon8", "a count above 5 is the held note")
+    equal(state.dbr.HasWintersChill, nil)
+    equal(state.dbr.WINTERS_CHILL, nil)
+    equal(state.dbr.PROBE_TARGET_DEBUFFS, nil)
+    local db = state.dbr.db.wintersChill
+    equal(db.enabled, false, "kept as saved")
+    equal(db.noteSet, "full", "not repaired")
+    equal(db.extra, 7, "not rebuilt")
+    equal(fixture().dbr.db.wintersChill, nil, "no table is made for a new character")
     state.slash("debug")
-    contains(state.find("debug wintersChill "), "available=true enabled=true noteSet=bassoon combatLog=true "
-        .. "name=Winter's Chill last=SPELL_AURA_APPLIED_DOSE 5 spellID=12579 name=Winter's Chill")
-end)
-test("Winter's Chill (Era): Classic's combat log gives spell ID 0, so the name counts; another name does not", function()
-    local state = fixture({era = true, class = "MAGE", newerSounds = SOUNDS})
-    chill(state, "SPELL_AURA_APPLIED", nil, nil, 0)
-    chill(state, "SPELL_AURA_APPLIED_DOSE", 2, nil, 0)
-    equal(played(state), "bassoon1,bassoon2", "spell ID 0, the right name: it chimes")
-    local before = #state.played
-    chill(state, "SPELL_AURA_APPLIED", nil, nil, 0, "Frostbite")
-    chill(state, "SPELL_AURA_APPLIED_DOSE", 3, nil, 0, "Fire Vulnerability")
-    equal(#state.played, before, "spell ID 0, another name: silent")
-    chill(state, "SPELL_AURA_APPLIED", nil, "Player-1-0002", 0)
-    equal(#state.played, before, "the right name from another mage: silent")
-    chill(state, "SPELL_AURA_APPLIED", nil, nil, 0, state.secret())
-    equal(#state.played, before, "a secret name is never compared")
-    state.slash("debug")
-    contains(state.find("debug wintersChill "), "last=SPELL_AURA_APPLIED_DOSE 2 spellID=0 name=Winter's Chill")
-end)
-test("Winter's Chill (Era): its own section; the note set; the switch unregisters the combat log", function()
-    local state = fixture({era = true, class = "MAGE", newerSounds = SOUNDS})
-    state.page()
-    contains(headingNames(state), "Winter's Chill Chimes")
-    local switch = state.row("DBR_WINTERSCHILL_ENABLED")
-    equal(state.settings.DBR_WINTERSCHILL_ENABLED.name, "Enable")
-    local notes = state.row("DBR_WINTERSCHILL_NOTESET")
-    equal(notes.parentInitializer, switch)
-    state.settings.DBR_WINTERSCHILL_NOTESET:SetValue("sax")
-    equal(played(state), "sax8", "choosing a set plays its held note")
-    state.settings.DBR_WINTERSCHILL_NOTESET:SetValue("full")
-    equal(state.dbr.db.wintersChill.noteSet, "sax", "Same as Full has no notes: refused")
-    local before = #state.played
-    chill(state, "SPELL_AURA_APPLIED")
-    chill(state, "SPELL_AURA_APPLIED_DOSE", 2)
-    equal(played(state, before + 1), "sax1,sax2")
-    state.settings.DBR_WINTERSCHILL_ENABLED:SetValue(false)
-    equal(combatLogFrames(state), 0, "off: the combat log is unregistered")
-    state.settings.DBR_WINTERSCHILL_ENABLED:SetValue(true)
-    equal(combatLogFrames(state), 1, "on again")
-    state.settings.DBR_ENABLED:SetValue(false)
-    before = #state.played
-    chill(state, "SPELL_AURA_APPLIED")
-    equal(#state.played, before, "Buff Reminders off: silent")
-end)
-test("Winter's Chill: not on Forever, not for another class; settings repaired", function()
-    -- Forever (Camelot, WOW_PROJECT_ID 18) has the combat log function, but refuses the event.
-    local forever = fixture({class = "MAGE", newerSounds = SOUNDS, globals = {WOW_PROJECT_ID = 18,
-        WOW_PROJECT_CLASSIC = 2, CombatLogGetCurrentEventInfo = function() end}})
-    forever.page()
-    equal(combatLogFrames(forever), 0, "Forever: no combat log (the client refuses it)")
-    equal(headingNames(forever):find("Winter's Chill", 1, true), nil, "Forever: no section")
-    equal(forever.dbr.HasWintersChill(), false)
-    for _, entry in pairs(forever.auraSounds) do
-        equal(entry.info.unitToken, "player", "no target aura sound outside the probe")
-    end
-    local rogue = fixture({era = true, class = "ROGUE", newerSounds = SOUNDS})
-    rogue.page()
-    equal(combatLogFrames(rogue), 0, "a Rogue on Era: no combat log")
-    equal(headingNames(rogue):find("Winter's Chill", 1, true), nil)
-    local db = fixture({era = true, db = {wintersChill = {enabled = false, noteSet = "full"}}}).dbr.db.wintersChill
-    equal(db.enabled, false, "off stays off")
-    equal(db.noteSet, "bassoon", "a set without notes becomes the default")
-    local off = fixture({era = true, class = "MAGE", db = {wintersChill = {enabled = false}}})
-    equal(combatLogFrames(off), 0, "saved off: never registered")
-    equal(fixture().dbr.db.wintersChill.noteSet, "bassoon")
-end)
-test("probe (Forever): a Mage's Winter's Chill sound on target, and the target's debuff out of combat", function()
-    local state = fixture({class = "MAGE", newerSounds = SOUNDS})
+    equal(state.find("debug wintersChill"), nil)
     local before = state.auraSoundCount
     state.slash("probe on")
-    local targets = {}
+    equal(state.auraSoundCount, before, "the probe adds no target sound")
     for _, entry in pairs(state.auraSounds) do
-        if entry.info.unitToken == "target" then targets[#targets + 1] = entry end
-    end
-    equal(#targets, 2, "the debuff going on, and each new stack")
-    table.sort(targets, function(a, b) return a.trigger < b.trigger end)
-    equal(targets[1].trigger, 0, "Added")
-    equal(targets[2].trigger, 1, "ApplicationsIncreased")
-    equal(targets[1].info.spellID, WINTERS_CHILL)
-    equal(state.auraSoundCount, before + 2)
-    contains(state.find("probe target sound"), "12579 on target: added=yes stacks=yes")
-    contains(state.find("probe target Winter's Chill"), "no target")
-    state.units.target = {name = "Boar", class = "WARRIOR", buffs = {}, debuffs = {}}
-    state.emit("PLAYER_TARGET_CHANGED")
-    contains(state.find("probe target Winter's Chill none"), "none")
-    state.units.target.debuffs["Winter's Chill"] = {spellId = 12579, applications = 3, sourceUnit = "player"}
-    state.emit("UNIT_AURA", "target")
-    equal(state.find("probe target Winter's Chill spellID"), "DBR: probe target Winter's Chill spellID=12579 "
-        .. "stacks=3 source=player")
-    state.clear()
-    state.emit("UNIT_AURA", "target")
-    equal(#probeLines(state), 0, "no change, no line")
-    state.combat = true
-    state.units.target.debuffs["Winter's Chill"].applications = 5
-    state.emit("UNIT_AURA", "target")
-    equal(#probeLines(state), 0, "in combat: never read")
-    state.combat = false
-    state.emit("PLAYER_REGEN_ENABLED")
-    contains(state.find("probe target Winter's Chill spellID"), "stacks=5", "read again after combat")
-    state.slash("probe off")
-    for _, entry in pairs(state.auraSounds) do
-        equal(entry.info.unitToken, "player", "probe off: the target sounds are removed")
-    end
-    state.clear()
-    state.emit("UNIT_AURA", "target")
-    equal(#probeLines(state), 0, "probe off: no reads")
-end)
-test("probe: without the aura sound API it says so; another class gets no target sound", function()
-    local bare = fixture({class = "MAGE", newerSounds = SOUNDS, noAuraSounds = true})
-    bare.slash("probe on")
-    contains(bare.find("probe target sound"), "no C_UnitAuras.AddAuraSound")
-    local warrior = fixture({class = "WARRIOR", known = {[OVERPOWER] = true}})
-    warrior.slash("probe on")
-    equal(warrior.find("probe target"), nil)
-    for _, entry in pairs(warrior.auraSounds) do
         equal(entry.info.unitToken, "player")
     end
+    equal(state.find("probe target"), nil)
 end)
 
 -- Dyre's Toolkit profile (Toolkit 2.10.0) ------------------------------------------------
@@ -6435,6 +6336,8 @@ test("profile: a copy from a Druid changes DBR live, with no reload, and keeps t
     local holder = state.widget("arcaneIntellect")
     equal(playerSounds(state) > 0, true, "the proc sound is registered")
     equal(state.icon("arcaneIntellect"):IsShown(), true)
+    db.wintersChill = {enabled = false, noteSet = "sax"}
+    local chill = db.wintersChill
     local ok, reload = state.profile:CopyFrom("Alt - Forever")
     equal(ok, true)
     equal(#reload, 0, "live: no reload asked")
@@ -6457,6 +6360,8 @@ test("profile: a copy from a Druid changes DBR live, with no reload, and keeps t
     equal(db.bars, nil)
     equal(db.chimes.learned.blink, 13)
     equal(db.procs.learned.mageclearcasting, 99999)
+    equal(db.wintersChill == chill and chill.noteSet, "sax", "the removed chime's settings stay, for DDT")
+    equal(savedPart(state).wintersChill, nil, "and are never copied")
     equal(savedPart(state).leadPercent, 5, "the toolkit's copy follows")
     -- The Defaults: a clean slate, live; the same keys and data stay.
     ok, reload = state.profile:CopyFrom(state.toolkit.PROFILE_DEFAULTS)

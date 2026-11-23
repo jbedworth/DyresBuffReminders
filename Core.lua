@@ -72,7 +72,20 @@ local function Metadata(field)
     end
 end
 
+-- Dyre's Toolkit 2.14.0's "Welcome messages at login" (John, 2026-11-23: "toggle off our
+-- welcome messages unless there is an error/problem"; "A: one Toolkit switch"). Without
+-- ShowWelcome (an older toolkit, or none) the banner shows as before.
+local function WelcomeOff()
+    local toolkit = rawget(_G, "DyresToolkit")
+    return type(toolkit) == "table" and type(toolkit.ShowWelcome) == "function" and toolkit.ShowWelcome() == false
+end
+
+-- The banner and "Ready" line. With the switch off they are skipped, but not
+-- when DBR cannot start: the problem line that follows needs the version.
 local function ReportLoaded(available)
+    if available and WelcomeOff() then
+        return
+    end
     local banner = Metadata("Title") or DEFAULT_TITLE
     local version, author = Metadata("Version"), Metadata("Author")
     if version then
@@ -104,8 +117,7 @@ local REQUIRED_NAMESPACE = {
     "ClassProcs", "HasProcSounds", "SanitizeProcs", "SanitizeProcSound", "ApplyProcSounds", "PreviewProc",
     "InitializeProcs", "ImportProcs", "SanitizeProcCues", "ImportProcCues", "ApplyProcs", "InitializeProcCues",
     "SanitizeCasts", "ClassCasts", "InitializeCasts", "PreviewCast", "SanitizeCombo", "HasComboChimes",
-    "InitializeCombo", "PreviewCombo", "ReportComboDebug", "HasWintersChill", "SanitizeWintersChill",
-    "PreviewWintersChill", "ApplyWintersChill", "InitializeWintersChill", "ReportWintersChillDebug",
+    "InitializeCombo", "PreviewCombo", "ReportComboDebug",
     "ReportCastsDebug", "ReportProcsDebug", "OtherProcs", "ReportOtherProcs", "AddOnLoaded",
     "StandsAside", "SetProbe", "ProbeOn", "ProbeOff", "InitializeProbe", "ReportProbeDebug",
     "InitializeOptions", "OpenSettings",
@@ -190,9 +202,7 @@ function DBR.SanitizeDB(db)
     if DBR.SanitizeCombo then
         db.combo = DBR.SanitizeCombo(db.combo)
     end
-    if DBR.SanitizeWintersChill then
-        db.wintersChill = DBR.SanitizeWintersChill(db.wintersChill)
-    end
+    -- db.wintersChill (DBR 1.9.0 to 1.13.2) stays as saved, for Dyre's Debuff Tracker to import.
     return db
 end
 
@@ -203,8 +213,10 @@ end
 -- copied, exported, or imported: locked (the toolkit's account-wide lock,
 -- mirrored), probe (a debug switch), last (the spell each button casts,
 -- remembered from your casts), bars (1.1.0's places, kept only until they
--- seed the icons), procIDs (the proc cues' buff IDs read in client, 1.13.0).
-local PROFILE_CHARACTER_KEYS = {"locked", "probe", "last", "bars", "procIDs"}
+-- seed the icons), procIDs (the proc cues' buff IDs read in client, 1.13.0),
+-- wintersChill (the removed chime's settings, kept as saved for Dyre's Debuff
+-- Tracker to import; 1.13.3).
+local PROFILE_CHARACTER_KEYS = {"locked", "probe", "last", "bars", "procIDs", "wintersChill"}
 -- Read in client on this character, nested in settings tables (characterKeys
 -- are top-level only): the cooldown lengths (chimes.learned) and the real
 -- buff IDs (procs.learned). A copy, import, or the Defaults keeps this
@@ -271,7 +283,6 @@ function DBR.ApplyProfile()
     -- The copy wins over a later first-run import from Dyre's Shields Up.
     DBR.db.procCuesImported = true
     DBR.ApplyProcs()
-    DBR.ApplyWintersChill()
 end
 
 -- With a toolkit older than 2.10.0 nothing changes.
@@ -405,7 +416,6 @@ function DBR.ReportDebug()
     DBR.ReportProcsDebug(not DBR.IsSecret(class) and class or nil)
     DBR.ReportCastsDebug(not DBR.IsSecret(class) and class or nil)
     DBR.ReportComboDebug()
-    DBR.ReportWintersChillDebug()
     DBR.ReportProbeDebug()
 end
 
@@ -493,7 +503,6 @@ events:SetScript("OnEvent", function(self, event, loadedName)
     DBR.ReportOtherProcs(class)
     DBR.InitializeCasts(class)
     DBR.InitializeCombo(class)
-    DBR.InitializeWintersChill()
     DBR.InitializeProbe()
     DBR.InitializeOptions()
     DBR.toolkit.RegisterAddOn({addon = addonName, title = DEFAULT_TITLE, setLocked = DBR.ApplyLocked,

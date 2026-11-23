@@ -63,8 +63,8 @@ Notes per family:
 - Window: later Execute, Riposte, Mongoose Bite, Counterattack.
 - Ready: Forever's Cooldown Manager and the action bars already show
   cooldowns, so the cue is a sound first.
-- Counter: Winter's Chill reads the combat log, which works only on Classic
-  Era (Forever refuses `COMBAT_LOG_EVENT_UNFILTERED`), so it is Era-only.
+- Counter: Winter's Chill (a debuff on mobs) moved to Dyre's Debuff Tracker
+  in 1.13.3.
 - Everything outside Upkeep must show and hide at once, also in combat, so
   it is never a secure frame.
 
@@ -91,7 +91,6 @@ Notes per family:
 | Procs (1.13.0): Missile Barrage, Fingers of Frost, Nightfall, Decimation, Clearcastings, Nature's Grace, Flurry | Proc | Arcs and sound through the toolkit's proc engine 2; Proc Chimes (sound only) with an older toolkit |
 | Procs (1.13.0): Overpower, Revenge | Window | Usable procs in the same engine: arcs and sound |
 | Combo point chimes (Rogue, Druid) | Counter | Rising notes |
-| Winter's Chill stack chimes (Mage, Era) | Counter | Rising notes; combat log, Era only |
 | Righteous Fury when not the tank (`furyOff`) | Alert | Message and sound |
 | Pet taunt on (`hunterPetTaunt`, `warlockPetTaunt`) | Alert | Yields to Dyre's Toolkit 2.9.0's warning when present |
 | Cast chimes (forms, Dash, Cheetah, Sprint, Charge, shouts) | Feedback | Sound with Text to Speech |

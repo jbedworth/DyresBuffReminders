@@ -5,6 +5,14 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.13.3
+
+### Other changes
+
+- Mage, Classic Era: the **Winter's Chill Chimes** are removed. Winter's Chill is a debuff on your target, so it moves to Dyre's Debuff Tracker. Your saved Winter's Chill settings stay, so Dyre's Debuff Tracker can use them.
+- Mage, WoW: Forever: `/dbr probe on` no longer tests Winter's Chill on your target.
+- The login message follows Dyre's Toolkit's "Welcome messages at login" switch (Toolkit 2.14.0 or later). Errors still show.
+
 ## 1.13.2
 
 ### Fixes
