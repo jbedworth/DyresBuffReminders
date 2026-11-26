@@ -60,7 +60,7 @@ Notes per family:
   client, 1.12.1). Later: Rogue poisons, Shaman imbues, oils and stones.
 - Proc: the engine draws and plays; DBR gives data. Without the engine,
   sound only through `AddAuraSound`.
-- Window: later Execute, Riposte, Mongoose Bite, Counterattack.
+- Window: Mongoose Bite (1.13.4); later Execute, Riposte, Counterattack.
 - Ready: Forever's Cooldown Manager and the action bars already show
   cooldowns, so the cue is a sound first.
 - Counter: Winter's Chill (a debuff on mobs) moved to Dyre's Debuff Tracker
@@ -89,7 +89,7 @@ Notes per family:
 | Ammo and reagents | Counter | A count on an icon; red when low; not clickable |
 | Cooldown chimes | Ready | Timed from your own cast |
 | Procs (1.13.0): Missile Barrage, Fingers of Frost, Nightfall, Decimation, Clearcastings, Nature's Grace, Flurry | Proc | Arcs and sound through the toolkit's proc engine 2; Proc Chimes (sound only) with an older toolkit |
-| Procs (1.13.0): Overpower, Revenge | Window | Usable procs in the same engine: arcs and sound |
+| Procs (1.13.0): Overpower, Revenge; Mongoose Bite (1.13.4) | Window | Usable procs in the same engine: arcs and sound |
 | Combo point chimes (Rogue, Druid) | Counter | Rising notes |
 | Righteous Fury when not the tank (`furyOff`) | Alert | Message and sound |
 | Pet taunt on (`hunterPetTaunt`, `warlockPetTaunt`) | Alert | Yields to Dyre's Toolkit 2.9.0's warning when present |

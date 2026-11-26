@@ -5,6 +5,21 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.13.4
+
+### Features
+
+- Hunter: **Mongoose Bite** is now a proc cue, as a Warrior's Overpower and Revenge: arcs while it is usable after your target dodges (dimmed while you lack the mana), and a sound the moment it becomes usable. On by default, once you know the spell. With a Dyre's Toolkit before 2.12, the sound only.
+- Warrior: **Show only in combat**, a new switch under Battle Shout, just beneath **Show only when needed**. On, Battle Shout shows nothing out of combat, also when it is missing or about to run out; in combat it shows as before. Off by default.
+
+### Fixes
+
+- **Cooldown chimes for spells you cast only in combat** (such as Counterspell) no longer come early. DBR could read a cooldown only after a cast out of combat, so these spells kept DBR's built-in length. Counterspell's was wrong (24 seconds; it is 30 in Classic and on Forever), so it chimed about 6 seconds early. Now DBR reads a cooldown that is still running when combat ends, learns its real length, and moves the chime to it.
+- **Cooldown chime lengths** now match Forever: Counterspell 30 seconds, Fear Ward 3 minutes, Lay on Hands 20 minutes, Holy Shock 10 seconds, Shield Wall 15 minutes, Last Stand 3 minutes, Retaliation 15 minutes, Freezing Trap 30 seconds, Multi-Shot 6 seconds, Stormstrike 8 seconds.
+- Warrior: the **Death Wish** chime now follows Death Wish. Before, it followed Sweeping Strikes, so a Sweeping Strikes cast played "Death Wish ready".
+- Shaman: the chime for Elemental Mastery is now named **Lightning Mastery**, Forever's name. Your setting stays.
+- **Joining a group**: the pet taunt and Righteous Fury warnings, the Righteous Fury reminder for the tank, and the Thorns tank choice now check again 2 seconds after a group, role, or zone change. Before, the game could give its group, role, or pet bar data after the first check, and the warning stayed silent until something else changed.
+
 ## 1.13.3
 
 ### Other changes

@@ -138,11 +138,17 @@ the check.
 
 ### Cooldown chimes (carried over from Dyre's Cooldown Chimes)
 
-- The chime spell IDs are Classic's. Mage's and Warlock's lists are MTF's and
+- The chime lengths are Forever's, from Wowhead's Forever database (checked
+  2026-11-26). The chime spell IDs are Classic's. Mage's and Warlock's lists are MTF's and
   WTF's; the other classes' are new and unchecked: `/dbr debug` should show
   `name=` for every chime spell, never `nil`.
 - Open: whether `C_Spell.GetSpellCooldown` stays readable right after an
   out-of-combat cast for every class's spells.
+- [ ] Mage, Counterspell learned after combat (1.13.4): cast Counterspell on
+      a mob and end the fight before it is ready (kill it fast). `/dbr debug`
+      then shows `learned=` with the real length (the tooltip's cooldown) and
+      a log line `after combat counterspell`; the chime plays half a second
+      before the action bar shows it ready, also on the next cast in combat.
 
 ### Proc sounds: Classic IDs to confirm in client
 
@@ -304,6 +310,11 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       recast hides it again. A click on its hidden place casts it. Its
       "Show only when needed" off: always in full. A drop in combat shows in full only at the
       60 s mark (accepted).
+- [ ] Warrior, Battle Shout "Show only in combat" (1.13.4), on: out of combat
+      nothing shows, missing, up, or within 60 s (no icon, no game buff icon,
+      no flashing border). Enter combat: missing shows red in full; within
+      60 s the game's icon and the flashing border show; a click casts it.
+      Leave combat: all hidden again. Unlocked: the icon shows, to move it.
       In combat, a dodge brings the Overpower sound and
       a block, dodge, or parry the Revenge sound, once per window; switching
       each off under Proc Chimes silences it. `/dbr probe off` if the probe is on.
@@ -356,6 +367,12 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       the pet bar) after 30 s: it shows again. A Warlock with a Voidwalker:
       Torment and Suffering the same. Solo, or as the tank: none. (1.7.1:
       with Dyre's Toolkit before 2.9.0.)
+- [ ] Joining a group, 1.13.4: a Paladin with Righteous Fury on joins a
+      group as a non-tank: "Righteous Fury is on" shows within about 2 s,
+      with no click on anything. As the group's tank instead: the Righteous
+      Fury reminder shows when it is off. A Druid: Thorns turns to the tank
+      within about 2 s. (Pet taunt: Dyre's Toolkit 2.9.0 and later warn for it;
+      the same 2 s re-check is in the toolkit.)
 - [ ] Pet taunt, 1.7.1, with Dyre's Toolkit 2.9.0: the same Hunter gets one
       message, the toolkit's, and no DBR chat line. In `/dbr`, "Warn: pet
       taunt on in a group" is greyed, and its tooltip names the toolkit.
@@ -564,7 +581,16 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       Chimes" section. Get each proc in combat: the arcs show while it is
       up and go when you use it, and its sound plays once if switched on.
       Warrior: Overpower and Revenge arcs while usable, dimmed short of
-      rage, and one sound per window (not two). `/dbr debug`: a `debug
+      rage, and one sound per window (not two).
+- [ ] Mongoose Bite, 1.13.4, a Hunter who knows it (trained at level 16),
+      WoW: Forever first (not checked there yet: does its usable state
+      change on a dodge?). `/dbr probe on`, then melee a mob until it dodges:
+      a `probe Mongoose Bite usable=true` line answers that. Then `/dbr probe
+      off`: on the next dodge, the Mongoose Bite arcs show while it is
+      usable (dimmed short of mana) and its sound plays once; its switches
+      under Procs silence each. A Hunter who does not know it yet gets no
+      Mongoose Bite row. Then on Classic Era with Proc Chimes (Toolkit before
+      2.12): the sound only. `/dbr debug`: a `debug
       procs engine=2 handle=true` line, then one line per proc.
 - [ ] Procs, 1.13.0, the one-time copy: on a character that had Dyre's
       Shields Up 1.4 procs on, the first login says "Copied your proc arcs

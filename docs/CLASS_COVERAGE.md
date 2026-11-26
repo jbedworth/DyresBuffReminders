@@ -47,7 +47,7 @@ the real cooldown in combat, and anything needing `COMBAT_LOG_EVENT_UNFILTERED`
 | Mage | Arcane Intellect, Armor | Clearcasting | 15 spells | ammo n/a | **Good** |
 | Warlock | Demon Armor | Nightfall | 10 spells | none yet | **Good** (no shards yet) |
 | Druid | Mark of the Wild, Thorns (tank) | Clearcasting, Nature's Grace | 10 spells | none yet | **Good**, gaps below |
-| Hunter | Aspect, combat aspect | none | 10 spells | Ammo | **Partial** |
+| Hunter | Aspect, combat aspect | Mongoose Bite (1.13.4) | 10 spells | Ammo | **Partial** |
 | Paladin | Righteous Fury, seal timer | none | 10 spells | none | **Partial** |
 | Warrior | Battle Shout (1.2.0) | Flurry, Overpower, Revenge (1.2.0) | 12 spells | Ammo (gun/bow) | **Partial** |
 | Priest | Fortitude, Inner Fire, Divine Spirit, Shadow Protection | none | 8 spells | none | **Partial** |
@@ -159,7 +159,7 @@ changes and limits). Priority: **P1** next release, **P2** soon, **P3** later.
 | Self buff | — | **P1** Lightning Shield / Water Shield reminder (self, out of combat, recast) | Water Shield exists on Forever and triggers from any critical Shaman spell [fan]: confirm the name and ID. |
 | Weapon buff | — | **P1** Weapon imbue (Rockbiter/Flametongue/Frostbrand/Windfury Weapon) reminder, out of combat | Imbues last 60 min on Forever [fan]. Same API as Rogue poisons. |
 | Totems | — | **P3** totems are placed in combat and not auras on you; a reminder is not possible in combat | Several totems raid-wide [B-sum]; totem stacking closed [B]. |
-| Proc | Clearcasting (off) | **P2** Elemental Mastery as chime (exists); Stormstrike buff | — |
+| Proc | Clearcasting (off) | **P2** Lightning Mastery (Classic's Elemental Mastery) as chime (exists); Stormstrike buff | — |
 | Cooldown chimes | 10 | **P2** Lava Burst (moved to row 5, 4 ranks [fan]) if it has a cooldown | Chain Lightning: no cooldown change confirmed. |
 | Consumable | — | **P2** Ankh (Reincarnation) count; totems in bags (Earth/Fire/Water/Air) | — |
 

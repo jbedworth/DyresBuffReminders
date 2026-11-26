@@ -16,7 +16,7 @@ AddOns → Buff Reminders**, or type `/dbr`. They are saved per character.
   aspects with one click and shows which one is up.
 - **Warrior: Battle Shout, Overpower, and Revenge.** A Battle Shout
   reminder, and a sound the moment Overpower or Revenge
-  becomes usable, also in combat.
+  becomes usable, also in combat. A Hunter gets the same for Mongoose Bite.
 - **Ammo for any bow, gun, or crossbow** (Hunters, Warriors, and Rogues): the
   count, red and pulsing when low, and a reminder to equip your ammo when
   none is equipped. It counts in combat too.
@@ -70,6 +70,10 @@ your own below.
   fight (dispelled or cancelled) shows at its warning time, and a group
   member who lacked it before the fight keeps it in full. A hidden icon
   still takes clicks in combat: a click on its place casts the buff.
+- **Show only in combat**, a switch under Battle Shout, beneath **Show only
+  when needed** (off at first): on, Battle Shout shows nothing out of combat
+  (no icon, no buff icon, no flashing border), also when it is missing or
+  about to run out. In combat it shows as before.
 
 | Class | Buffs |
 |---|---|
@@ -242,7 +246,9 @@ so on).
   **Chime early** moves every chime 0-3 seconds before the cooldown ends
   (default half a second). **Enable** under **Chimes** turns them all off.
 - The game hides cooldowns from AddOns in combat, so DBR times each one from
-  your cast: the length it last read out of combat, else Classic's. Cold Snap
+  your cast: the length it last read, else Forever's. A spell
+  you cast in a fight (such as Counterspell) is read when the fight ends, if
+  its cooldown still runs, so the next chime uses its real length. Cold Snap
   and Preparation cancel the chimes of the spells they reset.
 - **The sounds come from Dyre's Sounds.** Install it from CurseForge (the
   CurseForge app installs it with DBR). Without it, the chimes play nothing,
@@ -266,6 +272,7 @@ Shields Up, which now shows only shields (1.13.0); this needs Dyre's Toolkit
 | Warlock | **Nightfall** (Shadow Trance: arcs on, sound off at first) and **Decimation** |
 | Druid | **Clearcasting** (Omen of Clarity): arcs on, sound off at first; **Nature's Grace**: sound only at first |
 | Shaman | **Clearcasting** (Elemental Focus): arcs on, sound off at first |
+| Hunter | **Mongoose Bite** (after your target dodges): arcs while usable (dimmed while you lack the mana) and a sound the moment it becomes usable, once you know it |
 | Warrior | **Overpower** and **Revenge**: arcs while usable (dimmed while you lack the rage) and a sound the moment one becomes usable (any sound; at most once per 3 seconds each); **Flurry**: off at first |
 
 - A proc shows only when you know its talent. Fingers of Frost's right arc

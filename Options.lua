@@ -864,6 +864,14 @@ function DBR.InitializeOptions()
                 DBR.RefreshReminders)
             Nest(needed, buff, function() return DBR.db.enabled and DBR.db.spells[key] end)
         end
+        if DBR.CanShowOnlyInCombat(reminder) then
+            local combatOnly = Flag("DBR_COMBATONLY_" .. key:upper(), "Show only in combat", "combatOnly", key,
+                false,
+                "On: out of combat, " .. reminder.label .. " shows nothing, also when it is missing or about to "
+                    .. "run out. In combat it shows as before. Off: in and out of combat.",
+                DBR.RefreshReminders)
+            Nest(combatOnly, buff, function() return DBR.db.enabled and DBR.db.spells[key] end)
+        end
         if reminder.tankOnly then
             local always = Flag("DBR_ALWAYS_" .. key:upper(), "Always show " .. reminder.label, "alwaysShow", key,
                 false, "Show " .. reminder.label .. " even when you are not tanking, and no \"off when not "

@@ -144,7 +144,16 @@ prefix `DBR:`. Listings say plainly that it is for WoW: Forever.
   Thorns' 30) and `UNIT_CONNECTION`, for group units only, so walking past
   the group frames' range re-checks at once; a tank between 30 and 40 yards
   is re-checked at the next aura, roster, role, or combat-end event. Out of combat only, so `PLAYER_ROLES_ASSIGNED`,
-  `ROLE_CHANGED_INFORM`, and roster changes in combat apply after it. The
+  `ROLE_CHANGED_INFORM`, and roster changes in combat apply after it.
+  A roster, role, or zone event (`GROUP_ROSTER_UPDATE`, `PLAYER_ROLES_ASSIGNED`,
+  `ROLE_CHANGED_INFORM`, `PLAYER_ENTERING_WORLD`) is checked at once (0.2 s) and
+  again 2 s later (`RECHECK_DELAY`; John, 2026-11-25, as Dyre's Toolkit's pet taunt
+  fix: found in client there, the first check came before the group, role, or pet
+  bar data was ready, and nothing fired again). One `C_Timer.After` with a token:
+  a newer event makes the waiting check do nothing; in combat it does nothing.
+  This covers the tank choice (Thorns, Righteous Fury) and the warnings (furyOff,
+  DBR's own pet taunt copy); a group member's `UNIT_AURA` refreshes too, but no
+  aura need change when a group forms. The
   tooltip says "Thorns: on you" or "on <name>". The click's unit is the
   tank's token (`party2`), set out of combat: a roster change in combat can
   shift the token to another player until combat ends (documented to the
@@ -352,6 +361,20 @@ spells that make a warning apply. Ask the author before changing
   through the same repair. A group
   member lacking it before the fight (`icon.othersNeed`) keeps it in full:
   DBR times only the watched unit; a group-version cast in combat fades it.
+- "Show only in combat" (John, 2026-11-26: "an option to Battle Shout to only
+  show in combat, just beneath the only when needed"): `db.combatOnly[key]`,
+  default off, for a short buff only (`DBR.CanShowOnlyInCombat`:
+  `combatWindow`, Battle Shout), a checkbox (`DBR_COMBATONLY_<KEY>`) under its
+  buff's switch, right after "Show only when needed". On (and locked;
+  `CombatOnly(reminder)`), out of combat nothing shows, missing or not: the
+  icon gets the combat-only driver in every case, the slot alpha 0
+  (`SlotAlpha`, also at `CreateSlot`), and `SetWarn` keeps the running-out
+  border's wanted state (`reminders.warnOn`) but shows it only in combat.
+  At combat's edges (`CombatOnlyEdge`, from `StartWindows` and `EndWindows`)
+  the border and, for a buff not also shown only when needed, the slot follow.
+  `reminders.combat` is set by PLAYER_REGEN_DISABLED, which comes before
+  `InCombatLockdown()` is true. With "Show only when needed" also on, its
+  window decides in combat, as before. Unlocked, every icon shows.
   The slot's out-of-combat alpha is set only on a change
   (`SetSlotAlpha`), so with the switch off nothing is touched; every icon
   faded in combat (`reminders.faded`) is set solid at combat's end, also
@@ -638,11 +661,23 @@ spells that make a warning apply. Ask the author before changing
   combat, and no event fires when a cooldown ends; the player's own
   `UNIT_SPELLCAST_SUCCEEDED` stays readable. So each chime is timed with
   `C_Timer.After` from the cast: the length last read out of combat (saved,
-  1.5 s to 1 h), else Classic's, minus the lead (0-3 s in 0.5 s steps,
+  1.5 s to 1 h), else the built-in one (Forever's), minus the lead (0-3 s in 0.5 s steps,
   default 0.5). 0.1 s after a cast DBR reads the real cooldown when readable
   (never secret, longer than the global cooldown), learns it, and
   reschedules; a newer cast replaces the schedule. `resets` cancels a group
-  (Cold Snap the Frost spells, Preparation the Rogue's).
+  (Cold Snap the Frost spells, Preparation the Rogue's). A cast in combat is
+  kept (`chimes.unread`) and read 0.1 s after PLAYER_REGEN_ENABLED
+  (`ReadAfterCombat`; John, 2026-11-26, after players said Counterspell
+  chimed 5-6 s early): a spell cast only in combat (Counterspell needs an
+  enemy) never had an out-of-combat read and kept its built-in length. A
+  cooldown that ended before combat did reads as none: nothing is learned.
+  Counterspell's `cooldown` was 24 s, a data error (the Vanilla WoW Wiki
+  says 24); it is 30 s in Classic and on Forever (both in-game tooltips,
+  John, 2026-11-26). After it, every chime spell was checked against
+  Wowhead's Forever database (https://www.wowhead.com/forever/spell=<ID>,
+  John's source): ten lengths, Death Wish's ID (12328; 12292 is Sweeping
+  Strikes there), and Lightning Mastery's name were fixed (CHANGELOG
+  1.13.4).
 - Saved in `db.chimes` (enabled, lead, spells, sounds, learned), separate
   from the reminders: their own switch (author: "its own on/off switch"), and
   the chime lead is not the reminders' `db.lead`.
@@ -682,6 +717,9 @@ spells that make a warning apply. Ask the author before changing
   Druid Clearcasting 16870 (off, same reason) and Nature's Grace 16886 (on);
   Shaman Clearcasting 16246 (off); Warrior Flurry 12966-12970 (off).
   Reactive (author, 1.2.0): Warrior Overpower 7384 and Revenge 6572 (on),
+  and (1.13.4; John, 2026-11-24: "Mongoose Bite is like Overpower/Revenge,
+  it's only available after a dodge ... We should add that to DBR") Hunter
+  Mongoose Bite 1495 (on, sound "talent"; not Counterattack, not asked for),
   not buffs: DBR plays their sound itself when `C_Spell.IsSpellUsable`
   (by name, so every rank) turns true on `SPELL_UPDATE_USABLE`, also in
   combat (readable then: found in client with the probe), at most once per 3
@@ -758,7 +796,8 @@ toggle lives in DSU". docs/CUE_MODEL.md: families Proc and Window.
   `stacks = 2`, Nightfall, Decimation, the Druid and Shaman Clearcastings,
   Overpower and Revenge as usable procs), with their notes, plus Proc Chimes'
   Mage Clearcasting, Nature's Grace, and Flurry with `arcOn = false` (sound
-  only by default, as before). Same keys as Proc Chimes and DSU. Sound
+  only by default, as before), and Mongoose Bite (1.13.4, usable 1495, arcs and
+  sound; no talents, so the engine shows it once you know the spell). Same keys as Proc Chimes and DSU. Sound
   defaults are Proc Chimes' (Nightfall off; Overpower "talent", Revenge
   "magical"). A proc shows only with its talent known (the engine's rule;
   Proc Chimes had no talent check): the talent IDs are Classic ranks and
@@ -1033,7 +1072,7 @@ switching; no account table.
 - One settings page (vertical layout, proxy settings on
   `DyresBuffRemindersDB`), under the heading "Reminders" (author: the page is
   already "Buff Reminders"): Enable (`DBR_ENABLED`), one switch per class buff with its
-  group switch and its "Show only when needed" (`DBR_NEEDED_<KEY>`) nested
+  group switch, its "Show only when needed" (`DBR_NEEDED_<KEY>`), and Battle Shout's "Show only in combat" (`DBR_COMBATONLY_<KEY>`) nested
   under it, Seal timer (Paladins), Remind before a buff runs out,
   Visibility when not needed (`DBR_FAINT`, a slider), then the sizes (author: "the size settings should be in
   the area of the thing they are resizing"; no shared "Size and Opacity"

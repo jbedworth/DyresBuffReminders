@@ -21,8 +21,8 @@ DBR.DEFAULT_CHIME_LEAD = 0.5
 -- Interface: Talent ready (author-approved in MTF and WTF: a good sound for a
 -- spell becoming available; players change any of them).
 DBR.DEFAULT_CHIME_SOUND = "talent"
--- A cooldown read in client, kept only when plausible (the longest Classic
--- cooldowns, Inferno and Lay on Hands, are an hour).
+-- A cooldown read in client, kept only when plausible (the longest
+-- cooldowns, Inferno and Reincarnation, are an hour).
 DBR.CHIME_LEARNED_MIN = 1.5
 DBR.CHIME_LEARNED_MAX = 3600
 
@@ -38,7 +38,7 @@ local MERGED_ADDON = "DyresCooldownChimes"
 local MERGED_DB = "DyresCooldownChimesDB"
 local MERGED_TITLE = "Dyre's Cooldown Chimes"
 
-local chimes = {list = {}, byName = {}, generation = {}, readyAt = {}, lastCast = nil, log = {}}
+local chimes = {list = {}, byName = {}, generation = {}, readyAt = {}, lastCast = nil, log = {}, unread = {}}
 
 -- The chime spells of a class, in settings order; none for a class without a list.
 function DBR.ClassChimes(classFile)
@@ -398,11 +398,35 @@ local function OnCast(spellID)
     if seconds then
         Schedule(chime, seconds, learned and "learned" or "classic")
     end
+    -- In combat the read is secret: read again when combat ends (below).
+    if InCombatLockdown() then
+        chimes.unread[chime.key] = {chime = chime, spell = spellID}
+    end
     C_Timer.After(READ_DELAY, function() Refine(chime, spellID) end)
 end
 
+-- Combat ends: each chime spell cast in it whose cooldown still runs is read
+-- now (John, 2026-11-26, players: Counterspell chimed 5-6 s early). A spell
+-- cast only in combat (Counterspell needs an enemy) never had an
+-- out-of-combat read, so it kept Classic's length; now it learns the real
+-- one, and its chime moves to it. A cooldown already over is not read.
+local function ReadAfterCombat()
+    local unread = chimes.unread
+    chimes.unread = {}
+    C_Timer.After(READ_DELAY, function()
+        for _, entry in pairs(unread) do
+            Log(string.format("after combat %s", entry.chime.key))
+            Refine(entry.chime, entry.spell)
+        end
+    end)
+end
+
 local events = CreateFrame("Frame")
-events:SetScript("OnEvent", function(_, _, _, _, spellID)
+events:SetScript("OnEvent", function(_, event, _, _, spellID)
+    if event == "PLAYER_REGEN_ENABLED" then
+        ReadAfterCombat()
+        return
+    end
     OnCast(spellID)
 end)
 
@@ -418,6 +442,7 @@ function DBR.InitializeChimes(classFile)
         end
     end
     events:RegisterUnitEvent("UNIT_SPELLCAST_SUCCEEDED", "player")
+    events:RegisterEvent("PLAYER_REGEN_ENABLED")
 end
 
 local SOUNDS_STATES = {ok = "installed", missing = "missing", old = "too old"}

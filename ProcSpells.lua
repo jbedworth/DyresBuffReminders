@@ -18,7 +18,9 @@ local addonName, DBR = ...
 --
 -- reactive: not a buff but an ability that becomes usable for a moment
 -- (Overpower after a dodge, Revenge after a block, dodge, or parry; author:
--- "Warrior is missing ... Overpower and Revenge procs"). Its Classic rank 1
+-- "Warrior is missing ... Overpower and Revenge procs"; Hunter Mongoose Bite
+-- after a dodge, John, 2026-11-24: "Mongoose Bite is like Overpower/Revenge
+-- ... We should add that to DBR"). Its Classic rank 1
 -- ID; asked for by name, so your highest rank counts. C_Spell.IsSpellUsable
 -- is readable in combat (found in client with /dbr probe), so DBR plays the
 -- sound itself when the ability turns usable, any sound Dyre's Sounds has.
@@ -53,6 +55,10 @@ DBR.PROC_SOUNDS = {
         {key = "overpower", label = "Overpower", reactive = 7384, on = true, sound = "talent"},
         {key = "revenge", label = "Revenge", reactive = 6572, on = true, sound = "magical"},
     },
+    -- Mongoose Bite (trained, not a talent): usable after your target dodges.
+    HUNTER = {
+        {key = "mongoosebite", label = "Mongoose Bite", reactive = 1495, on = true, sound = "talent"},
+    },
 }
 
 -- Proc cues (1.13.0; John, 2026-11-20: DBR holds "all buffs/procs ...
@@ -79,7 +85,9 @@ DBR.PROC_SOUNDS = {
 -- (talent 440870, new on Forever; no source gives its buff ID, so it shows
 -- after the engine has read the ID once out of combat), the Druid (Omen of
 -- Clarity 16864, a trained passive on Forever) and Shaman (Elemental Focus
--- 16164) Clearcastings, Overpower and Revenge (usable, rank 1 IDs). DBR's own
+-- 16164) Clearcastings, Overpower and Revenge (usable, rank 1 IDs), and
+-- Mongoose Bite (1.13.4, usable 1495, as Overpower: no talents, so the engine
+-- shows it once you know the spell itself). DBR's own
 -- Proc Chimes before 1.13.0 (sound only by default, arcOn = false; John's
 -- defaults kept: Mage Clearcasting off, the game plays a sound for it; Flurry
 -- off; Nature's Grace on): Arcane Concentration (Classic ranks 11213,
@@ -135,6 +143,9 @@ DBR.PROC_CUES = {
     {key = "revenge", label = "Revenge", class = "WARRIOR", usable = 6572, color = {1, 0.8, 0.25},
         sound = "magical",
         tooltip = "After you block, dodge, or parry; dimmed while you lack the rage."},
+    {key = "mongoosebite", label = "Mongoose Bite", class = "HUNTER", usable = 1495, color = {0.55, 0.9, 0.3},
+        sound = "talent",
+        tooltip = "After your target dodges; dimmed while you lack the mana."},
 }
 
 -- Cast chimes (author, 1.4.0: "a sound when Travel Form, Pact of Cheeta and

@@ -175,6 +175,7 @@ name("Flurry", 12966, 12967, 12968, 12969, 12970)
 name("Overpower", 7384)
 name("Battle Shout", 6673, 5242, 6192, 11549, 11550, 11551, 25289)
 name("Revenge", 6572)
+name("Mongoose Bite", 1495)
 name("Execute", 5308)
 name("Charge", 100, 6178, 11578)
 name("Eviscerate", 2098, 6760)
@@ -455,7 +456,10 @@ local function fixture(options)
                 return {startTime = state.secret(), duration = state.secret(), isEnabled = true}
             end
             local cooldown = state.cooldowns[id]
-            if cooldown then return {startTime = cooldown.start, duration = cooldown.duration} end
+            -- An ended cooldown reads as none, as in client.
+            if cooldown and cooldown.start + cooldown.duration > state.now then
+                return {startTime = cooldown.start, duration = cooldown.duration}
+            end
             return {startTime = 0, duration = 0}
         end,
         GetSpellSubtext = function(id)
@@ -2906,6 +2910,89 @@ test("Warrior: Battle Shout shows only when needed: missing or within its 60 s, 
     equal(mage.slotOf("arcaneIntellect").alpha, nil, "Show only when needed off: the slot never transparent")
     equal(mage.icon("arcaneIntellect").shown, true)
 end)
+-- Show only in combat (John, 2026-11-26).
+local function rowIndex(state, variable)
+    for index, row in ipairs(state.page().initializers) do
+        if row.setting and row.setting.variable == variable then return index end
+    end
+end
+test("Warrior: Show only in combat: off by default, under Battle Shout, just beneath Show only when needed", function()
+    local state = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true}})
+    equal(state.dbr.db.combatOnly.battleShout, false, "off by default")
+    local row = state.row("DBR_COMBATONLY_BATTLESHOUT")
+    equal(row.setting.name, "Show only in combat")
+    equal(row.setting.default, false)
+    equal(row.parentInitializer, state.row("DBR_BUFF_BATTLESHOUT"), "under the Battle Shout switch")
+    equal(rowIndex(state, "DBR_COMBATONLY_BATTLESHOUT"), rowIndex(state, "DBR_NEEDED_BATTLESHOUT") + 1,
+        "the row right after Show only when needed")
+    local mage = fixture({known = {[INTELLECT] = true}})
+    equal(mage.row("DBR_COMBATONLY_ARCANEINTELLECT"), nil, "a long buff has none")
+    equal(mage.dbr.db.combatOnly.arcaneIntellect, nil)
+    local saved = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true}, db = {combatOnly = {battleShout = "yes"}}})
+    equal(saved.dbr.db.combatOnly.battleShout, false, "a damaged value: repaired to off")
+end)
+test("Warrior: Show only in combat, on: missing shows only in combat", function()
+    local state = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true}})
+    local shout = state.icon("battleShout")
+    equal(visible(shout), true, "off: missing shows out of combat")
+    state.settings.DBR_COMBATONLY_BATTLESHOUT:SetValue(true)
+    equal(state.dbr.db.combatOnly.battleShout, true)
+    state.applyDrivers()
+    equal(shout.shown, false, "on: missing, out of combat: hidden")
+    enterCombat(state)
+    equal(visible(shout), true, "in combat: the game shows it")
+    equal(shout.alpha, 1, "in full")
+    equal(shout.border ~= nil and shout.border[1] == 1 and shout.border[2] == 0.2, true, "red: missing")
+    leaveCombat(state)
+    equal(shout.shown, false, "after combat: hidden again")
+    -- Unlocked: every icon shows, to move it.
+    state.dbr.db.locked = false
+    state.dbr.RefreshReminders()
+    state.applyDrivers()
+    equal(shout.shown, true, "unlocked: shown out of combat")
+end)
+test("Warrior: Show only in combat, on: running out, its slot and border wait for combat", function()
+    local state = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true},
+        db = {combatOnly = {battleShout = true}, needed = {battleShout = false}}})
+    local shout, slot = state.icon("battleShout"), state.slotOf("battleShout")
+    local warn = state.widget("battleShout").warn
+    -- update() lets one second pass: 30 s left, inside the 60 s lead.
+    state.buff("player", "Battle Shout", state.now + 31)
+    state.update("UNIT_AURA", "player")
+    state.applyDrivers()
+    equal(shout.shown, false, "running out, out of combat: our icon hidden")
+    equal(slot.alpha, 0, "the game's slot transparent")
+    equal(warn.alpha, 0, "no running-out border")
+    enterCombat(state)
+    equal(shout.shown, true, "in combat: our icon")
+    equal(slot.alpha, 1, "the game's slot with its time left")
+    equal(warn.alpha, 1, "and the running-out border")
+    leaveCombat(state)
+    equal(slot.alpha, 0, "after combat: the slot transparent again")
+    equal(warn.alpha, 0, "and no border")
+    equal(shout.shown, false)
+    -- Up and outside the lead: also hidden out of combat, in full in combat (Show only when needed off).
+    state.buff("player", "Battle Shout", state.now + 91)
+    state.update("UNIT_AURA", "player")
+    state.applyDrivers()
+    equal(shout.shown, false, "up, out of combat: hidden")
+    equal(slot.alpha, 0)
+    enterCombat(state)
+    equal(slot.alpha, 1, "in combat: the slot in full")
+    equal(shout.alpha, 1)
+    -- Both on: in combat, Show only when needed decides, as before.
+    local both = fixture({class = "WARRIOR", known = {[BATTLE_SHOUT] = true}, db = {combatOnly = {battleShout = true}}})
+    both.buff("player", "Battle Shout", both.now + 91)
+    both.update("UNIT_AURA", "player")
+    both.applyDrivers()
+    equal(both.icon("battleShout").shown, false, "both on: hidden out of combat")
+    enterCombat(both)
+    equal(both.icon("battleShout").alpha, 0, "in combat outside the window: hidden (only when needed)")
+    equal(both.slotOf("battleShout").alpha, 0)
+    both.advance(30)
+    equal(both.icon("battleShout").alpha, 1, "60 s left: the window opens")
+    equal(both.slotOf("battleShout").alpha, 1)
+end)
 test("Warrior: Overpower and Revenge sound when they turn usable, also in combat, once per window", function()
     local state = fixture({class = "WARRIOR", known = {[7384] = true, [6572] = true}})
     state.usable = {Overpower = {false, false}, Revenge = {false, false}}
@@ -2940,6 +3027,48 @@ test("Warrior: Overpower and Revenge sound when they turn usable, also in combat
     state.clear()
     state.slash("debug")
     contains(state.find("debug procs overpower"), "on=true sound=talent reactive=7384=Overpower usable=true")
+end)
+test("Hunter: Mongoose Bite sounds when it turns usable, as Overpower; on by default, any sound", function()
+    local state = fixture({class = "HUNTER", known = {[1495] = true}})
+    equal(state.dbr.db.procs.spells.mongoosebite, true, "on by default")
+    local row = state.row("DBR_PROC_MONGOOSEBITE")
+    equal(row.kind, "checkboxdropdown")
+    contains(row.data.cbTooltip, "Mongoose Bite becomes usable")
+    equal(row.menuFilter, nil, "any sound: DBR plays it")
+    state.usable = {["Mongoose Bite"] = {false, false}}
+    state.combat = true
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, 0, "not usable: silent")
+    state.usable["Mongoose Bite"] = {true, false}
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, 1, "usable after a dodge, in combat")
+    equal(state.played[1].key, "talent")
+    equal(state.played[1].speech, "Mongoose Bite")
+    state.usable["Mongoose Bite"] = {false, true}
+    state.emit("SPELL_UPDATE_USABLE")
+    state.usable["Mongoose Bite"] = {true, false}
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, 1, "within 3 seconds: no repeat")
+    state.now = state.now + 4
+    state.usable["Mongoose Bite"] = "secret"
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, 1, "a secret answer is skipped")
+    state.usable["Mongoose Bite"] = {false, false}
+    state.emit("SPELL_UPDATE_USABLE")
+    state.usable["Mongoose Bite"] = {true, false}
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, 2, "a new window: a new sound")
+    state.combat = false
+    state.dbr.db.procs.spells.mongoosebite = false
+    state.now = state.now + 4
+    state.usable["Mongoose Bite"] = {false, false}
+    state.emit("SPELL_UPDATE_USABLE")
+    state.usable["Mongoose Bite"] = {true, false}
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, 2, "switched off: silent")
+    for _, entry in ipairs(state.dbr.ClassProcs("HUNTER")) do
+        equal(entry.key == "counterattack", false, "Counterattack is not a cue")
+    end
 end)
 test("Warrior: the reactive sounds are in Procs, each with its switch and any sound", function()
     local state = fixture({class = "WARRIOR", known = {[7384] = true, [6572] = true}})
@@ -3120,6 +3249,80 @@ test("Hunter and Warlock: a pet taunt on autocast in a group where you aren't th
     equal(imp.count("Pet taunt on"), 0, "no Voidwalker or Felguard summon: no warning")
     local priest = fixture({class = "PRIEST"})
     equal(priest.env.DyresBuffRemindersWarning, nil, "a class without warnings: no message box")
+end)
+
+-- The 2 s re-check (John, 2026-11-25, as Dyre's Toolkit's pet taunt fix): a
+-- group, role, or zone event is checked again 2 s later, for data that comes late.
+test("re-check: a group formed with Growl on autocast, the pet bar late, warns 2 s later", function()
+    local state = fixture({class = "HUNTER", known = {[883] = true}, toolkitBefore29 = true})
+    local MESSAGE = "Pet taunt on: Growl is on autocast in a group. Turn it off."
+    state.units.pet = {}
+    state.petActions = {[1] = {name = "Attack", token = true, auto = true}, [4] = {name = "Growl", auto = true}}
+    state.update("PET_BAR_UPDATE")
+    equal(state.count(MESSAGE), 0, "solo: nothing")
+    -- The group forms; at the first check the pet bar is not ready yet.
+    local actions = state.petActions
+    state.petActions = {}
+    state.group = "party"
+    state.units.party1 = {name = "Tanky", class = "WARRIOR", role = "TANK"}
+    state.emit("GROUP_ROSTER_UPDATE")
+    state.wait(0.5)
+    equal(state.count(MESSAGE), 0, "the first check: no pet bar data yet")
+    state.petActions = actions
+    state.wait(1.6)
+    equal(state.count(MESSAGE), 1, "2 s later: the warning, with no new event")
+    equal(warningShown(state), true)
+end)
+test("re-check: a newer event replaces the waiting check", function()
+    local state = fixture({class = "HUNTER", known = {[883] = true}, toolkitBefore29 = true})
+    local MESSAGE = "Pet taunt on: Growl is on autocast in a group. Turn it off."
+    state.units.pet = {}
+    local actions = {[1] = {name = "Attack", token = true, auto = true}, [4] = {name = "Growl", auto = true}}
+    state.petActions = {}
+    state.group = "party"
+    state.units.party1 = {name = "Tanky", class = "WARRIOR", role = "TANK"}
+    state.emit("GROUP_ROSTER_UPDATE")
+    state.wait(1.5)
+    state.emit("PLAYER_ROLES_ASSIGNED")
+    state.wait(0.3)
+    state.petActions = actions
+    state.wait(0.4)
+    equal(state.count(MESSAGE), 0, "the first event's check (at 2 s) was replaced: nothing yet")
+    state.wait(1.4)
+    equal(state.count(MESSAGE), 1, "the newer event's check, 2 s after it")
+    local fighting = fixture({class = "HUNTER", known = {[883] = true}, toolkitBefore29 = true})
+    fighting.units.pet = {}
+    fighting.petActions = {}
+    fighting.group = "party"
+    fighting.units.party1 = {name = "Tanky", class = "WARRIOR", role = "TANK"}
+    fighting.emit("GROUP_ROSTER_UPDATE")
+    fighting.wait(0.5)
+    fighting.petActions = actions
+    fighting.combat = true
+    fighting.wait(2)
+    equal(fighting.count(MESSAGE), 0, "in combat the re-check does nothing")
+end)
+test("re-check: Righteous Fury and Thorns follow a tank role that comes after the group event", function()
+    local paladin = fixture({class = "PALADIN", known = {[FURY] = true}})
+    local holder = paladin.widget("righteousFury")
+    paladin.group = "party"
+    paladin.units.party1 = {name = "Healy", class = "PRIEST"}
+    paladin.emit("GROUP_ROSTER_UPDATE")
+    paladin.wait(0.5)
+    equal(holder.shown, false, "the first check: no role yet, not the tank")
+    paladin.units.player.role = "TANK"
+    paladin.wait(1.6)
+    equal(holder.shown, true, "2 s later: the designated tank, the reminder shows")
+    local druid = fixture({class = "DRUID", known = {[THORNS] = true}, db = {needed = {thorns = false}}})
+    local thorns = druid.icon("thorns")
+    druid.group = "party"
+    druid.units.party1 = {name = "Tanky", class = "WARRIOR"}
+    druid.emit("GROUP_ROSTER_UPDATE")
+    druid.wait(0.5)
+    equal(thorns.attributes.unit1, "player", "the first check: no tank yet, you")
+    druid.units.party1.role = "TANK"
+    druid.wait(1.6)
+    equal(thorns.attributes.unit1, "party1", "2 s later: the tank")
 end)
 
 -- A Hunter in a group (not the tank) with Growl on autocast.
@@ -4041,6 +4244,74 @@ test("chimes in combat: the secret cooldown is never read; Classic's or a learne
     equal(#again.played, 0)
     again.advance(0.2)
     equal(#again.played, 1, "13 s learned, kept across sessions, minus the lead")
+end)
+local COUNTERSPELL = 2139
+test("chimes: Counterspell's own length is 30 s, as its tooltip in Classic and Forever (John, 2026-11-26)", function()
+    local state = fixture()
+    state.combat = true
+    state.cast(COUNTERSPELL)
+    state.advance(29.4)
+    equal(#state.played, 0, "not at 24 s, the old wrong length")
+    state.advance(0.2)
+    equal(#state.played, 1, "30 s minus the 0.5 s lead, with nothing learned")
+end)
+test("chimes: the lengths, IDs, and names Wowhead's Forever database gives (checked 2026-11-26)", function()
+    local state = fixture()
+    local byKey = {}
+    for _, list in pairs(state.dbr.CHIME_SPELLS) do
+        for _, chime in ipairs(list) do byKey[chime.key] = chime end
+    end
+    local expected = {counterspell = 30, fearward = 180, layonhands = 1200, holyshock = 10, shieldwall = 900,
+        laststand = 180, deathwish = 180, retaliation = 900, freezingtrap = 30, multishot = 6,
+        elementalmastery = 180, stormstrike = 8}
+    for key, seconds in pairs(expected) do
+        equal(byKey[key].cooldown, seconds, key)
+    end
+    equal(byKey.deathwish.spell, 12328, "Death Wish; 12292 is Sweeping Strikes on Forever")
+    equal(byKey.elementalmastery.label, "Lightning Mastery", "Forever's name; the saved key stays")
+end)
+-- Blink's real length here is 13 s, so the learned one differs from the built-in 15 s.
+test("chimes after combat: a cooldown cast in combat is read when combat ends, learned, and its chime moved", function()
+    local state = fixture()
+    state.combat = true
+    state.cast(BLINK, 13)
+    state.advance(5)
+    equal(state.chimes().learned.blink, nil, "in combat: secret, nothing learned")
+    state.combat = false
+    state.emit("PLAYER_REGEN_ENABLED")
+    state.advance(0.1)
+    equal(state.chimes().learned.blink, 13, "combat ends with 8 s left: the real 13 s is learned")
+    state.advance(7.2)
+    equal(#state.played, 0)
+    state.advance(0.2)
+    equal(#state.played, 1, "at the real 13 s, minus the 0.5 s lead, not the built-in 15 s")
+    state.advance(5)
+    equal(#state.played, 1, "once: the built-in schedule was replaced")
+    -- The next cast in combat uses it.
+    state.combat = true
+    state.cast(BLINK)
+    state.advance(12.4)
+    equal(#state.played, 1)
+    state.advance(0.2)
+    equal(#state.played, 2, "the learned 13 s, also in combat")
+    -- A cooldown over before combat ends: nothing to read, nothing learned.
+    local over = fixture()
+    over.combat = true
+    over.cast(BLINK, 13)
+    over.advance(14)
+    over.combat = false
+    over.emit("PLAYER_REGEN_ENABLED")
+    over.advance(0.1)
+    equal(over.chimes().learned.blink, nil, "ended before combat did: the built-in 15 s stays")
+    -- Out of combat casts are read as before, not again after the next fight.
+    local calm = fixture()
+    calm.cast(BLINK, 13)
+    calm.advance(0.1)
+    equal(calm.chimes().learned.blink, 13)
+    calm.cooldowns[BLINK] = {start = calm.now, duration = 99}
+    calm.emit("PLAYER_REGEN_ENABLED")
+    calm.advance(0.1)
+    equal(calm.chimes().learned.blink, 13, "a spell not cast in the fight is not read")
 end)
 test("chimes: the lead moves them, in steps of half a second from 0 to 3", function()
     local state = fixture()
@@ -6096,6 +6367,29 @@ engineTest("proc cues: Overpower is one row with arcs and sound; the engine play
     equal(state.played[1].speech, "Overpower")
     equal(state.dbr.db.procCues.arc.flurry, false, "Flurry: arcs off by default (sound only before)")
     equal(state.dbr.db.procCues.sound.flurry, false)
+end)
+
+engineTest("proc cues: Mongoose Bite has arcs and sound once the Hunter knows it; not before", function()
+    local state = fixture({class = "HUNTER", procEngine = true, known = {[1495] = true}})
+    equal(state.toolkit.KindOwner("proc:mongoosebite"), "DyresBuffReminders")
+    equal(state.dbr.ProcCuesHandle().Known("mongoosebite"), true)
+    equal(type(cueRow(state, "mongoosebite", "sound")), "table")
+    equal(state.row("DBR_PROC_MONGOOSEBITE"), nil, "no Proc Chimes row")
+    state.usable = {["Mongoose Bite"] = {false, false}}
+    state.emit("SPELL_UPDATE_USABLE")
+    state.combat = true
+    state.usable["Mongoose Bite"] = {true, false}
+    state.emit("SPELL_UPDATE_USABLE")
+    equal(#state.played, 1, "one sound, in combat")
+    equal(state.played[1].key, "talent")
+    equal(state.played[1].speech, "Mongoose Bite")
+    local early = fixture({class = "HUNTER", procEngine = true, known = {}})
+    equal(early.dbr.ProcCuesHandle().Known("mongoosebite"), false, "not trained yet: no cue")
+    early.usable = {["Mongoose Bite"] = {false, false}}
+    early.emit("SPELL_UPDATE_USABLE")
+    early.usable["Mongoose Bite"] = {true, false}
+    early.emit("SPELL_UPDATE_USABLE")
+    equal(#early.played, 0, "silent")
 end)
 
 engineTest("proc cues: the first run copies DSU 1.4's choices once; DBR's own Proc Chimes win where it had them", function()
