@@ -336,8 +336,13 @@ local function fixture(options)
         local key, value = text:match("^##%s*([^:]+):%s*(.-)%s*$")
         if key then state.toc[key] = value end
     end
+    -- Other AddOns' TOC titles, as the client gives them.
+    local titles = {DyresToolkit = "Dyre's Toolkit", DyresCombatTools = "Dyre's Threat and Combat Tools"}
     env.C_AddOns = {GetAddOnMetadata = function(addon, field)
         if addon ~= ADDON then
+            if field == "Title" then
+                return titles[addon]
+            end
             -- options.versions: other AddOns' TOC versions, as {MageToolsForever = "0.3.0-beta"}.
             return field == "Version" and (options.versions or {})[addon] or nil
         end
@@ -762,6 +767,15 @@ local function fixture(options)
             function object:AddModifyPredicate(predicate)
                 self.modifyPredicates[#self.modifyPredicates + 1] = predicate
             end
+            -- Blizzard's per-row watch on any setting variable (Toolkit's WatchSettings).
+            function object:AddEvaluateStateCVar(variable)
+                self.watched = self.watched or {}
+                self.watched[#self.watched + 1] = variable
+            end
+            function object:AddShownPredicate(predicate)
+                self.shownPredicates = self.shownPredicates or {}
+                self.shownPredicates[#self.shownPredicates + 1] = predicate
+            end
             return object
         end
     end
@@ -787,7 +801,16 @@ local function fixture(options)
     end
     if not options.noSettings then
         env.CreateSettingsButtonInitializer = function(label, buttonText, click, tooltip)
-            return {kind = "button", label = label, buttonText = buttonText, click = click, tooltip = tooltip}
+            local object = {kind = "button", label = label, buttonText = buttonText, click = click, tooltip = tooltip,
+                modifyPredicates = {}}
+            function object:AddModifyPredicate(predicate)
+                self.modifyPredicates[#self.modifyPredicates + 1] = predicate
+            end
+            function object:AddEvaluateStateCVar(variable)
+                self.watched = self.watched or {}
+                self.watched[#self.watched + 1] = variable
+            end
+            return object
         end
         local function initializer(category, setting, tooltip)
             local object = {setting = setting, tooltip = tooltip, modifyPredicates = {}}
@@ -798,6 +821,15 @@ local function fixture(options)
             end
             function object:AddModifyPredicate(predicate)
                 self.modifyPredicates[#self.modifyPredicates + 1] = predicate
+            end
+            -- Blizzard's per-row watch on any setting variable (Toolkit's WatchSettings).
+            function object:AddEvaluateStateCVar(variable)
+                self.watched = self.watched or {}
+                self.watched[#self.watched + 1] = variable
+            end
+            function object:AddShownPredicate(predicate)
+                self.shownPredicates = self.shownPredicates or {}
+                self.shownPredicates[#self.shownPredicates + 1] = predicate
             end
             category.initializers[#category.initializers + 1] = object
             return object
@@ -812,7 +844,10 @@ local function fixture(options)
                 state.categories[title] = category
                 local layout = {}
                 function layout:AddInitializer(initializer)
-                    if initializer.heading then state.headings[#state.headings + 1] = initializer end
+                    -- DBR's own headings: the toolkit's home page has its own (2.16.0's Profile).
+                    if initializer.heading and title ~= "Dyre's AddOns" then
+                        state.headings[#state.headings + 1] = initializer
+                    end
                     category.initializers[#category.initializers + 1] = initializer
                 end
                 return category, layout
@@ -847,6 +882,15 @@ local function fixture(options)
             CreateSlider = function(category, setting, sliderOptions, tooltip)
                 local object = initializer(category, setting, tooltip)
                 object.options = sliderOptions
+                return object
+            end,
+            -- A custom row (the toolkit's primer box).
+            CreateElementInitializer = function(template, data)
+                local object = {template = template, data = data, modifyPredicates = {}}
+                function object:AddShownPredicate(predicate)
+                    self.shownPredicates = self.shownPredicates or {}
+                    self.shownPredicates[#self.shownPredicates + 1] = predicate
+                end
                 return object
             end,
             CreateSliderOptions = function(minValue, maxValue, step)
@@ -1070,7 +1114,8 @@ local function fixture(options)
     -- Owners.lua and the claim; options.lateClaim makes the test claim it.
     if not options.noToolkit then
         -- The class Tools AddOns are Dyre's AddOns (a TOC with "## Group: DyresToolkit"), so they may claim.
-        local family = {WarlockToolsForever = true, MageToolsForever = true, DyresBuffReminders = true}
+        local family = {WarlockToolsForever = true, MageToolsForever = true, DyresBuffReminders = true,
+            DyresCombatTools = true}
         state.toolkitNS = {InitializeMinimap = function() end,
             InFamily = function(addon) return family[addon] == true end}
         for _, path in ipairs(TOOLKIT_FILES) do
@@ -1080,6 +1125,11 @@ local function fixture(options)
                 setfenv(chunk, env)
                 chunk("DyresToolkit", state.toolkitNS)
             end
+        end
+        -- An older toolkit had no Profile section either: its Core (2.16.0) calls
+        -- Profiles.lua's AddProfileSettings at login.
+        if options.toolkitBefore210 then
+            state.toolkitNS.AddProfileSettings = function() end
         end
         -- The proc engine (Toolkit 2.11.0): its Procs.lua when there, else
         -- its constant; options.toolkitBefore211 has neither.
@@ -1150,6 +1200,8 @@ local function fixture(options)
     end
     env.DyresBuffRemindersDB = options.db
     state.env = env
+    -- options.beforeLogin(env): a test's change to the globals before startup.
+    if options.beforeLogin then options.beforeLogin(env) end
     state.emit("ADDON_LOADED", "DyresToolkit")
     state.emit("ADDON_LOADED", ADDON)
     state.emit("PLAYER_LOGIN")
@@ -1761,13 +1813,11 @@ end)
 test("settings: each buff's tooltip says what it shows; Thorns says whom it watches and casts on", function()
     local state = fixture({class = "DRUID", known = {[THORNS] = true, [MARK] = true}})
     local thorns = state.row("DBR_BUFF_THORNS").tooltip
-    equal(thorns, "Maintains Thorns on you, or on the group's Tank if there is one. A glow or red border "
-        .. "when it's missing, yellow before it runs out.")
+    equal(thorns, "Show an icon while Thorns is missing on you, or on your group's tank; click it to cast it.")
     local mark = state.row("DBR_BUFF_MARKOFTHEWILD").tooltip
-    contains(mark, "a glow or red border (Missing buff) while it is missing, yellow and flashing before it runs "
-        .. "out, also in combat")
+    equal(mark, "Show an icon while Mark of the Wild is missing or about to run out; click it to cast it.")
     equal(mark:find("Tank", 1, true), nil, "only a tank buff names the tank")
-    contains(state.row("DBR_GROUP_MARKOFTHEWILD").tooltip, "Your group is checked out of combat only")
+    equal(state.row("DBR_GROUP_MARKOFTHEWILD").tooltip, "Also remind you when a party or raid member lacks Mark of the Wild.")
 end)
 
 test("Druid: with the tank dead, offline, out of sight, or out of range, Thorns watches you", function()
@@ -3353,9 +3403,9 @@ test("Pet taunt with Dyre's Toolkit 2.9.0: the toolkit warns, DBR stays quiet an
     equal(state.count("Pet taunt on"), 0, "nothing as combat starts")
     local row, live = petTauntSwitch(state)
     equal(live, false, "the switch is greyed")
-    contains(row.tooltip, "Dyre's Toolkit 2.9.0")
+    contains(row.tooltip(), "Dyre's Toolkit gives this warning now")
     state.slash("debug")
-    contains(state.find("debug warning hunterPetTaunt"), "toolkit=true")
+    contains(state.find("debug warning hunterPetTaunt"), "owner=DyresToolkit")
     -- The toolkit's own switch off keeps its claim (off means off): it does
     -- not call SetOwnerEnabled, so the owner stays.
     local lock = fixture({class = "WARLOCK", known = {[697] = true}})
@@ -3388,8 +3438,10 @@ test("Pet taunt: a claim after DBR's login silences DBR; an older or no toolkit 
     equal(older.dbr.ToolkitOwnsPetTaunt(), false, "no Owners: not the toolkit's")
     growlInGroup(older)
     equal(older.count(GROWL), 1, "a toolkit before 2.9.0: DBR warns")
-    _, live = petTauntSwitch(older)
+    local olderRow
+    olderRow, live = petTauntSwitch(older)
     equal(live, true)
+    equal(olderRow.tooltip():find('gives this warning now', 1, true), nil, 'no note while DBR warns')
     -- Owners (2.5.0 to 2.8.0) with no claim: DBR's copy too.
     local noClaim = fixture({class = "HUNTER", known = {[883] = true}, lateClaim = true})
     growlInGroup(noClaim)
@@ -4141,7 +4193,7 @@ test("the settings page lists your class's buffs, each group switch under its bu
         .. "Reminder icons: size|Reminder icons: opacity", "a Priest has no consumables: no section, no bar")
     local group = state.row("DBR_GROUP_FORTITUDE")
     equal(group.parentInitializer, state.row("DBR_BUFF_FORTITUDE"))
-    contains(group.tooltip, "Prayer of Fortitude")
+    equal(group.tooltip, "Also remind you when a party or raid member lacks Power Word: Fortitude.")
     contains(state.row("DBR_GROUP_DIVINESPIRIT").tooltip, "who uses mana")
     state.settings.DBR_ENABLED:SetValue(false)
     equal(visible(state.icon("fortitude")), false)
@@ -4399,7 +4451,7 @@ test("cast chimes: shifting into Travel Form says \"Meep meep\" 0.2 s later, als
     state.voice = false
     shift(1)
     equal(state.played[#state.played].key, "talent", "no voice installed: the chimes' default")
-    contains(state.row("DBR_CAST_BEARFORM").data.cbTooltip, "not when you leave it")
+    equal(state.row("DBR_CAST_BEARFORM").data.cbTooltip, "Play a sound just after you shift into Bear Form (and Dire Bear).")
 end)
 
 test("cast chimes: powershifting chimes once, for the form you settle in", function()
@@ -5337,7 +5389,7 @@ test("procs: the settings page has a Procs section, one row per proc, aura sound
     local state = fixture({class = "DRUID"})
     local headings = {}
     for _, heading in ipairs(state.headings) do headings[#headings + 1] = heading.heading end
-    equal(table.concat(headings, "|"), "Reminders|Chimes|Proc Chimes|Cast Chimes|Combo Point Chimes",
+    equal(table.concat(headings, "|"), "Reminders|Chimes|Procs|Cast Chimes|Combo Point Chimes",
         "no Consumables before Rebirth; Combo Point Chimes last")
     equal(state.settings.DBR_PROCS_ENABLED.name, "Enable")
     local switch, switchAt = state.row("DBR_PROCS_ENABLED")
@@ -5398,7 +5450,7 @@ test("procs: a proc another Dyre's AddOn plays through the toolkit's proc engine
     equal(state.auraSoundCount, 0, "never registered")
     local row, live = procRowLive(state, "DBR_PROC_NIGHTFALL")
     equal(live, false, "its row is greyed")
-    contains(procTooltip(row), "Played by Warlock Tools Forever with its proc arcs")
+    contains(procTooltip(row), "Warlock Tools Forever plays this sound now")
     -- The switch still saves, and still registers nothing.
     state.settings.DBR_PROC_NIGHTFALL:SetValue(false)
     state.settings.DBR_PROC_NIGHTFALL:SetValue(true)
@@ -5428,14 +5480,14 @@ test("procs: a proc another Dyre's AddOn plays through the toolkit's proc engine
     equal(druid.soundIDs(), tostring(NATURES_GRACE), "Nature's Grace still DBR's; Clearcasting yields")
     local _, naturesLive = procRowLive(druid, "DBR_PROC_NATURESGRACE")
     equal(naturesLive, true)
-    contains(procTooltip(druid.row("DBR_PROC_DRUIDCLEARCASTING")), "Played by Mage Tools Forever")
+    contains(procTooltip(druid.row("DBR_PROC_DRUIDCLEARCASTING")), "Mage Tools Forever plays this sound now")
 end)
 test("procs: a claim after DBR's login yields out of combat, after combat in it; a release plays again, once", function()
     local state = nightfallOn()
     equal(state.soundIDs(), tostring(SHADOW_TRANCE), "no claim: DBR plays Nightfall")
     local row, live = procRowLive(state, "DBR_PROC_NIGHTFALL")
     equal(live, true, "no claim: the row works")
-    equal(procTooltip(row):find("Played by"), nil)
+    equal(procTooltip(row):find("plays this sound now", 1, true), nil)
     equal(state.claimProc("nightfall"), true)
     equal(state.soundIDs(), "", "claimed later (the class AddOn's own login): DBR steps aside")
     _, live = procRowLive(state, "DBR_PROC_NIGHTFALL")
@@ -6973,6 +7025,575 @@ test("only when needed: in the toolkit profile; a copy turns a buff's switch off
     copy.dbr.db.spells.arcaneIntellect = true
     copy.dbr.RefreshReminders()
     equal(copy.icon("arcaneIntellect").shown, true, "off: shown, live")
+end)
+
+-- Settings sections (Dyre's Toolkit 2.17.0; John, 2026-11-26: a class AddOn
+-- "should surface every setting in the wrapped addon's settings, and just
+-- pass-through the setting"). Only with a toolkit that has sections; the copy
+-- in tests/toolkit (CI) may not, so there these say so and pass.
+local function sectionTest(name, body)
+    test(name, function()
+        local probe = fixture({class = "MAGE", known = {[INTELLECT] = true}})
+        if type(probe.toolkit.RegisterSettingsSection) ~= "function" then
+            io.write("# skipped (no settings sections in ", TOOLKIT_DIR, "): ", name, "\n")
+            return
+        end
+        body()
+    end)
+end
+-- A host's page (Mage or Warlock Tools Forever) drawing one of DBR's sections.
+local function hostSection(state, host, key, filter)
+    local page, layout = state.env.Settings.RegisterVerticalLayoutCategory(host .. " " .. key)
+    local result = state.toolkit.AddSettingsSection(page, layout, {addon = ADDON, key = key,
+        host = host, filter = filter, link = {name = "Open Buff Reminders", button = "Open"}})
+    return result, page
+end
+local function hosted(host, variable)
+    return "DYRE_" .. host:upper() .. "__" .. variable
+end
+
+sectionTest("sections: DBR registers reminders, chimes, and procs at ADDON_LOADED", function()
+    local state = fixture({class = "MAGE", known = {[INTELLECT] = true}})
+    equal(table.concat(state.toolkit.SettingsSections(ADDON), ","), "chimes,procs,reminders")
+    -- An older toolkit: nothing registered, no error.
+    state.toolkit.SETTINGS_SECTIONS_VERSION = nil
+    equal(state.dbr.RegisterSettingsSections(), false)
+end)
+
+sectionTest("sections: a host's chimes rows have its prefix and write DBR's live settings", function()
+    local state = fixture({class = "MAGE", known = {[INTELLECT] = true}, newerSounds = SOUNDS})
+    equal(hostSection(state, "MageToolsForever", "chimes"), "rows")
+    local host = state.settings[hosted("MageToolsForever", "DBR_CHIMES_ENABLED")]
+    equal(type(host), "table", "the host's Enable")
+    equal(type(state.settings.DBR_CHIMES_ENABLED), "table", "DBR's own page keeps its names")
+    equal(type(state.settings[hosted("MageToolsForever", "DBR_CHIME_LEAD")]), "table", "the lead")
+    equal(type(state.row(hosted("MageToolsForever", "DBR_CHIME_BLINK"))), "table", "a spell row")
+    equal(type(state.row(hosted("MageToolsForever", "DBR_CHIME_BLINK_SOUND"))), "table", "its sound")
+    host:SetValue(false)
+    equal(state.chimes().enabled, false, "the host's switch is DBR's")
+    equal(state.settings.DBR_CHIMES_ENABLED:GetValue(), false, "and DBR's page shows it")
+    state.settings.DBR_CHIMES_ENABLED:SetValue(true)
+    equal(host:GetValue(), true, "back on from DBR's page")
+    state.settings[hosted("MageToolsForever", "DBR_CHIME_BLINK")]:SetValue(false)
+    equal(state.chimes().spells.blink, false)
+end)
+
+sectionTest("sections: a filter keeps only the listed chimes; a host section has no heading", function()
+    local state = fixture({class = "MAGE", known = {[INTELLECT] = true}})
+    local headings = #state.headings
+    equal(hostSection(state, "MageToolsForever", "chimes", {"counterspell"}), "rows")
+    equal(type(state.row(hosted("MageToolsForever", "DBR_CHIME_COUNTERSPELL"))), "table")
+    equal(state.row(hosted("MageToolsForever", "DBR_CHIME_BLINK")), nil, "not listed")
+    equal(#state.headings, headings, "the host names its own section")
+    -- Nothing of the class listed: the host's link instead, and no rows.
+    equal(hostSection(state, "WarlockToolsForever", "chimes", {"nosuchspell"}), "link")
+    equal(state.settings[hosted("WarlockToolsForever", "DBR_CHIMES_ENABLED")], nil)
+end)
+
+sectionTest("sections: a host's reminders show its class's buffs, filtered, on DBR's live settings", function()
+    local state = fixture({class = "MAGE", known = {[INTELLECT] = true, [FROST_ARMOR] = true}})
+    equal(hostSection(state, "MageToolsForever", "reminders"), "rows")
+    local intellect = state.settings[hosted("MageToolsForever", "DBR_BUFF_ARCANEINTELLECT")]
+    equal(type(intellect), "table")
+    equal(type(state.settings[hosted("MageToolsForever", "DBR_ENABLED")]), "table", "the Enable it depends on")
+    equal(type(state.settings[hosted("MageToolsForever", "DBR_BUFF_DAMPEN")]), "table", "Dampen or Amplify")
+    equal(state.settings[hosted("MageToolsForever", "DBR_BUFF_ICONS_SCALE")], nil, "sizes stay on DBR's page")
+    intellect:SetValue(false)
+    equal(state.dbr.db.spells.arcaneIntellect, false)
+    equal(state.settings.DBR_BUFF_ARCANEINTELLECT:GetValue(), false)
+    local filtered = fixture({class = "MAGE", known = {[INTELLECT] = true}})
+    equal(hostSection(filtered, "MageToolsForever", "reminders", {"mageArmor"}), "rows")
+    equal(type(filtered.settings[hosted("MageToolsForever", "DBR_BUFF_MAGEARMOR")]), "table")
+    equal(filtered.settings[hosted("MageToolsForever", "DBR_BUFF_ARCANEINTELLECT")], nil, "not listed")
+    -- A class without reminders: the host's link.
+    local rogue = fixture({class = "ROGUE", known = {[INTELLECT] = true}})
+    equal(hostSection(rogue, "MageToolsForever", "reminders"), "link")
+end)
+
+sectionTest("sections: Proc Chimes on a host, filtered to Nightfall; a Mage has none", function()
+    local state = fixture({class = "WARLOCK", newerSounds = SOUNDS})
+    equal(state.dbr.procEngine, false, "Proc Chimes in this fixture")
+    equal(hostSection(state, "WarlockToolsForever", "procs", {"nightfall"}), "rows")
+    local nightfall = state.settings[hosted("WarlockToolsForever", "DBR_PROC_NIGHTFALL")]
+    equal(type(nightfall), "table")
+    equal(state.settings[hosted("WarlockToolsForever", "DBR_PROC_DECIMATION")], nil, "not listed")
+    nightfall:SetValue(true)
+    equal(state.dbr.db.procs.spells.nightfall, true)
+    equal(state.settings.DBR_PROC_NIGHTFALL:GetValue(), true, "DBR's page shows it")
+    local mage = fixture({class = "MAGE", known = {[INTELLECT] = true}, newerSounds = SOUNDS})
+    equal(hostSection(mage, "MageToolsForever", "procs", {"nightfall"}), "link", "a Mage has no Nightfall")
+end)
+
+sectionTest("sections: proc cues on a host need sections 2; the toolkit's rows get the host's names", function()
+    if not HAS_PROC_ENGINE then
+        io.write("# skipped (no proc engine 2 in ", TOOLKIT_DIR, ")\n")
+        return
+    end
+    local state = fixture({class = "WARLOCK", procEngine = true, known = {[NIGHTFALL_TALENT] = true}})
+    local version = state.toolkit.SETTINGS_SECTIONS_VERSION
+    state.toolkit.SETTINGS_SECTIONS_VERSION = 1
+    equal(hostSection(state, "WarlockToolsForever", "procs", {"nightfall"}), "link", "sections 1: the link")
+    state.toolkit.SETTINGS_SECTIONS_VERSION = version
+    if (tonumber(version) or 0) < 2 then
+        io.write("# skipped (sections ", tostring(version), " in ", TOOLKIT_DIR, ")\n")
+        return
+    end
+    equal(hostSection(state, "WarlockToolsForever", "procs", {"nightfall"}), "rows")
+    local arc = state.settings[hosted("WarlockToolsForever", "DYRE_DYRESBUFFREMINDERS_PROC_NIGHTFALL_ARC")]
+    equal(type(arc), "table", "the host's arc switch")
+    equal(type(state.settings.DYRE_DYRESBUFFREMINDERS_PROC_NIGHTFALL_ARC), "table", "DBR's own stays")
+    arc:SetValue(false)
+    equal(state.dbr.db.procCues.arc.nightfall, false, "the host's switch is DBR's")
+end)
+
+-- Fit and finish (John, 2026-11-27): "when the top-level is off, the settings
+-- that are controlling a disabled feature should be disabled too", and "the
+-- top-level disable for each section should be on the top-level MTF panel".
+local function active(row)
+    for _, predicate in ipairs(row.modifyPredicates or {}) do
+        if predicate() == false then return false end
+    end
+    return not row.predicate or row.predicate() ~= false
+end
+local function partTest(name, body)
+    sectionTest(name, function()
+        local probe = fixture({class = "MAGE", known = {[INTELLECT] = true}})
+        if (tonumber(probe.toolkit.SETTINGS_SECTIONS_VERSION) or 0) < 3 then
+            io.write("# skipped (settings sections before 3 in ", TOOLKIT_DIR, "): ", name, "\n")
+            return
+        end
+        body()
+    end)
+end
+local function hostPart(state, host, key, part, filter)
+    local page, layout = state.env.Settings.RegisterVerticalLayoutCategory(host .. " " .. key .. " " .. part)
+    return state.toolkit.AddSettingsSection(page, layout, {addon = ADDON, key = key, host = host, part = part,
+        filter = filter, link = {name = "Open Buff Reminders", button = "Open"}}), page
+end
+
+test("greying: Enable off greys every row under it, grandchildren too, and they are told to re-check", function()
+    local state = fixture({class = "MAGE", known = {[INTELLECT] = true}})
+    local notified = {}
+    state.env.Settings.NotifyUpdate = function(variable) notified[#notified + 1] = variable end
+    local group = state.row("DBR_GROUP_ARCANEINTELLECT")
+    local needed = state.row("DBR_NEEDED_ARCANEINTELLECT")
+    equal(active(group), true)
+    state.settings.DBR_ENABLED:SetValue(false)
+    equal(active(state.row("DBR_BUFF_ARCANEINTELLECT")), false, "a buff")
+    equal(active(group), false, "its group switch")
+    equal(active(needed), false, "its Show only when needed")
+    equal(active(state.row("DBR_BUFF_ICONS_SCALE")), false, "the icons' size")
+    contains(table.concat(notified, ","), "DBR_BUFF_ARCANEINTELLECT", "the buff row is told, so its rows re-check")
+    state.settings.DBR_ENABLED:SetValue(true)
+    equal(active(group), true, "back")
+    state.settings.DBR_BUFF_ARCANEINTELLECT:SetValue(false)
+    equal(active(group), false, "its own switch off")
+end)
+
+partTest("parts: \"master\" draws only each section's Enable, on the host's names", function()
+    local state = fixture({class = "MAGE", known = {[INTELLECT] = true}, newerSounds = SOUNDS})
+    equal(hostPart(state, "MageToolsForever", "reminders", "master"), "rows")
+    equal(hostPart(state, "MageToolsForever", "chimes", "master"), "rows")
+    equal(type(state.settings[hosted("MageToolsForever", "DBR_ENABLED")]), "table")
+    equal(type(state.settings[hosted("MageToolsForever", "DBR_CHIMES_ENABLED")]), "table")
+    equal(state.settings[hosted("MageToolsForever", "DBR_BUFF_ARCANEINTELLECT")], nil, "no buff rows")
+    equal(state.settings[hosted("MageToolsForever", "DBR_CHIME_BLINK")], nil, "no chime rows")
+    equal(state.settings[hosted("MageToolsForever", "DBR_CHIME_LEAD")], nil, "no lead")
+    state.settings[hosted("MageToolsForever", "DBR_CHIMES_ENABLED")]:SetValue(false)
+    equal(state.chimes().enabled, false, "DBR's own switch")
+    local warlock = fixture({class = "WARLOCK", newerSounds = SOUNDS})
+    equal(hostPart(warlock, "WarlockToolsForever", "procs", "master", {"nightfall"}), "rows")
+    equal(type(warlock.settings[hosted("WarlockToolsForever", "DBR_PROCS_ENABLED")]), "table")
+    equal(warlock.settings[hosted("WarlockToolsForever", "DBR_PROC_NIGHTFALL")], nil)
+end)
+
+partTest("parts: \"rest\" leaves Enable out, and its rows are greyed while Enable is off", function()
+    local state = fixture({class = "MAGE", known = {[INTELLECT] = true}, newerSounds = SOUNDS})
+    equal(hostPart(state, "MageToolsForever", "reminders", "rest"), "rows")
+    equal(hostPart(state, "MageToolsForever", "chimes", "rest"), "rows")
+    equal(state.settings[hosted("MageToolsForever", "DBR_ENABLED")], nil, "Enable is on the top page")
+    equal(state.settings[hosted("MageToolsForever", "DBR_CHIMES_ENABLED")], nil)
+    local buff = state.row(hosted("MageToolsForever", "DBR_BUFF_ARCANEINTELLECT"))
+    local group = state.row(hosted("MageToolsForever", "DBR_GROUP_ARCANEINTELLECT"))
+    local chime = state.row(hosted("MageToolsForever", "DBR_CHIME_BLINK"))
+    local lead = state.row(hosted("MageToolsForever", "DBR_CHIME_LEAD"))
+    equal(active(buff) and active(group) and active(chime) and active(lead), true, "on")
+    state.settings.DBR_ENABLED:SetValue(false)
+    state.settings.DBR_CHIMES_ENABLED:SetValue(false)
+    equal(active(buff), false, "a buff, its Enable not on this page")
+    equal(active(group), false, "and the row under it")
+    equal(active(chime), false, "a chime")
+    equal(active(lead), false, "the lead")
+    equal(state.row(hosted("MageToolsForever", "DBR_BUFF_ICONS_SCALE")), nil, "sizes stay on DBR's page")
+end)
+
+partTest("procs master (engine 2): named on a top page, \"Enable\" under DBR's heading; off greys and silences", function()
+    if not HAS_PROC_ENGINE then
+        io.write("# skipped (no proc engine 2 in ", TOOLKIT_DIR, ")\n")
+        return
+    end
+    local probe = fixture({class = "WARLOCK", procEngine = true, known = {[NIGHTFALL_TALENT] = true}})
+    if type(probe.toolkit.AddProcMasterSetting) ~= "function" then
+        io.write("# skipped (no proc master switch in ", TOOLKIT_DIR, ")\n")
+        return
+    end
+    local state = fixture({class = "WARLOCK", procEngine = true, known = {[NIGHTFALL_TALENT] = true},
+        db = {procCues = {sound = {nightfall = true}}}})
+    -- DBR's own page: heading, "Enable", then the rows; no second heading.
+    local master = state.settings.DYRE_DYRESBUFFREMINDERS_PROCS_ENABLED
+    equal(master.name, "Enable")
+    equal(state.row("DYRE_DYRESBUFFREMINDERS_PROCS_ENABLED").tooltip,
+        "Shows an arc and plays a chime when a proc makes an important spell or ability ready.", "what the feature does")
+    local procHeadings = 0
+    for _, heading in ipairs(state.headings) do
+        if heading.heading == "Procs" then procHeadings = procHeadings + 1 end
+    end
+    equal(procHeadings, 1, "one Procs heading")
+    local _, masterAt = state.row("DYRE_DYRESBUFFREMINDERS_PROCS_ENABLED")
+    local _, arcAt = cueRow(state, "nightfall", "arc")
+    equal(masterAt < arcAt, true, "Enable before the rows")
+    equal(state.soundIDs(), "17941", "Nightfall's sound on")
+    master:SetValue(false)
+    equal(state.dbr.db.procCues.enabled, false, "saved")
+    equal(state.soundIDs(), "", "every sound gives way")
+    equal(active(cueRow(state, "nightfall", "arc")), false, "the rows are greyed")
+    equal(state.dbr.db.procCues.sound.nightfall, true, "each proc keeps its own switch")
+    master:SetValue(true)
+    equal(state.soundIDs(), "17941", "back")
+    -- WTF's top page: the switch alone, named; its sub-page: the rows, greyed while it is off.
+    equal(hostPart(state, "WarlockToolsForever", "procs", "master", {"nightfall"}), "rows")
+    local hostMaster = state.settings[hosted("WarlockToolsForever", "DYRE_DYRESBUFFREMINDERS_PROCS_ENABLED")]
+    equal(hostMaster.name, "Procs")
+    equal(state.row(hosted("WarlockToolsForever", "DYRE_DYRESBUFFREMINDERS_PROCS_ENABLED")).tooltip,
+        "Shows an arc and plays a chime when a proc makes an important spell or ability ready.", "one sentence")
+    equal(state.settings[hosted("WarlockToolsForever", "DYRE_DYRESBUFFREMINDERS_PROC_NIGHTFALL_ARC")], nil,
+        "no rows on the top page")
+    local headings = #state.headings
+    equal(hostPart(state, "WarlockToolsForever", "procs", "rest", {"nightfall"}), "rows")
+    equal(#state.headings, headings, "the host names its section: no Procs heading")
+    local arc = state.row(hosted("WarlockToolsForever", "DYRE_DYRESBUFFREMINDERS_PROC_NIGHTFALL_ARC"))
+    equal(type(arc), "table")
+    equal(state.settings[hosted("WarlockToolsForever", "DYRE_DYRESBUFFREMINDERS_PROCS_ENABLED")] == hostMaster, true,
+        "no second switch on the sub-page")
+    hostMaster:SetValue(false)
+    equal(master:GetValue(), false, "the same switch as DBR's")
+    equal(active(arc), false, "the sub-page rows greyed")
+    -- A Mage has no Nightfall: nothing on MTF's top page.
+    local mage = fixture({class = "MAGE", procEngine = true, known = {[INTELLECT] = true}})
+    equal(hostPart(mage, "MageToolsForever", "procs", "master", {"nightfall"}), nil)
+end)
+
+-- John (2026-11-27): "extend the same logic/checks to WTF and make sure it
+-- works the same here for delegated settings". Both hosts, as each passes
+-- its sections: MTF (Mage) all of the class, WTF (Warlock) Demon Armor and
+-- Nightfall.
+local HOSTS = {
+    {host = "MageToolsForever", class = "MAGE", known = {[INTELLECT] = true, [FROST_ARMOR] = true},
+        buff = "ARCANEINTELLECT", child = "DBR_GROUP_ARCANEINTELLECT", chime = "DBR_CHIME_BLINK",
+        filters = {}},
+    {host = "WarlockToolsForever", class = "WARLOCK", known = {},
+        buff = "DEMONARMOR", child = "DBR_NEEDED_DEMONARMOR", chime = "DBR_CHIME_DEATHCOIL",
+        filters = {reminders = {"demonArmor"}, procs = {"nightfall"}}},
+}
+local MASTERS = {
+    reminders = {variable = "DBR_ENABLED", label = "Reminders"},
+    chimes = {variable = "DBR_CHIMES_ENABLED", label = "Chimes"},
+    procs = {variable = "DBR_PROCS_ENABLED", label = "Procs"},
+}
+
+partTest("hosts: MTF and WTF top pages show each section's switch by its name, DBR's page \"Enable\"", function()
+    for _, case in ipairs(HOSTS) do
+        local state = fixture({class = case.class, known = case.known, newerSounds = SOUNDS})
+        for _, key in ipairs({"reminders", "chimes", "procs"}) do
+            local master = MASTERS[key]
+            local result = hostPart(state, case.host, key, "master", case.filters[key])
+            equal(result, "rows", case.host .. " " .. key)
+            local setting = state.settings[hosted(case.host, master.variable)]
+            equal(type(setting), "table", case.host .. " " .. key .. " switch")
+            equal(setting.name, master.label, case.host .. " " .. key .. " named")
+            local tip = state.row(hosted(case.host, master.variable)).tooltip
+            equal(select(2, tip:gsub("[%.%?!]%s", "")), 0, case.host .. " " .. key .. ": one sentence: " .. tip)
+            equal(tip, state.row(master.variable).tooltip, "the same sentence as on DBR's page")
+            equal(state.settings[master.variable].name, "Enable", "DBR's own page: " .. key)
+        end
+    end
+end)
+
+partTest("hosts: MTF and WTF sub-pages grey every row while a switch above it is off", function()
+    for _, case in ipairs(HOSTS) do
+        local state = fixture({class = case.class, known = case.known, newerSounds = SOUNDS})
+        equal(hostPart(state, case.host, "reminders", "rest", case.filters.reminders), "rows", case.host)
+        equal(hostPart(state, case.host, "chimes", "rest"), "rows", case.host)
+        local buff = state.row(hosted(case.host, "DBR_BUFF_" .. case.buff))
+        local child = state.row(hosted(case.host, case.child))
+        local chime = state.row(hosted(case.host, case.chime))
+        equal(type(buff) == "table" and type(child) == "table" and type(chime) == "table", true, case.host .. " rows")
+        equal(active(buff) and active(child) and active(chime), true, case.host .. " on")
+        -- The section switches live on the top page (here, DBR's own settings).
+        state.settings.DBR_ENABLED:SetValue(false)
+        equal(active(buff), false, case.host .. " buff, Enable on the other page")
+        equal(active(child), false, case.host .. " the row under the buff")
+        state.settings.DBR_ENABLED:SetValue(true)
+        state.settings[hosted(case.host, "DBR_BUFF_" .. case.buff)]:SetValue(false)
+        equal(active(child), false, case.host .. " its buff off")
+        state.settings.DBR_CHIMES_ENABLED:SetValue(false)
+        equal(active(chime), false, case.host .. " a chime")
+        if case.filters.procs and not state.dbr.procEngine then
+            equal(hostPart(state, case.host, "procs", "rest", case.filters.procs), "rows")
+            local proc = state.row(hosted(case.host, "DBR_PROC_NIGHTFALL"))
+            equal(active(proc), true)
+            state.settings.DBR_PROCS_ENABLED:SetValue(false)
+            equal(active(proc), false, case.host .. " Nightfall")
+            equal(state.row(hosted(case.host, "DBR_PROC_DECIMATION")), nil, "WTF lists Nightfall only")
+        end
+        if case.filters.reminders then
+            equal(state.row(hosted(case.host, "DBR_BUFF_WARLOCKPET")), nil, "WTF lists Demon Armor only")
+        end
+    end
+end)
+
+
+partTest("watch: rows without their switch on the page re-check live as it changes", function()
+    local state = fixture({class = "MAGE", known = {[INTELLECT] = true}})
+    local scale = state.row("DBR_BUFF_ICONS_SCALE")
+    contains(table.concat(scale.watched or {}, ","), "DBR_ENABLED", "the icons' size watches Enable")
+    equal(active(scale), true)
+    state.settings.DBR_ENABLED:SetValue(false)
+    equal(active(scale), false, "greyed")
+    equal(hostPart(state, "MageToolsForever", "chimes", "rest"), "rows")
+    local chime = state.row(hosted("MageToolsForever", "DBR_CHIME_BLINK"))
+    contains(table.concat(chime.watched or {}, ","), hosted("MageToolsForever", "DBR_CHIMES_ENABLED"),
+        "a sub-page row watches its section switch, by the host's name")
+    equal(hostPart(state, "MageToolsForever", "reminders", "rest"), "rows")
+    local buff = state.row(hosted("MageToolsForever", "DBR_BUFF_ARCANEINTELLECT"))
+    contains(table.concat(buff.watched or {}, ","), hosted("MageToolsForever", "DBR_ENABLED"))
+    -- With Enable on the same page, its rows hang under it: no watch needed.
+    equal(state.row("DBR_BUFF_ARCANEINTELLECT").watched, nil, "DBR's page: a parent row")
+end)
+
+
+test("tooltips: one plain sentence each (John, 2026-11-27), a short second one at most", function()
+    local classes = {"MAGE", "WARLOCK", "DRUID", "PRIEST", "PALADIN", "WARRIOR", "ROGUE", "HUNTER", "SHAMAN"}
+    for _, class in ipairs(classes) do
+        local state = fixture({class = class, known = {[INTELLECT] = true}, newerSounds = SOUNDS})
+        -- DBR's own page (the toolkit's home page has its own text).
+        for _, category in pairs({state.categories[PAGE]}) do
+            for _, row in ipairs(category.initializers) do
+                local texts = {row.tooltip, row.data and row.data.cbTooltip, row.data and row.data.dropDownTooltip}
+                for _, text in pairs(texts) do
+                    if type(text) == "function" then text = text() end
+                    if type(text) == "string" and text ~= "" then
+                        local _, sentences = text:gsub("[%.%?!]\"?%s", "")
+                        equal(sentences <= 1, true, class .. ": at most two sentences: " .. text)
+                        equal(#text <= 160, true, class .. ": short: " .. text)
+                        for _, word in ipairs({"Toolkit 2", "engine", "claim", "/dbr", "author", "John"}) do
+                            equal(text:find(word, 1, true), nil, class .. ": no \"" .. word .. "\": " .. text)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+
+test("Pet taunt with Dyre's Threat and Combat Tools: it warns, DBR stays quiet, and the switch names it", function()
+    local state = fixture({class = "HUNTER", known = {[883] = true}, lateClaim = true})
+    equal(state.dbr.PetTauntOwner(), nil, "no owner: DBR warns")
+    local row, live = petTauntSwitch(state)
+    equal(live, true)
+    equal(row.tooltip():find("Greyed out", 1, true), nil, "no note")
+    state.toolkit.ClaimOwner("warn:petTaunt", "DyresCombatTools", 10)
+    state.advance(1)
+    equal(state.dbr.PetTauntOwner(), "DyresCombatTools")
+    growlInGroup(state)
+    equal(state.count("Pet taunt on"), 0, "one warning only: Dyre's Threat and Combat Tools'")
+    state.emit("PLAYER_REGEN_DISABLED")
+    equal(state.count("Pet taunt on"), 0, "nothing as combat starts")
+    row, live = petTauntSwitch(state)
+    equal(live, false, "greyed")
+    contains(row.tooltip(), "Greyed out: Dyre's Threat and Combat Tools gives this warning now.")
+    state.slash("debug")
+    contains(state.find("debug warning hunterPetTaunt"), "owner=DyresCombatTools")
+    -- DBR's own claim (none today) would not count as another AddOn's.
+    local own = fixture({class = "HUNTER", known = {[883] = true}, lateClaim = true})
+    own.toolkit.ClaimOwner("warn:petTaunt", ADDON, 10)
+    equal(own.dbr.PetTauntOwner(), nil, "DBR itself: DBR warns")
+end)
+
+
+-- John, 2026-11-27, layout mode: an empty "Warning messages" outline (DBR's)
+-- beside Dyre's Threat and Combat Tools' one. DBR's box, outline and all,
+-- hides while it can give no warning.
+test("Warning box: hidden while DBR can give no warning (another AddOn owns pet taunt, or the switch is off)", function()
+    local state = fixture({class = "HUNTER", known = {[883] = true}, lateClaim = true})
+    local frame = state.env.DyresBuffRemindersWarning
+    equal(frame.shown, true, "no owner: DBR's box")
+    local points = #frame.points
+    state.toolkit.ClaimOwner("warn:petTaunt", "DyresCombatTools", 10)
+    state.advance(1)
+    equal(frame.shown, false, "Dyre's Threat and Combat Tools warns: DBR's box hides")
+    state.slash("unlock")
+    equal(frame.shown, false, "unlocked: no empty outline (it is the box's child)")
+    equal(warningShown(state), false, "no sample")
+    state.slash("lock")
+    equal(#frame.points, points, "its place stays")
+    state.toolkit.SetOwnerEnabled("warn:petTaunt", "DyresCombatTools", false)
+    state.advance(1)
+    equal(frame.shown, true, "the owner steps aside: DBR's box again")
+    state.settings.DBR_WARN_HUNTERPETTAUNT:SetValue(false)
+    state.advance(1)
+    equal(frame.shown, false, "DBR's switch off: hidden")
+    state.settings.DBR_WARN_HUNTERPETTAUNT:SetValue(true)
+    state.advance(1)
+    equal(frame.shown, true, "on again: shown")
+    state.settings.DBR_ENABLED:SetValue(false)
+    state.advance(1)
+    equal(frame.shown, false, "the reminders off: hidden")
+    state.settings.DBR_ENABLED:SetValue(true)
+    state.advance(1)
+    -- A warning that shows is never cut off: the box hides when it fades.
+    growlInGroup(state)
+    equal(state.count(GROWL), 1)
+    local shown, content = warningShown(state)
+    equal(shown, true)
+    state.toolkit.SetOwnerEnabled("warn:petTaunt", "DyresCombatTools", true)
+    state.advance(1)
+    equal(frame.shown, true, "still showing: the box stays")
+    content.animation:Stop()
+    content.animation.scripts.OnFinished()
+    equal(frame.shown, false, "faded: the box hides")
+    -- A Paladin's Righteous Fury warning keeps its box.
+    local paladin = fixture({class = "PALADIN", known = {[25780] = true}})
+    equal(paladin.env.DyresBuffRemindersWarning.shown, true)
+end)
+
+test("Warning box: unlocked, the sample is the class's own warning, not always the pet taunt", function()
+    local cases = {
+        {"PALADIN", {[25780] = true}, "Righteous Fury is on", "You're not the tank. Turn it off."},
+        {"HUNTER", {[883] = true}, "Pet taunt on", "Growl is on autocast in a group. Turn it off."},
+        {"WARLOCK", {[697] = true}, "Pet taunt on", "Torment is on autocast in a group. Turn it off."},
+    }
+    for _, case in ipairs(cases) do
+        local state = fixture({class = case[1], known = case[2]})
+        if case[1] ~= "PALADIN" then
+            state.toolkit.SetOwnerEnabled("warn:petTaunt", "DyresToolkit", false)
+            state.advance(1)
+        end
+        state.slash("unlock")
+        local shown, content = warningShown(state)
+        equal(shown, true, case[1] .. ": a sample")
+        local pop = state.env.DyresBuffRemindersWarning
+        equal(pop.shown, true, case[1] .. ": the box")
+        local texts = {}
+        for _, region in ipairs(content.children) do
+            if region.text then texts[#texts + 1] = region.text end
+        end
+        equal(table.concat(texts, "|"), case[3] .. "|" .. case[4], case[1])
+        state.slash("lock")
+        equal(warningShown(state), false, case[1] .. ": locked, no sample")
+    end
+end)
+
+partTest("procs: every Warlock proc is listed, greyed until learned, on a host and on DBR's page (no banner)", function()
+    if not HAS_PROC_ENGINE then
+        io.write("# skipped (no proc engine 2 in ", TOOLKIT_DIR, ")\n")
+        return
+    end
+    local function shown(row)
+        for _, predicate in ipairs(row.shownPredicates or {}) do
+            if not predicate() then return false end
+        end
+        return true
+    end
+    local state = fixture({class = "WARLOCK", procEngine = true, known = {}})
+    local result, page = hostPart(state, "WarlockToolsForever", "procs", "rest")
+    equal(result, "rows")
+    for _, row in ipairs(page.initializers) do
+        equal(row.template == state.toolkit.SETTINGS_PRIMER_TEMPLATE, false, "no banner")
+    end
+    for _, key in ipairs({"nightfall", "decimation"}) do
+        local arc = state.row(hosted("WarlockToolsForever", ("DYRE_DYRESBUFFREMINDERS_PROC_" .. key .. "_ARC"):upper()))
+        equal(type(arc), "table", key .. " listed")
+        equal(shown(arc), true, key .. " shown")
+        equal(active(arc), false, key .. " greyed while not learned")
+    end
+    local ownArc = cueRow(state, "nightfall", "arc")
+    equal(shown(ownArc) and not active(ownArc), true, "DBR's page: listed, greyed")
+    state.known[NIGHTFALL_TALENT] = true
+    state.emit("SPELLS_CHANGED")
+    state.advance(1)
+    equal(active(state.row(hosted("WarlockToolsForever", "DYRE_DYRESBUFFREMINDERS_PROC_NIGHTFALL_ARC"))), true,
+        "learned: Nightfall's row is live")
+    equal(active(state.row(hosted("WarlockToolsForever", "DYRE_DYRESBUFFREMINDERS_PROC_DECIMATION_ARC"))), false,
+        "Decimation still greyed")
+end)
+
+-- One name per section (John, 2026-11-27: "let's use the same name
+-- consistently everywhere"), and WTF with no filters shows all of a Warlock's.
+partTest("names: Reminders, Chimes, Procs on DBR's page, as section titles, and on a host's top page", function()
+    local state = fixture({class = "WARLOCK", newerSounds = SOUNDS})
+    if type(state.toolkit.SettingsSectionTitle) == "function" then
+        equal(state.toolkit.SettingsSectionTitle(ADDON, "reminders"), "Reminders")
+        equal(state.toolkit.SettingsSectionTitle(ADDON, "chimes"), "Chimes")
+        equal(state.toolkit.SettingsSectionTitle(ADDON, "procs"), "Procs")
+    end
+    local headings = {}
+    for _, row in ipairs(state.headings) do headings[row.heading] = true end
+    equal(headings.Reminders and headings.Chimes and headings.Procs, true, "DBR's headings")
+    for key, variable in pairs({reminders = "DBR_ENABLED", chimes = "DBR_CHIMES_ENABLED", procs = "DBR_PROCS_ENABLED"}) do
+        equal(hostPart(state, "WarlockToolsForever", key, "master"), "rows")
+        equal(state.settings[hosted("WarlockToolsForever", variable)].name,
+            state.toolkit.SettingsSectionTitle and state.toolkit.SettingsSectionTitle(ADDON, key)
+                or ({reminders = "Reminders", chimes = "Chimes", procs = "Procs"})[key], key)
+    end
+end)
+
+partTest("WTF without filters: every Warlock reminder, warning, chime, and proc", function()
+    local state = fixture({class = "WARLOCK", newerSounds = SOUNDS})
+    equal(hostPart(state, "WarlockToolsForever", "reminders", "rest"), "rows")
+    equal(hostPart(state, "WarlockToolsForever", "chimes", "rest"), "rows")
+    equal(hostPart(state, "WarlockToolsForever", "procs", "rest"), "rows")
+    for _, variable in ipairs({"DBR_BUFF_DEMONARMOR", "DBR_BUFF_WARLOCKPET", "DBR_WARN_WARLOCKPETTAUNT",
+            "DBR_CHIME_DEATHCOIL", "DBR_CHIME_FELDOMINATION", "DBR_PROC_NIGHTFALL"}) do
+        equal(type(state.row(hosted("WarlockToolsForever", variable))), "table", variable)
+    end
+    for _, reminder in ipairs(state.dbr.ClassReminders()) do
+        equal(type(state.row(hosted("WarlockToolsForever", "DBR_BUFF_" .. reminder.key:upper()))), "table",
+            reminder.key)
+    end
+    for _, chime in ipairs(state.dbr.ClassChimes("WARLOCK")) do
+        equal(type(state.row(hosted("WarlockToolsForever", "DBR_CHIME_" .. chime.key:upper()))), "table", chime.key)
+    end
+    if HAS_PROC_ENGINE then
+        local engine = fixture({class = "WARLOCK", procEngine = true, known = {[NIGHTFALL_TALENT] = true}})
+        equal(hostPart(engine, "WarlockToolsForever", "procs", "rest"), "rows")
+        for _, proc in ipairs(engine.dbr.ProcCuesHandle().List()) do
+            equal(type(engine.row(hosted("WarlockToolsForever",
+                ("DYRE_DYRESBUFFREMINDERS_PROC_" .. proc.key .. "_ARC"):upper()))), "table", proc.key)
+        end
+    end
+end)
+
+partTest("buttons: the icons' Reset size greys its label with the rows (Toolkit's GreyButtonLabel)", function()
+    local probe = fixture({class = "MAGE", known = {[INTELLECT] = true}})
+    if type(probe.toolkit.GreyButtonLabel) ~= "function" then
+        io.write("# skipped (no GreyButtonLabel in ", TOOLKIT_DIR, ")\n")
+        return
+    end
+    local greyed = {}
+    local state = fixture({class = "MAGE", known = {[INTELLECT] = true}, beforeLogin = function(env)
+        local original = env.DyresToolkit.GreyButtonLabel
+        env.DyresToolkit.GreyButtonLabel = function(row) greyed[#greyed + 1] = row; return original(row) end
+    end})
+    local reset
+    for _, row in ipairs(state.categories[PAGE].initializers) do
+        if row.kind == "button" and row.label == "Reminder icons" then reset = row end
+    end
+    equal(type(reset), "table")
+    local found = false
+    for _, row in ipairs(greyed) do found = found or row == reset end
+    equal(found, true, "the Reset size button")
 end)
 
 for index, entry in ipairs(tests) do

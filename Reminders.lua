@@ -2175,27 +2175,94 @@ local POP_PLACE = {point = "CENTER", relativePoint = "CENTER", x = 0, y = 300}
 local POP_HOLD, POP_FADE = 4, 1.5
 local warnings = {list = {}, state = {}}
 
--- Whether Dyre's Toolkit owns the Pet Taunt warning. Also with its switch
--- off: the toolkit keeps its claim (off means off). A toolkit before 2.9.0
--- has no Owners or no claim, so DBR's copy works.
-function DBR.ToolkitOwnsPetTaunt()
+-- The AddOn that gives the Pet Taunt warning now, when it is not DBR: any
+-- owner of the kind (Dyre's Toolkit 2.9.0 to 2.15.x claimed it as
+-- "DyresToolkit"; from 2.16.0 Dyre's Threat and Combat Tools claims it with
+-- its own folder, so a fixed name let both warn). Also with its switch off:
+-- the owner keeps its claim (off means off). No Owners or no claim: nil, and
+-- DBR's copy works.
+function DBR.PetTauntOwner()
     local toolkit = DBR.toolkit
-    return type(toolkit) == "table" and type(toolkit.KindOwner) == "function"
-        and toolkit.KindOwner(DBR.PET_TAUNT_KIND) == DBR.PET_TAUNT_OWNER
+    if type(toolkit) ~= "table" or type(toolkit.KindOwner) ~= "function" then
+        return nil
+    end
+    local owner = toolkit.KindOwner(DBR.PET_TAUNT_KIND)
+    if type(owner) == "string" and owner ~= "" and owner ~= addonName then
+        return owner
+    end
+    return nil
+end
+
+-- Whether another AddOn gives the warning (DBR then stays quiet).
+function DBR.ToolkitOwnsPetTaunt()
+    return DBR.PetTauntOwner() ~= nil
+end
+
+-- That AddOn's title, for the switch's tooltip: its TOC title, else the
+-- title it joined the toolkit with, else its folder.
+function DBR.PetTauntOwnerTitle(owner)
+    local getMetadata = C_AddOns and C_AddOns.GetAddOnMetadata
+    if type(getMetadata) == "function" then
+        local title = getMetadata(owner, "Title")
+        if type(title) == "string" and title ~= "" then
+            return title
+        end
+    end
+    return DBR.ProcOwnerTitle(owner)
 end
 
 local function Yields(warning)
     return warning.kind == "petTaunt" and DBR.ToolkitOwnsPetTaunt()
 end
 
-local function AnyWarningLive()
+-- Whether DBR can give any warning now: the reminders on, the warning's
+-- switch on, and no other AddOn giving it. (The spell is not checked: the
+-- spellbook can load after login.)
+local function FirstLiveWarning()
+    if not DBR.db.enabled then
+        return nil
+    end
     for _, warning in ipairs(warnings.list) do
-        if not Yields(warning) then
-            return true
+        if DBR.db.warnings[warning.key] and not Yields(warning) then
+            return warning
         end
     end
-    return false
+    return nil
 end
+
+local function AnyWarningLive()
+    return FirstLiveWarning() ~= nil
+end
+
+-- The unlocked sample: the class's own message, as WarningText words it,
+-- with the first spell of the warning (a Paladin's Righteous Fury, a
+-- Hunter's Growl, a Warlock's Torment), not always the pet taunt.
+local function SampleText(warning)
+    local spells = warning.kind == "fury" and warning.spells or warning.petTaunts or {}
+    local name = spells[1] and C_Spell.GetSpellName(spells[1])
+    if DBR.IsSecret(name) or type(name) ~= "string" or name == "" then
+        name = nil
+    end
+    if warning.kind == "fury" then
+        return (name or "Righteous Fury") .. " is on", "You're not the tank. Turn it off."
+    end
+    return "Pet taunt on", (name or "Your pet's taunt") .. " is on autocast in a group. Turn it off."
+end
+
+-- The message box shows only while DBR can give a warning, or one still
+-- shows (John, 2026-11-27: in layout mode an empty "Warning messages"
+-- outline beside Dyre's Threat and Combat Tools' one: "I can't tell what the
+-- top warning messages are from"). The toolkit's outline is a child of the
+-- frame, so it hides too. Not protected: fine in combat. The place stays
+-- saved; a hidden frame keeps its points.
+local function UpdatePopShown()
+    local pop = warnings.pop
+    if not pop then
+        return
+    end
+    pop.frame:SetShown(AnyWarningLive() or pop.fader:IsPlaying() or pop.content:IsShown() == true)
+end
+DBR.UpdateWarningBox = UpdatePopShown
 
 local function BuildPop()
     local frame = CreateFrame("Frame", "DyresBuffRemindersWarning", UIParent)
@@ -2214,24 +2281,31 @@ local function BuildPop()
     fade:SetToAlpha(0)
     fade:SetStartDelay(POP_HOLD)
     fade:SetDuration(POP_FADE)
-    fader:SetScript("OnFinished", function() content:Hide() end)
+    fader:SetScript("OnFinished", function()
+        content:Hide()
+        UpdatePopShown()
+    end)
     warnings.pop = {frame = frame, content = content, title = title, line = line, fader = fader}
     local pop = warnings.pop
     DBR.toolkit.CreateWidget({
         addon = addonName, key = "warnings", title = "Warning messages", frame = frame, store = DBR.db.warningPop,
         width = POP_WIDTH, height = POP_HEIGHT, point = POP_PLACE, sizes = {scale = true},
         onUnlock = function(_, unlocked)
-            if unlocked and AnyWarningLive() then
+            local sample = unlocked and FirstLiveWarning()
+            if sample then
+                local title, line = SampleText(sample)
                 pop.fader:Stop()
-                pop.title:SetText("Pet taunt on")
-                pop.line:SetText("Growl is on autocast in a group. Turn it off.")
+                pop.title:SetText(title)
+                pop.line:SetText(line)
                 pop.content:SetAlpha(1)
                 pop.content:Show()
             elseif not pop.fader:IsPlaying() then
                 pop.content:Hide()
             end
+            UpdatePopShown()
         end,
     })
+    UpdatePopShown()
 end
 
 local function ShowPop(title, line)
@@ -2241,6 +2315,7 @@ local function ShowPop(title, line)
     pop.fader:Stop()
     pop.content:SetAlpha(1)
     pop.content:Show()
+    pop.frame:Show()
     pop.fader:Play()
 end
 
@@ -2300,6 +2375,7 @@ function DBR.CheckWarnings()
             Announce(warning, state)
         end
     end
+    UpdatePopShown()
 end
 
 -- Combat starts: once more for each still true.
@@ -2342,8 +2418,9 @@ end
 function DBR.ReportWarningsDebug()
     for _, warning in ipairs(warnings.list) do
         local state = warnings.state[warning.key]
-        DBR.Report(string.format("debug warning %s on=%s known=%s toolkit=%s now=%s", warning.key,
-            tostring(DBR.db.warnings[warning.key]), tostring(KnownBy(warning)), tostring(Yields(warning)),
+        DBR.Report(string.format("debug warning %s on=%s known=%s owner=%s now=%s", warning.key,
+            tostring(DBR.db.warnings[warning.key]), tostring(KnownBy(warning)),
+            warning.kind == "petTaunt" and tostring(DBR.PetTauntOwner() or "DBR") or "DBR",
             state.text and (state.title .. ": " .. state.line) or "none"))
     end
 end

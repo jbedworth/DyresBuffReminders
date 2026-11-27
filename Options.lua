@@ -1,4 +1,4 @@
-local _, DBR = ...
+local addonName, DBR = ...
 
 -- One settings page under Dyre's Toolkit's "Dyre's AddOns", in Blizzard's
 -- vertical layout, with proxy settings that read and write
@@ -17,6 +17,106 @@ local REQUIRED_SETTINGS = {
 local NO_CHIME_SPELLS = "Your class has no chime spells yet."
 
 local category, layout
+-- The page being built: its context (Dyre's Toolkit 2.17.0's settings
+-- sections) and the setting variable for a name. On a host's page (Mage or
+-- Warlock Tools Forever) every variable gets the host's prefix, as Blizzard
+-- refuses a variable registered twice; on DBR's own page names stay.
+local page
+local function Var(name)
+    return page and page.variable(name) or name
+end
+
+-- Blizzard re-checks a row's greying only when its direct parent's setting
+-- changes (Blizzard_SettingControls.lua, SettingsListElementMixin:Init and
+-- OnParentSettingValueChanged), so a grandchild stayed bright with Enable off
+-- (John, 2026-11-27: "This one only disables some"). Each row's predicate
+-- checks its whole chain; and when a switch changes, every row under it that
+-- has rows of its own is notified too, so theirs re-check, down the tree.
+local parentRows, childRows = {}, {}
+
+local function RowVariable(row)
+    local data = type(row.GetData) == "function" and row:GetData() or row.data
+    local setting = type(data) == "table" and (data.setting or data.cbSetting) or row.setting
+    if type(setting) ~= "table" then
+        return nil
+    end
+    if type(setting.GetVariable) == "function" then
+        return setting:GetVariable()
+    end
+    return setting.variable
+end
+
+local function Cascade(row)
+    for _, child in ipairs(childRows[row] or {}) do
+        if childRows[child] then
+            local variable = RowVariable(child)
+            if variable and type(Settings.NotifyUpdate) == "function" then
+                Settings.NotifyUpdate(variable)
+            end
+            Cascade(child)
+        end
+    end
+end
+
+local function Register(variable, varType, name, default, getValue, setValue)
+    local full = Var(variable)
+    return Settings.RegisterProxySetting(category, full, varType, name, default, getValue, function(value)
+        setValue(value)
+        if parentRows[full] then
+            Cascade(parentRows[full])
+        end
+    end)
+end
+
+-- The page's part (Toolkit settings sections 3): "all" (DBR's own page),
+-- "master" (only the section's Enable, on a host's top page), or "rest"
+-- (all but it, on the host's sub-page: rows under it are greyed while it is
+-- off, though it is not on that page).
+local function Part()
+    return page and page.part or "all"
+end
+
+-- A section's Enable: "Enable" under its heading; on a host's top page (part
+-- "master") the three sit together, so each names its feature (Toolkit lead,
+-- 2026-11-27). Its tooltip is the same one sentence: the host's sub-page sits
+-- right under it (John, 2026-11-27: "MTF - fix this one").
+local function MasterLabel(name, tooltip)
+    if Part() == "master" then
+        return name, tooltip
+    end
+    return "Enable", tooltip
+end
+
+-- A section's filter (the host's, as given): nil shows every row of the
+-- class; a list of keys (or one key) shows only those.
+local function Wanted(filter, key)
+    if type(filter) == "string" then
+        return filter == key
+    end
+    if type(filter) ~= "table" then
+        return true
+    end
+    for _, wanted in ipairs(filter) do
+        if wanted == key then
+            return true
+        end
+    end
+    return false
+end
+
+local function Own()
+    return not page or page.own ~= false
+end
+
+local function Picked(list, filter)
+    local picked = {}
+    for _, entry in ipairs(list) do
+        if Wanted(filter, entry.key) then
+            picked[#picked + 1] = entry
+        end
+    end
+    return picked
+end
 
 local function HasSettingsAPI()
     if type(Settings) ~= "table" or type(Settings.VarType) ~= "table" then
@@ -36,7 +136,7 @@ local function Flag(variable, name, group, key, default, tooltip, onChange)
     local function Table()
         return group and DBR.db[group] or DBR.db
     end
-    local setting = Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, name, default,
+    local setting = Register(variable, Settings.VarType.Boolean, name, default,
         function() return Table()[key] end,
         function(value)
             Table()[key] = value == true
@@ -45,10 +145,54 @@ local function Flag(variable, name, group, key, default, tooltip, onChange)
     return Settings.CreateCheckbox(category, setting, tooltip)
 end
 
-local function Nest(child, parent, predicate)
-    if type(child.SetParentInitializer) == "function" then
-        child:SetParentInitializer(parent, predicate)
+-- Without a parent row, a row re-checks its predicate live when one of the
+-- watched settings changes (Toolkit 2.17.0's WatchSettings: Blizzard's
+-- AddEvaluateStateCVar, which takes any setting variable); names as given.
+local function Watch(row, names)
+    local toolkit = DBR.toolkit
+    if type(toolkit) ~= "table" or type(toolkit.WatchSettings) ~= "function" then
+        return
     end
+    local variables = {}
+    for _, name in ipairs(names) do
+        variables[#variables + 1] = Var(name)
+    end
+    toolkit.WatchSettings(row, variables)
+end
+
+-- predicate checks the whole chain above the row (every switch, the
+-- section's Enable included). Without the parent on this page (part "rest",
+-- or a size row), the predicate alone greys it, re-checked live as watch
+-- (a list of setting names) changes.
+local function Nest(child, parent, predicate, watch)
+    if type(child) ~= "table" then
+        return
+    end
+    if parent and type(child.SetParentInitializer) == "function" then
+        child:SetParentInitializer(parent, predicate)
+        childRows[parent] = childRows[parent] or {}
+        table.insert(childRows[parent], child)
+        local variable = RowVariable(parent)
+        if variable then
+            parentRows[variable] = parent
+        end
+    elseif predicate and type(child.AddModifyPredicate) == "function" then
+        child:AddModifyPredicate(predicate)
+        if watch then
+            Watch(child, watch)
+        end
+    end
+end
+
+-- The toolkit's size rows, greyed while modify gives false (Toolkit settings
+-- sections 3; ignored before it).
+local function WidgetSettings(widget, labels, modify, watch)
+    local variables = {}
+    for _, name in ipairs(watch) do
+        variables[#variables + 1] = Var(name)
+    end
+    DBR.toolkit.AddWidgetSettings(category, layout, widget, {labels = labels, modify = modify, variable = Var,
+        watch = variables})
 end
 
 -- The value on the right; a percent slider shows it with "%" (author: "this
@@ -90,16 +234,16 @@ end
 local function AddChime(chime, library, chimesSwitch)
     local variable = "DBR_CHIME_" .. chime.key:upper()
     local tooltip = "Play a sound just before " .. chime.label .. " is ready again."
-    local setting = Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, chime.label,
+    local setting = Register(variable, Settings.VarType.Boolean, chime.label,
         chime.on,
         function() return DBR.db.chimes.spells[chime.key] end,
         function(value) DBR.db.chimes.spells[chime.key] = value == true end)
     local function ChimesOn() return DBR.db.chimes.enabled end
     if not library or (type(Settings.CreateDropdown) ~= "function" and not HasCheckboxDropdown(library)) then
-        Nest(Settings.CreateCheckbox(category, setting, tooltip), chimesSwitch, ChimesOn)
+        Nest(Settings.CreateCheckbox(category, setting, tooltip), chimesSwitch, ChimesOn, {"DBR_CHIMES_ENABLED"})
         return
     end
-    local sound = Settings.RegisterProxySetting(category, variable .. "_SOUND", Settings.VarType.String, "Sound",
+    local sound = Register(variable .. "_SOUND", Settings.VarType.String, "Sound",
         chime.sound or DBR.DEFAULT_CHIME_SOUND,
         function() return DBR.db.chimes.sounds[chime.key] end,
         function(value)
@@ -109,18 +253,17 @@ local function AddChime(chime, library, chimesSwitch)
                 DBR.PreviewChime(chime.key)
             end
         end)
-    local soundTooltip = "The sound for " .. chime.label .. ". Choosing one plays it once. Text to Speech says \""
-        .. chime.label .. " ready\"."
+    local soundTooltip = "The sound for " .. chime.label .. "; Text to Speech says \"" .. chime.label .. " ready\"."
     if HasCheckboxDropdown(library) then
         local row = CreateSettingsCheckboxDropdownInitializer(setting, chime.label, tooltip, sound,
             library.Choices(), "Sound", soundTooltip)
         layout:AddInitializer(row)
         library.SetupCheckboxMenu(row)
-        Nest(row, chimesSwitch, ChimesOn)
+        Nest(row, chimesSwitch, ChimesOn, {"DBR_CHIMES_ENABLED"})
         return
     end
     local switch = Settings.CreateCheckbox(category, setting, tooltip)
-    Nest(switch, chimesSwitch, ChimesOn)
+    Nest(switch, chimesSwitch, ChimesOn, {"DBR_CHIMES_ENABLED"})
     local dropdown = Settings.CreateDropdown(category, sound, library.Choices(), soundTooltip)
     library.SetupMenu(dropdown)
     Nest(dropdown, switch, function() return DBR.db.chimes.enabled and DBR.db.chimes.spells[chime.key] end)
@@ -131,11 +274,11 @@ end
 -- an older Dyre's Sounds or client. The settings and saved keys are the same.
 local function AddProc(proc, library, procsSwitch)
     local variable = "DBR_PROC_" .. proc.key:upper()
-    local tooltip = "Play a sound the moment " .. (proc.buff or "") .. " appears on you, also in combat."
+    local tooltip = "Play a sound the moment " .. (proc.buff or "") .. " appears on you."
     -- A reactive ability: DBR plays it, so any sound.
     local filter = "aura"
     if proc.reactive then
-        tooltip = "Play a sound the moment " .. proc.label .. " becomes usable, also in combat."
+            tooltip = "Play a sound the moment " .. proc.label .. " becomes usable."
         filter = nil
     end
     -- Another Dyre's AddOn can play it with its proc arcs (Toolkit 2.11.0's
@@ -148,8 +291,7 @@ local function AddProc(proc, library, procsSwitch)
         tooltip = function()
             local owner = DBR.ProcOwner(proc)
             if owner then
-                return plain .. "\n\nPlayed by " .. DBR.ProcOwnerTitle(owner) .. " with its proc arcs, so this "
-                    .. "switch is greyed out."
+                return plain .. "\n\nGreyed out: " .. DBR.ProcOwnerTitle(owner) .. " plays this sound now."
             end
             return plain
         end
@@ -160,7 +302,7 @@ local function AddProc(proc, library, procsSwitch)
         end
         return row
     end
-    local setting = Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, proc.label, proc.on,
+    local setting = Register(variable, Settings.VarType.Boolean, proc.label, proc.on,
         function() return DBR.db.procs.spells[proc.key] end,
         function(value)
             DBR.db.procs.spells[proc.key] = value == true
@@ -168,10 +310,10 @@ local function AddProc(proc, library, procsSwitch)
         end)
     local function ProcsOn() return DBR.db.procs.enabled end
     if not library or (type(Settings.CreateDropdown) ~= "function" and not HasCheckboxDropdown(library)) then
-        Nest(Live(Settings.CreateCheckbox(category, setting, tooltip)), procsSwitch, ProcsOn)
+        Nest(Live(Settings.CreateCheckbox(category, setting, tooltip)), procsSwitch, ProcsOn, {"DBR_PROCS_ENABLED"})
         return
     end
-    local sound = Settings.RegisterProxySetting(category, variable .. "_SOUND", Settings.VarType.String, "Sound",
+    local sound = Register(variable .. "_SOUND", Settings.VarType.String, "Sound",
         proc.sound or DBR.DEFAULT_PROC_SOUND,
         function() return DBR.db.procs.sounds[proc.key] end,
         function(value)
@@ -182,18 +324,17 @@ local function AddProc(proc, library, procsSwitch)
                 DBR.PreviewProc(proc.key)
             end
         end)
-    local soundTooltip = "The sound for " .. proc.label .. ". Choosing one plays it once."
-        .. (filter and " Only sounds the game can play for a buff are listed." or "")
+    local soundTooltip = "The sound for " .. proc.label .. "."
     if HasCheckboxDropdown(library) then
         local row = CreateSettingsCheckboxDropdownInitializer(setting, proc.label, tooltip, sound,
             library.Choices(filter), "Sound", soundTooltip)
         layout:AddInitializer(row)
         library.SetupCheckboxMenu(row, filter)
-        Nest(Live(row), procsSwitch, ProcsOn)
+        Nest(Live(row), procsSwitch, ProcsOn, {"DBR_PROCS_ENABLED"})
         return
     end
     local switch = Live(Settings.CreateCheckbox(category, setting, tooltip))
-    Nest(switch, procsSwitch, ProcsOn)
+    Nest(switch, procsSwitch, ProcsOn, {"DBR_PROCS_ENABLED"})
     local dropdown = Live(Settings.CreateDropdown(category, sound, library.Choices(filter), soundTooltip))
     library.SetupMenu(dropdown, filter)
     Nest(dropdown, switch, function() return DBR.db.procs.enabled and DBR.db.procs.spells[proc.key] end)
@@ -205,16 +346,64 @@ end
 -- to show the arcs beside it (from DSU 1.4; applies after a /reload). While
 -- the arcs step aside for it, each arc switch is greyed.
 local SAO_ROW = "Show proc arcs with SpellActivationOverlay"
-local SAO_TOOLTIP = "SpellActivationOverlay is loaded, so Dyre's proc arcs stay off by default; their sounds "
-    .. "still play. Tick this to show both. It applies after a /reload."
+local SAO_TOOLTIP = "You also use SpellActivationOverlay, so only the sounds play; tick this to show the arcs too "
+    .. "(after a /reload)."
 
-local function AddProcCuesSection()
-    local handle = DBR.ProcCuesHandle()
-    if not handle or type(DBR.toolkit.AddProcSettings) ~= "function" then
-        return
+-- On a host's page the toolkit's rows need Toolkit settings sections 2
+-- (AddProcSettings with opts.variable and opts.keys); before it, nothing, so
+-- the host keeps its link to this page.
+local HOST_PROC_ROWS = 2
+
+-- The engine's master switch (Toolkit 2.17.0's AddProcMasterSetting; John,
+-- 2026-11-27: "Add the Procs master switch"): every arc and sound gives way
+-- while it is off, each proc's own switches keep their values.
+local PROC_MASTER_TOOLTIP = "Shows an arc and plays a chime when a proc makes an important spell or ability ready."
+
+local function ProcKeys(filter)
+    return type(filter) == "string" and {filter} or type(filter) == "table" and filter or nil
+end
+
+local function AnyProcListed(handle, keys)
+    for _, proc in ipairs(handle.List()) do
+        if Wanted(keys, proc.key) then
+            return true
+        end
     end
-    local rows = DBR.toolkit.AddProcSettings(category, layout, handle, {header = "Procs"})
-    if type(rows) == "table" and DBR.ProcArcsSteppedAside() then
+    return false
+end
+
+local function AddProcCuesSection(filter)
+    local handle = DBR.ProcCuesHandle()
+    local toolkit = DBR.toolkit
+    if not handle or type(toolkit.AddProcSettings) ~= "function" then
+        return false
+    end
+    local keys = not Own() and ProcKeys(filter) or nil
+    local hasMaster = type(toolkit.AddProcMasterSetting) == "function"
+        and (tonumber(toolkit.SETTINGS_SECTIONS_VERSION) or 0) >= 3
+    if not Own() and (tonumber(toolkit.SETTINGS_SECTIONS_VERSION) or 0) < HOST_PROC_ROWS then
+        return false
+    end
+    if Part() == "master" then
+        -- A top page: the switch alone, named, for a class with these procs.
+        if not hasMaster or not AnyProcListed(handle, keys) then
+            return false
+        end
+        local label, text = MasterLabel("Procs", PROC_MASTER_TOOLTIP)
+        return toolkit.AddProcMasterSetting(category, layout, handle, {label = label, tooltip = text,
+            variable = Var}) ~= nil
+    end
+    -- The heading on DBR's page; a host names its own section. With the
+    -- master, the toolkit draws it under the heading, shown as the heading is.
+    local opts = {header = Own() and "Procs" or false, variable = not Own() and Var or nil, keys = keys}
+    if Part() == "all" and hasMaster then
+        opts.master = {label = "Enable", tooltip = PROC_MASTER_TOOLTIP}
+    end
+    local rows = DBR.toolkit.AddProcSettings(category, layout, handle, opts)
+    if type(rows) ~= "table" then
+        return false
+    end
+    if DBR.ProcArcsSteppedAside() then
         for _, row in pairs(rows) do
             if type(row) == "table" and type(row.arc) == "table" and type(row.arc.AddModifyPredicate) == "function" then
                 row.arc:AddModifyPredicate(function() return false end)
@@ -222,9 +411,9 @@ local function AddProcCuesSection()
         end
     end
     if not DBR.SpellActivationOverlayLoaded() then
-        return
+        return true
     end
-    local setting = Settings.RegisterProxySetting(category, "DBR_PROCS_WITH_SAO", Settings.VarType.Boolean,
+    local setting = Register("DBR_PROCS_WITH_SAO", Settings.VarType.Boolean,
         SAO_ROW, false,
         function() return DBR.db.procsWithSAO end,
         function(value)
@@ -235,42 +424,49 @@ local function AddProcCuesSection()
             end
         end)
     Settings.CreateCheckbox(category, setting, SAO_TOOLTIP)
+    return true
 end
 
 -- The proc sounds section, for a class with procs on a client that can play them.
-local function AddProcsSection()
+local function AddProcsSection(filter)
     if DBR.procEngine then
-        AddProcCuesSection()
-        return
+        return AddProcCuesSection(filter)
     end
-    local spells = DBR.ClassProcs(DBR.classFile)
+    local spells = Picked(DBR.ClassProcs(DBR.classFile), filter)
     if #spells == 0 or not DBR.HasProcSounds() then
-        return
+        return false
     end
     local library = DBR.SoundLibrary()
-    Heading("Proc Chimes")
-    local tooltip = "A sound the moment a proc appears on you (Clearcasting, Nightfall, and so on), also in "
-        .. "combat. The game plays it, from a sound you choose."
-    if not library then
-        tooltip = tooltip .. " Install Dyre's Sounds to hear them and to choose each proc's sound."
+    if Own() and Part() == "all" then
+        Heading("Procs")
     end
-    local procsSwitch = Flag("DBR_PROCS_ENABLED", "Enable", "procs", "enabled", true, tooltip,
-        DBR.ApplyProcSounds)
+    local tooltip = "Play a sound the moment a proc appears on you, such as Clearcasting."
+    if not library then
+            tooltip = tooltip .. " Install Dyre's Sounds to hear them."
+    end
+    local procsSwitch
+    if Part() ~= "rest" then
+        local label, text = MasterLabel("Procs", tooltip)
+        procsSwitch = Flag("DBR_PROCS_ENABLED", label, "procs", "enabled", true, text, DBR.ApplyProcSounds)
+        if Part() == "master" then
+            return true
+        end
+    end
     for _, proc in ipairs(spells) do
         AddProc(proc, library, procsSwitch)
     end
+    return true
 end
 
 -- One cast chime under its section's switch: its switch and its sound on one
 -- row, or two with an older Dyre's Sounds or client (as a chime).
 local function AddCast(cast, library, castsSwitch)
     local variable = "DBR_CAST_" .. cast.key:upper()
-    local tooltip = "Play a sound just after you cast " .. cast.label .. ", also in combat."
+    local tooltip = "Play a sound just after you cast " .. cast.label .. "."
     if cast.form then
-        tooltip = "Play a sound just after you shift into " .. cast.label .. ", also in combat; not when you "
-            .. "leave it."
+            tooltip = "Play a sound just after you shift into " .. cast.label .. "."
     end
-    local setting = Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, cast.label, cast.on,
+    local setting = Register(variable, Settings.VarType.Boolean, cast.label, cast.on,
         function() return DBR.db.casts.spells[cast.key] end,
         function(value) DBR.db.casts.spells[cast.key] = value == true end)
     local function CastsOn() return DBR.db.casts.enabled end
@@ -278,7 +474,7 @@ local function AddCast(cast, library, castsSwitch)
         Nest(Settings.CreateCheckbox(category, setting, tooltip), castsSwitch, CastsOn)
         return
     end
-    local sound = Settings.RegisterProxySetting(category, variable .. "_SOUND", Settings.VarType.String, "Sound",
+    local sound = Register(variable .. "_SOUND", Settings.VarType.String, "Sound",
         cast.sound or DBR.DEFAULT_CAST_SOUND,
         function() return DBR.db.casts.sounds[cast.key] end,
         function(value)
@@ -288,8 +484,8 @@ local function AddCast(cast, library, castsSwitch)
                 DBR.PreviewCast(cast.key)
             end
         end)
-    local soundTooltip = "The sound for " .. cast.label .. ". Choosing one plays it once. Text to Speech says \""
-        .. (cast.speech or DBR.CAST_SPEECH) .. "\"."
+    local soundTooltip = "The sound for " .. cast.label .. "; Text to Speech says \"" .. (cast.speech or DBR.CAST_SPEECH)
+        .. "\"."
     if HasCheckboxDropdown(library) then
         local row = CreateSettingsCheckboxDropdownInitializer(setting, cast.label, tooltip, sound,
             library.Choices(), "Sound", soundTooltip)
@@ -312,7 +508,7 @@ local function AddComboSound(which, label, tooltip, default, comboSwitch)
     local soundKey = which .. "Sound"
     local variable = "DBR_COMBO_" .. which:upper()
     local library = DBR.SoundLibrary()
-    local setting = Settings.RegisterProxySetting(category, variable, Settings.VarType.Boolean, label, true,
+    local setting = Register(variable, Settings.VarType.Boolean, label, true,
         function() return saved[which] end,
         function(value) saved[which] = value == true end)
     local function ComboOn() return saved.enabled end
@@ -320,7 +516,7 @@ local function AddComboSound(which, label, tooltip, default, comboSwitch)
         Nest(Settings.CreateCheckbox(category, setting, tooltip), comboSwitch, ComboOn)
         return
     end
-    local sound = Settings.RegisterProxySetting(category, variable .. "_SOUND", Settings.VarType.String, "Sound",
+    local sound = Register(variable .. "_SOUND", Settings.VarType.String, "Sound",
         default, function() return saved[soundKey] end,
         function(value)
             local key = library.Resolve(value)
@@ -329,7 +525,7 @@ local function AddComboSound(which, label, tooltip, default, comboSwitch)
                 DBR.PreviewCombo(which)
             end
         end)
-    local soundTooltip = "The sound for " .. label:lower() .. ". Choosing one plays it once."
+    local soundTooltip = "The sound for " .. label .. "."
     if HasCheckboxDropdown(library) then
         local row = CreateSettingsCheckboxDropdownInitializer(setting, label, tooltip, sound, library.Choices(),
             "Sound", soundTooltip)
@@ -351,8 +547,7 @@ local function AddComboSection()
         return
     end
     Heading("Combo Point Chimes")
-    local tooltip = "A note as you earn each combo point (a Druid in Cat Form), the held high note at the most, and "
-        .. "a sound as you spend them, also in combat."
+    local tooltip = "Play a note for each combo point you earn, and a sound when you spend them."
     if not DBR.SoundLibrary() then
         tooltip = tooltip .. " Install Dyre's Sounds to hear them."
     end
@@ -360,20 +555,20 @@ local function AddComboSection()
     local function ComboOn() return DBR.db.combo.enabled end
     AddComboSound("full", "Full", "Play a sound when you reach the most combo points.", DBR.COMBO_FULL_SOUND,
         comboSwitch)
-    AddComboSound("spend", "Spend", "Play a sound when you spend your combo points (one lost out of combat, as "
-        .. "they fade, is silent).", DBR.COMBO_SPEND_SOUND, comboSwitch)
+    AddComboSound("spend", "Spend", "Play a sound when you spend your combo points.", DBR.COMBO_SPEND_SOUND,
+        comboSwitch)
     Nest(Flag("DBR_COMBO_ONLYFULL", "Only when full", "combo", "onlyFull", false, "Play only Full's sound (and "
         .. "Spend's), not a note for each point.", function() end), comboSwitch, ComboOn)
     if type(Settings.CreateDropdown) ~= "function" or type(Settings.CreateControlTextContainer) ~= "function" then
         return
     end
     -- The note set (author, 1.7.0): Full and Spend follow it, unless chosen.
-    local setting = Settings.RegisterProxySetting(category, "DBR_COMBO_NOTESET", Settings.VarType.String, "Note set",
+    local setting = Register("DBR_COMBO_NOTESET", Settings.VarType.String, "Note set",
         DBR.COMBO_DEFAULT_SET, function() return DBR.db.combo.noteSet end,
         function(value)
             DBR.SetComboNoteSet(value)
-            Settings.NotifyUpdate("DBR_COMBO_FULL_SOUND")
-            Settings.NotifyUpdate("DBR_COMBO_SPEND_SOUND")
+            Settings.NotifyUpdate(Var("DBR_COMBO_FULL_SOUND"))
+            Settings.NotifyUpdate(Var("DBR_COMBO_SPEND_SOUND"))
         end)
     local function Choices()
         local container = Settings.CreateControlTextContainer()
@@ -382,9 +577,8 @@ local function AddComboSection()
         end
         return container:GetData()
     end
-    Nest(Settings.CreateDropdown(category, setting, Choices, "The notes for each point: Dyre's Bassoon (a quick "
-        .. "climb to a held F) or Dyre's Sax (a scale to the held high Bb), or Full's sound for each. Full and "
-        .. "Spend follow the set unless you chose your own."), comboSwitch, ComboOn)
+    Nest(Settings.CreateDropdown(category, setting, Choices, "The notes played for each combo point."), comboSwitch,
+        ComboOn)
 end
 
 -- The cast chimes section (author, 1.4.0), for a class with any.
@@ -395,11 +589,10 @@ local function AddCastsSection()
     end
     local library = DBR.SoundLibrary()
     Heading("Cast Chimes")
-    local tooltip = "A sound just after you cast one of these spells (a travel spell, a Warrior's Charge, "
-        .. "and so on) or shift into a Druid form (0.75 seconds later, after the game's own sound), also in combat. Text to Speech speaks at first (\""
-        .. DBR.CAST_SPEECH .. "\" for the travel spells)."
+    local tooltip = "Play a sound just after you cast a travel spell, Charge, and others, or shift into a Druid "
+        .. "form."
     if not library then
-        tooltip = tooltip .. " Install Dyre's Sounds to hear them and to choose each one's sound."
+            tooltip = tooltip .. " Install Dyre's Sounds to hear them."
     end
     local castsSwitch = Flag("DBR_CASTS_ENABLED", "Enable", "casts", "enabled", true, tooltip, function() end)
     for _, cast in ipairs(spells) do
@@ -414,35 +607,46 @@ local function AddCastsSection()
 end
 
 -- The cooldown chimes section: its own switch, the lead, then your class's spells.
-local function AddChimesSection()
-    local library = DBR.SoundLibrary()
-    Heading("Chimes")
-    local tooltip = "A sound just before your chosen spells are ready again, also in combat. Every rank of a "
-        .. "spell counts."
-    if not library then
-        tooltip = tooltip .. " Install Dyre's Sounds to hear them and to choose each spell's sound."
+local function AddChimesSection(filter)
+    local spells = Picked(DBR.ClassChimes(DBR.classFile), filter)
+    if #spells == 0 and not Own() then
+        return false
     end
-    local chimesSwitch = Flag("DBR_CHIMES_ENABLED", "Enable", "chimes", "enabled", true, tooltip,
-        function() end)
-    local lead = Settings.RegisterProxySetting(category, "DBR_CHIME_LEAD", Settings.VarType.Number,
+    local library = DBR.SoundLibrary()
+    if Own() and Part() == "all" then
+        Heading("Chimes")
+    end
+    local tooltip = "Play a sound just before your chosen spells are ready again."
+    if not library then
+            tooltip = tooltip .. " Install Dyre's Sounds to hear them."
+    end
+    local chimesSwitch
+    if Part() ~= "rest" then
+        local label, text = MasterLabel("Chimes", tooltip)
+        chimesSwitch = Flag("DBR_CHIMES_ENABLED", label, "chimes", "enabled", true, text, function() end)
+        if Part() == "master" then
+            return true
+        end
+    end
+    local lead = Register("DBR_CHIME_LEAD", Settings.VarType.Number,
         "Chime early (seconds)", DBR.DEFAULT_CHIME_LEAD,
         function() return DBR.db.chimes.lead end,
         function(value) DBR.db.chimes.lead = DBR.SanitizeChimeLead(value) end)
     local leadSlider = Settings.CreateSlider(category, lead,
         SliderOptions(DBR.CHIME_LEAD_MIN, DBR.CHIME_LEAD_MAX, DBR.CHIME_LEAD_STEP),
-        "How long before a cooldown ends the chime plays, so you can act the moment it is ready.")
+        "How long before a cooldown ends the chime plays.")
     if type(DBR.toolkit.AddDefaultTick) == "function" then
         DBR.toolkit.AddDefaultTick(leadSlider, {min = DBR.CHIME_LEAD_MIN, max = DBR.CHIME_LEAD_MAX,
             default = DBR.DEFAULT_CHIME_LEAD})
     end
-    Nest(leadSlider, chimesSwitch, function() return DBR.db.chimes.enabled end)
-    local spells = DBR.ClassChimes(DBR.classFile)
-    if #spells == 0 then
+    Nest(leadSlider, chimesSwitch, function() return DBR.db.chimes.enabled end, {"DBR_CHIMES_ENABLED"})
+    if #spells == 0 and Own() then
         Heading(NO_CHIME_SPELLS)
     end
     for _, chime in ipairs(spells) do
         AddChime(chime, library, chimesSwitch)
     end
+    return true
 end
 
 -- Each widget's Size and Opacity, then "Reset size" (Dyre's Toolkit's
@@ -458,7 +662,7 @@ local function AddBuffSizes(widgets)
         if range == true then
             range = {min = 10, max = 100, step = 5, default = 100}
         end
-        local setting = Settings.RegisterProxySetting(category, "DBR_BUFF_ICONS_" .. name:upper(),
+        local setting = Register("DBR_BUFF_ICONS_" .. name:upper(),
             Settings.VarType.Number, label, range.default,
             function() return first:GetSetting(name) end,
             function(value)
@@ -471,19 +675,24 @@ local function AddBuffSizes(widgets)
         if type(DBR.toolkit.AddDefaultTick) == "function" then
             DBR.toolkit.AddDefaultTick(slider, range)
         end
+        Nest(slider, nil, function() return DBR.db.enabled end, {"DBR_ENABLED"})
     end
-    Slider("scale", "Reminder icons: size", "The size of every reminder icon. A change in combat applies "
-        .. "after it.")
-    Slider("opacity", "Reminder icons: opacity", "How solid every reminder icon is. It fades at once, also in "
-        .. "combat.")
+    Slider("scale", "Reminder icons: size", "The size of every reminder icon.")
+    Slider("opacity", "Reminder icons: opacity", "How solid every reminder icon is.")
     if type(CreateSettingsButtonInitializer) == "function" and type(layout) == "table"
             and type(layout.AddInitializer) == "function" then
-        layout:AddInitializer(CreateSettingsButtonInitializer("Reminder icons", "Reset size", function()
+        local reset = CreateSettingsButtonInitializer("Reminder icons", "Reset size", function()
             for _, widget in ipairs(widgets) do
                 widget:ResetSize()
             end
-            Settings.NotifyUpdate("DBR_BUFF_ICONS_SCALE")
-        end, "Every reminder icon back to its own size. Opacity stays as it is.", true))
+            Settings.NotifyUpdate(Var("DBR_BUFF_ICONS_SCALE"))
+        end, "Put every reminder icon back to its default size.", true)
+        Nest(reset, nil, function() return DBR.db.enabled end, {"DBR_ENABLED"})
+        -- A greyed button keeps its gold label on Forever; the toolkit greys it.
+        if type(DBR.toolkit.GreyButtonLabel) == "function" then
+            DBR.toolkit.GreyButtonLabel(reset)
+        end
+        layout:AddInitializer(reset)
     end
 end
 
@@ -499,31 +708,27 @@ local function AddReminderSizes()
     -- 200%, default 100%)").
     local aspectWidget = DBR.AspectReminderWidget()
     if aspectWidget then
-        DBR.toolkit.AddWidgetSettings(category, layout, aspectWidget, {
-            labels = {scale = "Aspect reminder: size", opacity = "Aspect reminder: opacity"},
-        })
+        WidgetSettings(aspectWidget, {scale = "Aspect reminder: size", opacity = "Aspect reminder: opacity"},
+            function() return DBR.db.enabled and DBR.db.aspectMode ~= "off" end,
+            {"DBR_ENABLED", "DBR_ASPECT_MODE", "DBR_BUFF_ASPECT"})
     end
     local sealWidget = DBR.SealWidget()
     if sealWidget then
-        DBR.toolkit.AddWidgetSettings(category, layout, sealWidget, {
-            labels = {scale = "Seal timer: size", opacity = "Seal timer: opacity"},
-        })
+        WidgetSettings(sealWidget, {scale = "Seal timer: size", opacity = "Seal timer: opacity"},
+            function() return DBR.db.enabled and DBR.db.seal.enabled end, {"DBR_ENABLED", "DBR_SEAL"})
     end
     local warningWidget = _G.DyresBuffRemindersWarning
     if warningWidget and #DBR.ClassWarnings() > 0 then
-        DBR.toolkit.AddWidgetSettings(category, layout, warningWidget, {
-            labels = {scale = "Warning messages: size"},
-        })
+        WidgetSettings(warningWidget, {scale = "Warning messages: size"}, function() return DBR.db.enabled end,
+            {"DBR_ENABLED"})
     end
 end
 
 -- The Aspect reminder's mode (John, 1.8.0), in place of its switch:
 -- Normal, Speed-Running, or Disabled. Without the dropdown API, a switch
 -- (on: Normal).
-local ASPECT_MODE_TOOLTIP = "Normal: a red outline when no aspect is up, in or out of combat, and in combat with "
-    .. "Aspect of the Cheetah or the Pack up. Speed-Running: Cheetah is fine in combat (fighting with it up to "
-    .. "kill fast); no aspect or Pack still shows it. Disabled: it never shows. A click casts your last combat "
-    .. "aspect (else Hawk, else Monkey)."
+local ASPECT_MODE_TOOLTIP = "When the Aspect reminder shows: Normal (no aspect up, or Cheetah or Pack in combat), "
+    .. "Speed-Running (Cheetah is fine in combat), or Disabled."
 
 local function AddAspectMode(reminder)
     local key = reminder.key
@@ -536,12 +741,12 @@ local function AddAspectMode(reminder)
         DBR.RefreshReminders()
     end
     if type(Settings.CreateDropdown) ~= "function" or type(Settings.CreateControlTextContainer) ~= "function" then
-        local setting = Settings.RegisterProxySetting(category, "DBR_BUFF_" .. key:upper(), Settings.VarType.Boolean,
+        local setting = Register("DBR_BUFF_" .. key:upper(), Settings.VarType.Boolean,
             reminder.label, true, function() return DBR.db.aspectMode ~= "off" end,
             function(value) Set(value and "normal" or "off") end)
         return Settings.CreateCheckbox(category, setting, ASPECT_MODE_TOOLTIP)
     end
-    local setting = Settings.RegisterProxySetting(category, "DBR_ASPECT_MODE", Settings.VarType.String,
+    local setting = Register("DBR_ASPECT_MODE", Settings.VarType.String,
         reminder.label, "normal", function() return DBR.db.aspectMode end, Set)
     local function Choices()
         local container = Settings.CreateControlTextContainer()
@@ -561,9 +766,9 @@ local function AddCombatAspect(combat)
         return DBR.db.enabled and DBR.db.aspectMode ~= "off"
     end
     local saved = DBR.db.combatAspect
-    local label, tooltip = "Sound at combat start", "Play a sound when combat starts with an aspect problem: no "
-        .. "aspect up, or Aspect of the Pack (or, in Normal, the Cheetah) up."
-    local setting = Settings.RegisterProxySetting(category, "DBR_COMBAT_ASPECT_SOUND_ON", Settings.VarType.Boolean,
+    local label, tooltip = "Sound at combat start", "Play a sound when combat starts with no aspect up, or with "
+        .. "Cheetah or Pack up."
+    local setting = Register("DBR_COMBAT_ASPECT_SOUND_ON", Settings.VarType.Boolean,
         label, true, function() return saved.soundOn end,
         function(value) saved.soundOn = value == true end)
     local library = DBR.SoundLibrary()
@@ -571,7 +776,7 @@ local function AddCombatAspect(combat)
         Nest(Settings.CreateCheckbox(category, setting, tooltip), combat, CombatOn)
         return
     end
-    local sound = Settings.RegisterProxySetting(category, "DBR_COMBAT_ASPECT_SOUND", Settings.VarType.String, "Sound",
+    local sound = Register("DBR_COMBAT_ASPECT_SOUND", Settings.VarType.String, "Sound",
         DBR.DEFAULT_CHIME_SOUND, function() return saved.sound end,
         function(value)
             local resolved = library.Resolve(value)
@@ -580,8 +785,7 @@ local function AddCombatAspect(combat)
                 DBR.PreviewCombatAspect()
             end
         end)
-    local soundTooltip = "The sound at combat start. Choosing one plays it once. Text to Speech says which aspect "
-        .. "is up, or \"No aspect up\"."
+    local soundTooltip = "The sound at combat start; Text to Speech says which aspect is up."
     if HasCheckboxDropdown(library) then
         local row = CreateSettingsCheckboxDropdownInitializer(setting, label, tooltip, sound, library.Choices(),
             "Sound", soundTooltip)
@@ -607,16 +811,13 @@ local function AddAspectBarSection()
     Heading("Aspect bar")
     local saved = DBR.db.aspectBar
     local master = Flag("DBR_ASPECT_BAR", "Enable", "aspectBar", "enabled", true,
-        "A bar with a button for each aspect you know. Click one to swap to that aspect; a click never turns "
-            .. "an aspect off. The aspect that is up has a gold border, also in combat. Hidden while dead or on a "
-            .. "flight path.", DBR.RefreshAspectBar)
+            "Show a bar with a button for each aspect you know; click one to swap to it.", DBR.RefreshAspectBar)
     local vertical = Flag("DBR_ASPECT_BAR_VERTICAL", "Vertical", "aspectBar", "vertical", false,
-        "Stack the buttons top to bottom instead of left to right. A change in combat applies after it.",
+            "Stack the buttons top to bottom instead of left to right.",
         DBR.RefreshAspectBar)
     Nest(vertical, master, function() return saved.enabled end)
-    DBR.toolkit.AddWidgetSettings(category, layout, widget, {
-        labels = {scale = "Aspect bar: size", opacity = "Aspect bar: opacity"},
-    })
+    WidgetSettings(widget, {scale = "Aspect bar: size", opacity = "Aspect bar: opacity"},
+        function() return saved.enabled end, {"DBR_ASPECT_BAR"})
 end
 
 -- Consumables (Part B), for a class with any (DBR.CONSUMABLES): Enable, then
@@ -629,18 +830,16 @@ local function AddReagent(reagent, master)
     for _, rank in ipairs(reagent.ranks) do
         items[#items + 1] = rank.name
     end
-    local on = Settings.RegisterProxySetting(category, "DBR_REAGENT_" .. key:upper(), Settings.VarType.Boolean,
+    local on = Register("DBR_REAGENT_" .. key:upper(), Settings.VarType.Boolean,
         reagent.label .. " reagent", true, function() return saved.reagents[key].on end,
         function(value)
             saved.reagents[key].on = value == true
             DBR.RefreshConsumables()
         end)
     local switch = Settings.CreateCheckbox(category, on,
-        "How many you carry of the reagent your highest rank of " .. reagent.label .. " uses ("
-            .. table.concat(items, ", ") .. "), also in combat. The count turns red and pulses at or below Warn "
-            .. "at; at 0 it shows as missing.")
+            "Show how many of " .. reagent.label .. "'s reagent you carry (" .. table.concat(items, ", ") .. ").")
     local range = reagent.warn
-    local warn = Settings.RegisterProxySetting(category, "DBR_REAGENT_WARN_" .. key:upper(), Settings.VarType.Number,
+    local warn = Register("DBR_REAGENT_WARN_" .. key:upper(), Settings.VarType.Number,
         "Warn at", range.default, function() return saved.reagents[key].warn end,
         function(value)
             saved.reagents[key].warn = DBR.SanitizeReagentWarn(reagent, value)
@@ -670,14 +869,12 @@ local function AddConsumablesSection()
     Heading("Consumables")
     local saved = DBR.db.consumables
     local master = Flag("DBR_CONSUMABLES_ENABLED", "Enable", "consumables", "enabled", true,
-        "Show what your class's abilities use up, also in combat: your ammo or reagents.", DBR.RefreshConsumables)
+            "Show how much ammo or reagents you have left.", DBR.RefreshConsumables)
     if list.ammo then
         local ammoSwitch = Flag("DBR_CONSUMABLE_AMMO", "Ammo", "consumables", "ammo", true,
-            "With a bow, crossbow, or gun in your ranged slot: your equipped arrows or bullets and how many are "
-                .. "left. The count turns red and pulses at or below Warn at; out of ammo, or none equipped, it "
-                .. "shows as missing.", DBR.RefreshConsumables)
+                    "Show your equipped arrows or bullets and how many are left.", DBR.RefreshConsumables)
         Nest(ammoSwitch, master, function() return saved.enabled end)
-        local warn = Settings.RegisterProxySetting(category, "DBR_AMMO_WARN", Settings.VarType.Number, "Warn at",
+        local warn = Register("DBR_AMMO_WARN", Settings.VarType.Number, "Warn at",
             DBR.DEFAULT_AMMO_WARN, function() return saved.ammoWarn end,
             function(value)
                 saved.ammoWarn = DBR.SanitizeAmmoWarn(value)
@@ -696,16 +893,15 @@ local function AddConsumablesSection()
         AddReagent(reagent, master)
     end
     -- Its own Size and Opacity here, where you look for them (author).
-    DBR.toolkit.AddWidgetSettings(category, layout, DBR.ConsumablesWidget(), {
-        labels = {scale = "Consumables: size", opacity = "Consumables: opacity"},
-    })
+    WidgetSettings(DBR.ConsumablesWidget(), {scale = "Consumables: size", opacity = "Consumables: opacity"},
+        function() return saved.enabled end, {"DBR_CONSUMABLES_ENABLED"})
 end
 
 -- A buff's own "remind before it runs out" (Buffs.lua's lead), under its
 -- switch, with the toolkit's gold default mark where the toolkit offers it.
 local function AddBuffLead(reminder, buffSwitch)
     local key, range = reminder.key, reminder.lead
-    local setting = Settings.RegisterProxySetting(category, "DBR_LEAD_" .. key:upper(), Settings.VarType.Number,
+    local setting = Register("DBR_LEAD_" .. key:upper(), Settings.VarType.Number,
         "Remind before it runs out (sec)", range.default,
         function() return DBR.db.leads[key] end,
         function(value)
@@ -713,8 +909,7 @@ local function AddBuffLead(reminder, buffSwitch)
             DBR.RefreshReminders()
         end)
     local slider = Settings.CreateSlider(category, setting, SliderOptions(range.min, range.max, range.step),
-        "Show " .. reminder.label .. "'s icon this many seconds before it runs out, in and out of combat, so you "
-            .. "can recast it in time; its border turns yellow and flashes.")
+            "Show " .. reminder.label .. "'s icon this many seconds before it runs out.")
     if type(DBR.toolkit.AddDefaultTick) == "function" then
         DBR.toolkit.AddDefaultTick(slider, range)
     end
@@ -724,7 +919,7 @@ end
 -- The shared "Remind before a buff runs out", in percent of each buff's own
 -- length (author), for every buff without its own lead.
 local function AddSharedLead(master, Enabled)
-    local lead = Settings.RegisterProxySetting(category, "DBR_LEAD", Settings.VarType.Number,
+    local lead = Register("DBR_LEAD", Settings.VarType.Number,
         "Remind before a buff runs out", DBR.DEFAULT_LEAD,
         function() return DBR.db.leadPercent end,
         function(value)
@@ -732,19 +927,17 @@ local function AddSharedLead(master, Enabled)
             DBR.RefreshReminders()
         end)
     local leadSlider = Settings.CreateSlider(category, lead, SliderOptions(DBR.LEAD_MIN, DBR.LEAD_MAX, 1, true),
-        "Warn this share of a buff's own length before it runs out: its border turns yellow and flashes, so you "
-            .. "can recast it in time. 10% of a 30-minute buff is 3 minutes. 0 warns only once it is gone, with "
-            .. "a glow or red border (Missing buff), also in combat.")
+            "Warn when this share of a buff's time is left (10% of a 30-minute buff is 3 minutes).")
     if type(DBR.toolkit.AddDefaultTick) == "function" then
         DBR.toolkit.AddDefaultTick(leadSlider, {min = DBR.LEAD_MIN, max = DBR.LEAD_MAX, default = DBR.DEFAULT_LEAD})
     end
-    Nest(leadSlider, master, Enabled)
+    Nest(leadSlider, master, Enabled, {"DBR_ENABLED"})
 end
 
 -- "Visibility when not needed" (John, 2026-11-18): one slider for every buff
 -- whose "Show only when needed" is on; 0 hides it.
 local function AddNotNeededAlpha(master, Enabled)
-    local setting = Settings.RegisterProxySetting(category, "DBR_FAINT", Settings.VarType.Number,
+    local setting = Register("DBR_FAINT", Settings.VarType.Number,
         "Visibility when not needed", DBR.DEFAULT_FAINT, function() return DBR.db.faintPercent end,
         function(value)
             DBR.db.faintPercent = DBR.SanitizeFaint(value)
@@ -752,19 +945,17 @@ local function AddNotNeededAlpha(master, Enabled)
         end)
     local slider = Settings.CreateSlider(category, setting,
         SliderOptions(DBR.FAINT_MIN, DBR.FAINT_MAX, DBR.FAINT_STEP, true),
-        "How a buff with \"Show only when needed\" looks while it is up and not about to run out, in and out "
-            .. "of combat: 0% hides it (default). A hidden icon still takes clicks in combat: a click on its place "
-            .. "casts the buff. Missing or about to run out, it always shows in full.")
+            "How visible a buff with \"Show only when needed\" is while it is up; 0% hides it.")
     if type(DBR.toolkit.AddDefaultTick) == "function" then
         DBR.toolkit.AddDefaultTick(slider, {min = DBR.FAINT_MIN, max = DBR.FAINT_MAX, default = DBR.DEFAULT_FAINT})
     end
-    Nest(slider, master, Enabled)
+    Nest(slider, master, Enabled, {"DBR_ENABLED"})
 end
 
 -- "Missing buff" (John, 2026-11-20): the glow or the red border while a buff
 -- is gone; running out stays yellow.
 local function AddMissingStyle(master, Enabled)
-    local setting = Settings.RegisterProxySetting(category, "DBR_MISSING_STYLE", Settings.VarType.String,
+    local setting = Register("DBR_MISSING_STYLE", Settings.VarType.String,
         "Missing buff", DBR.DEFAULT_MISSING_STYLE, function() return DBR.db.missingStyle end,
         function(value)
             if not DBR.MISSING_STYLE_LABELS[value] then
@@ -781,61 +972,54 @@ local function AddMissingStyle(master, Enabled)
         return container:GetData()
     end
     local dropdown = Settings.CreateDropdown(category, setting, Choices,
-        "How a reminder shows that its buff is gone: Glow, the action bars' proc glow, or Red border. A buff "
-            .. "about to run out still has a yellow, flashing border and its time left. In combat, while the "
-            .. "buff is up, the glow waits inside the icon under the game's buff icon, so it is smaller there.")
-    Nest(dropdown, master, Enabled)
+            "How a reminder shows that its buff is gone: Glow or Red border.")
+    Nest(dropdown, master, Enabled, {"DBR_ENABLED"})
 end
 
 -- A buff switch's tooltip: what it shows, and for a tank buff whom it watches.
 local function BuffTooltip(reminder)
-    local text = "Show " .. reminder.label .. ": a glow or red border (Missing buff) while it is missing, "
-        .. "yellow and flashing before it runs out, also in combat. Click it to cast it."
-    -- A tank buff: the key points only (author); README has the rest.
+    -- One plain sentence (John, 2026-11-27); README has the rest.
     if reminder.tank then
-        return "Maintains " .. reminder.label .. " on you, or on the group's Tank if there is one. A glow or "
-            .. "red border when it's missing, yellow before it runs out."
+        return "Show an icon while " .. reminder.label .. " is missing on you, or on your group's tank; click it to "
+            .. "cast it."
     end
-    return text
+    return "Show an icon while " .. reminder.label .. " is missing or about to run out; click it to cast it."
 end
 
 local function GroupTooltip(reminder)
     local who = reminder.group.mana and "party or raid member who uses mana" or "party or raid member"
-    local versions = {}
-    for _, entry in ipairs(reminder.group.spells) do
-        local name = C_Spell.GetSpellName(entry.spell)
-        if name and versions[#versions] ~= name then
-            versions[#versions + 1] = name
-        end
-    end
-    local text = "Also remind you when a " .. who .. " lacks " .. reminder.label
-        .. ". The icon shows how many, and its tooltip who. Your group is checked out of combat only: in a "
-        .. "fight it shows only your own."
-    if #versions > 0 then
-        text = text .. " With two or more missing, a click casts " .. versions[1]
-            .. " if you know it and carry its reagent."
-    end
-    return text
+    return "Also remind you when a " .. who .. " lacks " .. reminder.label .. "."
 end
 
-function DBR.InitializeOptions()
-    if not HasSettingsAPI() then
-        return
+-- The buff reminders (section "reminders"): Enable, then each of your
+-- class's buffs (a filter lists reminder keys; "seal" and the warnings' keys
+-- too), then the shared rows those buffs use. On a host's page with nothing
+-- to show, no rows at all.
+local function AddRemindersSection(filter)
+    local reminders = Picked(DBR.ClassReminders(), filter)
+    local seal = DBR.HasSealTimer() and Wanted(filter, "seal")
+    local warnings = Picked(DBR.ClassWarnings(), filter)
+    if not Own() and #reminders == 0 and not seal and #warnings == 0 then
+        return false
     end
-    category, layout = DBR.toolkit.RegisterSettingsCategory(TITLE)
-    if not category then
-        return
+    if Own() and Part() == "all" then
+        Heading("Reminders")
     end
-    Heading("Reminders")
-    local master = Flag("DBR_ENABLED", "Enable", nil, "enabled", true,
-        "An icon for each of your buffs: red border while it is missing, yellow and flashing before it runs "
-            .. "out, also in combat. Click it to cast the buff.",
-        function()
-            DBR.RefreshReminders()
-            DBR.RefreshSeal()
-        end)
+    local master
+    if Part() ~= "rest" then
+        local label, text = MasterLabel("Reminders", "Show an icon for each of your buffs while it is missing "
+            .. "or about to run out.")
+        master = Flag("DBR_ENABLED", label, nil, "enabled", true, text,
+            function()
+                DBR.RefreshReminders()
+                DBR.RefreshSeal()
+            end)
+        if Part() == "master" then
+            return true
+        end
+    end
     local function Enabled() return DBR.db.enabled end
-    for _, reminder in ipairs(DBR.ClassReminders()) do
+    for _, reminder in ipairs(reminders) do
         local key = reminder.key
         local buff
         if reminder.combatAspect then
@@ -844,7 +1028,7 @@ function DBR.InitializeOptions()
             buff = Flag("DBR_BUFF_" .. key:upper(), reminder.label, "spells", key, reminder.on,
                 BuffTooltip(reminder), DBR.RefreshReminders)
         end
-        Nest(buff, master, Enabled)
+        Nest(buff, master, Enabled, {"DBR_ENABLED"})
         if reminder.group then
             local group = Flag("DBR_GROUP_" .. key:upper(), reminder.label .. ": also your group", "groups", key,
                 true, GroupTooltip(reminder), DBR.RefreshReminders)
@@ -856,54 +1040,50 @@ function DBR.InitializeOptions()
         if DBR.CanShowOnlyWhenNeeded(reminder) then
             local needed = Flag("DBR_NEEDED_" .. key:upper(), "Show only when needed", "needed", key,
                 DBR.NeededDefault(reminder),
-                "On: while " .. reminder.label .. " is up and not about to run out, its icon shows at "
-                    .. "\"Visibility when not needed\" (hidden at 0%), in and out of combat. Missing or about "
-                    .. "to run out, it shows in full. Off: always in full, and a buff dispelled or cancelled in "
-                    .. "a fight shows at once. On, DBR cannot see that in a fight: it shows only at its warning "
-                    .. "time or after the fight.",
+                "Show " .. reminder.label .. "'s icon in full only while it is missing or about to run out.",
                 DBR.RefreshReminders)
             Nest(needed, buff, function() return DBR.db.enabled and DBR.db.spells[key] end)
         end
         if DBR.CanShowOnlyInCombat(reminder) then
             local combatOnly = Flag("DBR_COMBATONLY_" .. key:upper(), "Show only in combat", "combatOnly", key,
                 false,
-                "On: out of combat, " .. reminder.label .. " shows nothing, also when it is missing or about to "
-                    .. "run out. In combat it shows as before. Off: in and out of combat.",
+                "Show " .. reminder.label .. " only in combat.",
                 DBR.RefreshReminders)
             Nest(combatOnly, buff, function() return DBR.db.enabled and DBR.db.spells[key] end)
         end
         if reminder.tankOnly then
             local always = Flag("DBR_ALWAYS_" .. key:upper(), "Always show " .. reminder.label, "alwaysShow", key,
-                false, "Show " .. reminder.label .. " even when you are not tanking, and no \"off when not "
-                    .. "tanking\" warning. Without this it shows only solo, or as your group's tank (the Tank role, "
-                    .. "or a raid's main tank).", DBR.RefreshReminders)
+                false, "Show " .. reminder.label .. " even when you are not tanking.", DBR.RefreshReminders)
             Nest(always, buff, function() return DBR.db.enabled and DBR.db.spells[key] end)
         end
         if reminder.combatAspect then
             AddCombatAspect(buff)
         end
     end
-    if DBR.HasSealTimer() then
+    if seal then
         local sealSwitch = Flag("DBR_SEAL", "Seal timer", "seal", "enabled", true,
-            "While a seal is up, its icon with the time left. In combat with no seal up, your last seal "
-                .. "pulses; click it to cast that seal. Out of combat with no seal up, nothing shows.",
+            "Show your seal and its time left; in combat with none up, click it to cast your last seal.",
             DBR.RefreshSeal)
-        Nest(sealSwitch, master, Enabled)
+        Nest(sealSwitch, master, Enabled, {"DBR_ENABLED"})
     end
     -- The warnings (on-screen messages), each its own switch.
-    for _, warning in ipairs(DBR.ClassWarnings()) do
+    for _, warning in ipairs(warnings) do
         local text = warning.kind == "fury"
-            and "In a group or raid where you aren't the tank, a message on screen (and in chat) while Righteous "
-                .. "Fury is on: when it starts, and once as combat starts, at most every 30 seconds."
-            or "In a group or raid where you aren't the tank, a message on screen (and in chat) while your pet's "
-                .. "taunt is on autocast: when it starts, and once as combat starts, at most every 30 seconds."
+            and "Warn on screen while Righteous Fury is on in a group where you are not the tank."
+            or "Warn on screen while your pet's taunt is on autocast in a group where you are not the tank."
         if warning.kind == "petTaunt" then
-            text = text .. "\n\nWith Dyre's Toolkit 2.9.0 or later, the toolkit warns instead (its page, Group "
-                .. "Warnings), and this switch is greyed out."
+            local plain = text
+            text = function()
+                local owner = DBR.PetTauntOwner()
+                if owner then
+                    return plain .. "\n\nGreyed out: " .. DBR.PetTauntOwnerTitle(owner) .. " gives this warning now."
+                end
+                return plain
+            end
         end
         local switch = Flag("DBR_WARN_" .. warning.key:upper(), warning.label, "warnings", warning.key, true, text,
             DBR.RefreshReminders)
-        Nest(switch, master, Enabled)
+        Nest(switch, master, Enabled, {"DBR_ENABLED"})
         -- Checked each time the page draws: the toolkit can claim it later.
         if warning.kind == "petTaunt" and type(switch.AddModifyPredicate) == "function" then
             switch:AddModifyPredicate(function() return not DBR.ToolkitOwnsPetTaunt() end)
@@ -911,20 +1091,102 @@ function DBR.InitializeOptions()
     end
     -- The shared lead only where a buff uses it (author: a Warrior's Battle
     -- Shout has its own, so a second slider would do nothing); db.leadPercent stays.
-    local shared = false
-    for _, reminder in ipairs(DBR.ClassReminders()) do
+    local shared, needed = false, false
+    for _, reminder in ipairs(reminders) do
         shared = shared or not reminder.lead
+        needed = needed or DBR.CanShowOnlyWhenNeeded(reminder)
     end
     if shared then
         AddSharedLead(master, Enabled)
     end
-    AddNotNeededAlpha(master, Enabled)
+    if needed or Own() then
+        AddNotNeededAlpha(master, Enabled)
+    end
     AddMissingStyle(master, Enabled)
+    return true
+end
+
+-- The sections other Dyre's AddOns can show on their own page (Dyre's Toolkit
+-- 2.17.0; John, 2026-11-26: a class AddOn "should surface every setting in
+-- the wrapped addon's settings, and just pass-through the setting"). Each
+-- row reads and writes DBR's own settings, so a change on one page is the
+-- change on the other. Sizes, the aspect bar, consumables, and the cast and
+-- combo chimes stay on DBR's page only.
+local SECTIONS = {
+    -- One name per section (John, 2026-11-27: "let's use the same name
+    -- consistently everywhere"): DBR's headings, the host's sub-page title
+    -- (SettingsSectionTitle), and its top-page switch.
+    {key = "reminders", title = "Reminders", build = AddRemindersSection},
+    {key = "chimes", title = "Chimes", build = AddChimesSection},
+    {key = "procs", title = "Procs", build = AddProcsSection},
+}
+
+-- Builds one section on a page. Every DBR state a row reads exists only
+-- after DBR's own login (a host lists DBR in OptionalDeps, so DBR's comes
+-- first); before it, or for another class, nothing.
+local started = false
+
+local function BuildSection(section, pageCategory, pageLayout, ctx)
+    if not started or not HasSettingsAPI() or type(ctx) ~= "table" or type(ctx.variable) ~= "function"
+            or (ctx.class ~= nil and ctx.class ~= DBR.classFile) then
+        return false
+    end
+    local before = {category, layout, page}
+    category, layout, page = pageCategory, pageLayout, ctx
+    local ok, added = pcall(section.build, ctx.filter)
+    category, layout, page = before[1], before[2], before[3]
+    if not ok then
+        error(added, 0)
+    end
+    return added == true
+end
+
+local function OwnContext(key)
+    local toolkit = DBR.toolkit
+    if type(toolkit) == "table" and type(toolkit.OwnSettingsContext) == "function" then
+        return toolkit.OwnSettingsContext(addonName, key)
+    end
+    return {host = addonName, owner = addonName, key = key, class = DBR.classFile, own = true,
+        variable = function(name) return name end}
+end
+
+-- At ADDON_LOADED, after the saved settings are repaired: a host builds its
+-- page at its own PLAYER_LOGIN. Without Dyre's Toolkit 2.17.0, nothing (the
+-- hosts keep their links to this page).
+function DBR.RegisterSettingsSections()
+    local toolkit = rawget(_G, "DyresToolkit")
+    if type(toolkit) ~= "table" or (tonumber(toolkit.SETTINGS_SECTIONS_VERSION) or 0) < 1
+            or type(toolkit.RegisterSettingsSection) ~= "function" then
+        return false
+    end
+    for _, section in ipairs(SECTIONS) do
+        toolkit.RegisterSettingsSection({addon = addonName, key = section.key, title = section.title,
+            build = function(pageCategory, pageLayout, ctx)
+                return BuildSection(section, pageCategory, pageLayout, ctx)
+            end})
+    end
+    return true
+end
+
+function DBR.InitializeOptions()
+    started = true
+    if not HasSettingsAPI() then
+        return
+    end
+    category, layout = DBR.toolkit.RegisterSettingsCategory(TITLE)
+    if not category then
+        return
+    end
+    local pageCategory, pageLayout = category, layout
+    local function Section(index)
+        BuildSection(SECTIONS[index], pageCategory, pageLayout, OwnContext(SECTIONS[index].key))
+    end
+    Section(1)
     AddReminderSizes()
     AddAspectBarSection()
     AddConsumablesSection()
-    AddChimesSection()
-    AddProcsSection()
+    Section(2)
+    Section(3)
     AddCastsSection()
     AddComboSection()
 end

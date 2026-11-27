@@ -178,6 +178,39 @@ not show means a wrong talent ID: report it with `/dbr debug`.
 
 ## In-client checklist
 
+- [ ] Settings sections, 1.14.0, with Dyre's Toolkit 2.17.0 and an MTF or
+      WTF that uses them: on a Mage, MTF's page shows DBR's buff reminders
+      and cooldown chimes for a Mage (no Open button); turn a chime off
+      there, and it is off on DBR's page and in play; turn it on again from
+      DBR's page. On a Warlock, WTF's page shows Demon Armor and Nightfall.
+      No Lua error, and no "previously registered" error in chat with
+      `/console scriptErrors 1`. Settings search finds a chime name on both
+      pages.
+- [ ] Greying, 1.14.0: on DBR's page, turn Reminders' Enable off: every
+      buff, and every row under a buff ("also your group", "Show only when
+      needed", "Remind before it runs out"), and the reminder icons' size
+      are greyed at once; on again, all bright (a buff that is off keeps its
+      own rows greyed). The same for Chimes' Enable and each spell's sound.
+      With MTF and WTF using parts: their top pages show "Reminders",
+      "Chimes", and "Procs" (the sub-pages have the same names); with one off, the
+      sub-page shows that section's rows greyed, rows under a buff too. WTF
+      shows every Warlock reminder (Demon Armor, Pet, the pet taunt warning),
+      chime, and proc.
+- [ ] Warning box, 1.14.0: a Hunter with Dyre's Threat and Combat Tools,
+      `/dyre unlock`: one "Warning messages" outline only (DCT's, with its
+      sample). Disable DCT in the AddOn list and `/reload`: DBR's outline
+      shows in its saved place. A Paladin keeps DBR's outline, with the
+      sample "Righteous Fury is on"; a Warlock's sample names Torment.
+- [ ] Procs listed, 1.14.0: a Warlock without Nightfall or Decimation opens
+      WTF's Procs page and DBR's Procs section: both procs are listed, greyed,
+      each tooltip ending "Greyed out: you have not learned ... yet."; no
+      banner. Learn Nightfall: its rows turn live, Decimation's stay greyed.
+- [ ] Procs master, 1.14.0, with proc engine 2 (Toolkit 2.17.0): DBR's page
+      shows Procs, then Enable, then each proc's rows (one Procs heading).
+      Enable off: no proc arc or sound (try Nightfall or Clearcasting), the
+      rows greyed; on again, each proc as it was. WTF's top page: "Proc arcs
+      and sounds"; off there, DBR's Enable is off too.
+
 - [ ] With Dyre's Toolkit 2.0 installed: the AddOn list shows DBR under
       "Dyre's AddOns"; Options > AddOns > Dyre's AddOns > Buff Reminders is
       DBR's page (no grid row, no unlock switch: the toolkit's "Unlock
@@ -317,7 +350,7 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       Leave combat: all hidden again. Unlocked: the icon shows, to move it.
       In combat, a dodge brings the Overpower sound and
       a block, dodge, or parry the Revenge sound, once per window; switching
-      each off under Proc Chimes silences it. `/dbr probe off` if the probe is on.
+      each off under Procs silences it. `/dbr probe off` if the probe is on.
 - [ ] Druid, Rebirth reagent: `/dbr debug` prints a `debug reagent rebirth
       rN` line per rank; each shows spellName=Rebirth and the seed's name
       (Maple, Stranglethorn, Ashwood, Hornbeam, Ironwood Seed), and
@@ -552,7 +585,7 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       Sounds, the default chime plays instead. A Druid's Feral Charge (with
       the talent) and Enrage play 0.75 s after the cast, like the forms; the roars, Bash, and Frenzied Regeneration
       only once switched on.
-- [ ] Proc sounds, one class at a time: `/dbr` shows a "Proc Chimes" section
+- [ ] Proc sounds, one class at a time: `/dbr` shows a "Procs" section
       with one row per proc; the sound menu lists only file sounds; choosing
       one plays it. Switch the proc on, get the proc in combat: the sound
       plays. After the fight, while the buff is still on you (or the next time
@@ -567,7 +600,7 @@ One class at a time. Reload after each copy (`/reload` loads new files).
 - [ ] Proc cues, 1.12.0, with Dyre's Toolkit's proc engine (2.11.0) and
       a Warlock Tools Forever that registers Nightfall with it: DBR's
       Nightfall row under Proc Chimes is greyed, and its tooltip says
-      "Played by Warlock Tools Forever with its proc arcs". Get Nightfall:
+      "Warlock Tools Forever plays this sound now". Get Nightfall:
       one sound (the toolkit's), not two. `/dbr debug`: the nightfall line
       ends `owner=WarlockToolsForever` and shows `registered=none`. Without
       Warlock Tools Forever (or with an older toolkit): DBR plays it, as

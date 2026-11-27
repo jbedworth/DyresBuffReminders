@@ -5,6 +5,21 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.14.0
+
+### Features
+
+- **Your Buff Reminders settings on Mage Tools Forever's and Warlock Tools Forever's pages.** With Dyre's Toolkit 2.17.0 or later, those AddOns can show DBR's own switches for your class on their settings pages: the Reminders, the Chimes, and the Procs, all of your class's. They are the same settings as on DBR's page: a change on one page is the change on the other. Sizes, the aspect bar, consumables, and the cast and combo point chimes stay on DBR's page. With an older toolkit or class AddOn, nothing changes: those pages keep their button that opens DBR's page. Where the class AddOn supports it, each section's switch (**Reminders**, **Chimes**, **Procs**) can sit on the class AddOn's top page, and the rest on its sub-page, greyed while that Enable is off.
+
+- **Procs: one switch for every proc arc and sound.** With Dyre's Toolkit 2.17.0 or later, the Procs section starts with **Enable**: off, every proc arc and sound stops; each proc's own switches keep their choices for when you turn it on again. On a class AddOn's top page it is named **Procs**. Every proc of your class is listed, greyed until you learn its talent.
+
+### Fixes
+
+- **One name for each section**: Reminders, Chimes, and Procs, the same on DBR's page and on the class AddOns' pages. The proc sounds section ("Proc Chimes") is now **Procs**.
+- **Pet taunt warning only once**: with Dyre's Threat and Combat Tools installed, Hunters and Warlocks got the pet taunt warning twice, from it and from DBR. DBR now stays quiet whenever another Dyre's AddOn gives that warning, and its switch is greyed out, naming that AddOn. In layout mode, DBR's empty "Warning messages" frame no longer shows while it has no warning to give, and its sample shows your class's own warning (a Paladin's Righteous Fury), not always the pet taunt.
+- **Shorter setting tooltips**: each one now says in one plain sentence what the setting does. The details are in the README.
+- **Settings under a switch that is off are now greyed, all the way down.** Before, with Reminders' Enable off, the buffs were greyed but the rows under them (such as "also your group" and "Show only when needed") stayed bright. The sizes are greyed with their feature off too.
+
 ## 1.13.4
 
 ### Features

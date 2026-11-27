@@ -136,7 +136,6 @@ DBR.BUFFS = {
 -- stays quiet (John, 2026-11-13: "Have DBR check to see if DT is installed,
 -- and if so, supress it's pet taunt warning and depend on DT's").
 DBR.PET_TAUNT_KIND = "warn:petTaunt"
-DBR.PET_TAUNT_OWNER = "DyresToolkit"
 DBR.WARNINGS = {
     PALADIN = {
         {key = "furyOff", label = "Warn: Righteous Fury on when not tanking", kind = "fury", spells = {25780},

@@ -203,19 +203,36 @@ spells that make a warning apply. Ask the author before changing
   to see if DT is installed, and if so, supress it's pet taunt warning and
   depend on DT's. If DT is not installed, keep it's copy for now."). The
   toolkit has DBR 1.5.0's warning (PetTaunt.lua) and claims the Owners kind
-  `warn:petTaunt` (`DBR.PET_TAUNT_KIND`) as "DyresToolkit" at 50.
-  `DBR.ToolkitOwnsPetTaunt`: `toolkit.KindOwner(kind) == "DyresToolkit"`, a
-  feature test, not a version test. While true: no DBR pet taunt message,
+  `warn:petTaunt` (`DBR.PET_TAUNT_KIND`) as "DyresToolkit" at 50. From
+  Toolkit 2.16.0 Dyre's Threat and Combat Tools has the warning and claims
+  the kind as "DyresCombatTools" (its Tank.lua), so a fixed name let both
+  warn (1.14.0 fix). `DBR.PetTauntOwner`: `toolkit.KindOwner(kind)` when it
+  is a name other than DBR's folder; `DBR.ToolkitOwnsPetTaunt` is it being
+  set, a feature test, not a version test. While true: no DBR pet taunt message,
   chat line, or unlocked sample (a Paladin's Righteous Fury warning stays
   DBR's), and `DBR_WARN_*PETTAUNT` is greyed (`AddModifyPredicate`, checked
-  each time the page draws; its tooltip names the toolkit's Group Warnings).
+  each time the page draws; its tooltip, a function, then adds "Greyed
+  out: <title> gives this warning now.", the owner's TOC title, else its
+  folder: `DBR.PetTauntOwnerTitle`).
+  The message box (widget "warnings") hides, frame and all, so the toolkit's
+  outline (its child) goes too, while DBR can give no warning: the reminders
+  off, or every class warning switched off or given by another AddOn
+  (`AnyWarningLive`; John, 2026-11-27, an empty "Warning messages" outline in
+  layout mode beside DCT's: "I can't tell what the top warning messages are
+  from"). Checked at each refresh (an owner change, a setting), on lock and
+  unlock, and when a message fades; never hidden while a message shows. A
+  hidden frame keeps its points, so its place stays. Unlocked, its sample is
+  the first live warning's own message (`SampleText`: "Righteous Fury is on"
+  for a Paladin; the pet taunt with the class's first taunt, Growl or
+  Torment), not always the pet taunt (1.14.0 fix).
   Not `AddSettingsLink`: it opens a member AddOn's page, and the toolkit is
   not a member. Also with the toolkit's switch off: it keeps its claim (off
   means off). A toolkit before 2.9.0 (no `KindOwner`, or no claim) leaves
   DBR's copy on. The toolkit claims at its own login, which can come after
   DBR's, so `SetUpWarnings` listens with `OnOwnerChanged` and schedules a
   refresh (no polling). No toolkit at all: DBR is off anyway (it requires
-  the toolkit). `/dbr debug` says `toolkit=true` for a warning that yields.
+  the toolkit). `/dbr debug` says `owner=<folder>` for a warning that yields (`owner=DBR`
+  otherwise).
 - Running out (author, 1.2.0: "For a buff that lasts 30-60 min, a 0-60
   second reminder might need a bigger window"; for every buff, also group
   members'): a buff runs out while it has at most `db.leadPercent` percent
@@ -747,7 +764,7 @@ spells that make a warning apply. Ask the author before changing
   older WTF whose Nightfall is on while DBR's is on too, DBR warns once at
   login (naming only CurseForge to update) and keeps playing, as it treats
   older MTF and WTF chimes (author's rule, chosen for consistency).
-- Settings: a "Proc Chimes" section (author: renamed from "Procs") (switch "Enable", `DBR_PROCS_ENABLED`) after the chimes, for a class with
+- Settings: a "Procs" section (named "Proc Chimes" from 1.4 to 1.13; John, 2026-11-27: one name per section everywhere) (switch "Enable", `DBR_PROCS_ENABLED`) after the chimes, for a class with
   procs: Enable, then one row per proc (switch and sound, aura filter),
   with the same two-row fallback as the chimes.
 - Steps aside for the toolkit's proc cues (1.12.0; John, 2026-11-18, one
@@ -761,8 +778,8 @@ spells that make a warning apply. Ask the author before changing
   owner when it is not DBR: then `ApplyProcSounds` registers no aura sound
   for it, `Learn` skips it, its row (switch, or the switch-and-sound row)
   gets an `AddModifyPredicate` (greyed), and its tooltip (a function, read
-  when it shows: Settings.InitTooltip calls one) adds "Played by <title>
-  with its proc arcs" (`DBR.ProcOwnerTitle`: the title it joined the
+  when it shows: Settings.InitTooltip calls one) adds "Greyed out: <title>
+  plays this sound now." (`DBR.ProcOwnerTitle`: the title it joined the
   toolkit with, else its folder). Settings still save. A feature test, as
   the Pet Taunt yield: without `PROC_KIND_PREFIX` (no Procs.lua) or
   `KindOwner`, nothing changes. Reactive abilities (Overpower, Revenge) are
@@ -1017,6 +1034,105 @@ no `COMBAT_LOG_EVENT_UNFILTERED` at all now; every feature gates only on APIs.
   Owners.lua and the claim, `lateClaim` lets a test claim after login. No test compares the copy with the toolkit
   (author: "that's a stupid thing to test for a shared resource"); refresh
   the copy when CI needs a newer toolkit.
+
+### Settings sections (built 1.14.0; John, 2026-11-26)
+
+Every label and tooltip is for players (John, 2026-11-27, of another
+AddOn's tooltip that "sounds like an instruction to an agent/dev", then
+"every one of the tooltips seems to start with a good one sentence
+description, but then has nonsensical follow-on text"): ONE plain sentence
+that says what the setting does or what you see; a short second one only
+when a player would otherwise be confused or lose something (Install Dyre's
+Sounds; why a row is greyed, shown only while it is). No how-to tips, combat timing, defaults, versions,
+owners, engines, or history (README has the details). A test checks every
+tooltip on DBR's page for each class: at most two sentences, 160 letters.
+
+John: class AddOns "should surface every setting in the wrapped addon's
+settings, and just pass-through the setting to the wrapped addon"; the same
+settings stay on DBR's own page. Dyre's Toolkit 2.17.0's settings sections
+(../DyresToolkit AGENTS.md "Settings sections"); MTF and WTF are the hosts.
+
+- At ADDON_LOADED, after `LoadDB`, `DBR.RegisterSettingsSections` registers
+  three sections when `SETTINGS_SECTIONS_VERSION` is 1 or more and
+  `RegisterSettingsSection` exists; otherwise nothing (hosts keep their
+  link). The keys are the hosts' contract:
+  - `reminders`: Enable, then the class's buffs with every row under each
+    (group, lead, Show only when needed, Show only in combat, Always show,
+    the Aspect mode and its combat sound), the seal timer, the warnings, then
+    the shared lead (when a shown buff uses it), Visibility when not needed
+    (when a shown buff can use it), and Missing buff. Filter: reminder keys,
+    `seal`, warning keys.
+  - `chimes`: Enable, Chime early, each spell with its sound. Filter: chime
+    keys.
+  - `procs`: Proc Chimes (Enable, each proc and its sound), or with proc
+    engine 2 the toolkit's `AddProcSettings` rows and the SpellActivationOverlay
+    switch. Filter: proc keys (`opts.keys` to the toolkit). On a host the
+    toolkit's rows need `SETTINGS_SECTIONS_VERSION` 2 (`opts.variable`), else
+    the section returns false and the host keeps its link.
+  - A filter is nil (every row of the class), a list of keys, or one key.
+    WTF passes none from 1.14.0 (all Warlock reminders, the pet and its taunt
+    warning, every chime and proc; tested).
+- One builder per section serves both pages (`BuildSection`): it swaps
+  Options.lua's `category`, `layout`, and `page` (the context) while it
+  builds, and puts them back (an error is raised again, not swallowed). Every
+  setting variable goes through `Var` (`Register`, `NotifyUpdate`): on a host
+  `DYRE_<HOST>__<name>`, on DBR's page unchanged. DBR's page builds its
+  sections with `OwnSettingsContext` (or the same context by hand on an older
+  toolkit) in the same order as before.
+- A host section has no heading (the host names it); DBR's page keeps its
+  headings. Every proc of the class is listed, on every page (John,
+  2026-11-27: "I expect to see every setting available for warlocks, but
+  only enabled if I have it. Not a generic banner"): Toolkit 2.17.0's
+  `AddProcSettings` always shows its header, master, rows, and arc size rows,
+  and greys a proc's rows while its talent is unknown (the size rows while
+  none is). DBR hides nothing until a talent is known and adds no banner
+  (an empty host page from hidden rows was the bug that led here). Reminders,
+  chimes, and Proc Chimes rows never waited for a spell. A host section with nothing to show (another class, a filter
+  that lists nothing of the class) adds no rows and returns false.
+- Every row reads DBR state made at DBR's login (`ClassReminders`, the proc
+  engine, Dyre's Sounds); the hosts list DBR in OptionalDeps, so DBR's login
+  comes first. Before it (`started`), or for a context of another class, a
+  build returns false. Get, set, and predicates read the live tables.
+- Sizes, the aspect bar, consumables, cast chimes, and combo point chimes are
+  DBR's page only (no section).
+- Parts (Toolkit settings sections 3; John, 2026-11-27: "the top-level
+  disable for each section should be on the top-level MTF panel"):
+  `ctx.part` "all" (DBR's page), "master" (only the section's Enable:
+  `DBR_ENABLED`, `DBR_CHIMES_ENABLED`, `DBR_PROCS_ENABLED` (Proc Chimes), or
+  with proc engine 2 the toolkit's master (`AddProcMasterSetting`,
+  `DYRE_DYRESBUFFREMINDERS_PROCS_ENABLED`, `procCues.enabled`; John,
+  2026-11-27: "Add the Procs master switch"; feature-tested, else false);
+  there they sit together, each named as its section, "Reminders",
+  "Chimes", "Procs" (John, 2026-11-27: "let's use the same name consistently
+  everywhere"; the registered titles, `SettingsSectionTitle`, and DBR's
+  headings are the same words), with the same one-sentence
+  tooltip as on DBR's page (no note: the host's sub-page sits right under
+  it; John, 2026-11-27); "Enable" on DBR's page. With engine 2 and part "all",
+  `AddProcSettings` draws the "Procs" heading (DBR's page only; `header =
+  false` on a host), then the master (`opts.master = {label = "Enable"}`),
+  then the rows; the toolkit greys its rows while the master is off and
+  watches its variable), "rest" (all but the Enable; the rows that hang
+  under it get its predicate as a modify predicate, as the parent is not on
+  that page). Before 3, no part: "all".
+- Greying (John, 2026-11-27: "when the top-level is off, the settings that
+  are controlling a disabled feature should be disabled too"; "This one only
+  disables some"): every row's predicate checks its whole chain (each switch
+  above it and the section's Enable). Blizzard re-checks a row only when its
+  direct parent's setting changes (Blizzard_SettingControls.lua,
+  SettingsListElementMixin:Init and OnParentSettingValueChanged; the panel's
+  RepairDisplay only adds and removes rows), so `Register` wraps each setter:
+  after a change, `Cascade` calls `Settings.NotifyUpdate` for every row under
+  it that has rows of its own, down the tree (`Nest` records the rows). The
+  sizes take the predicate of their feature (`WidgetSettings`: the toolkit's
+  `opts.modify`, ignored before 3; DBR's own icon size rows a modify
+  predicate). A row with no parent row on its page (the sizes; on a host's
+  "rest" page, each row under the section switch) also watches its switches
+  (`Watch`, Toolkit's `WatchSettings`, Blizzard's AddEvaluateStateCVar on any
+  setting variable; `opts.watch` on the toolkit's rows), so it greys live,
+  not only on a redraw. A greyed button keeps its gold label on Forever
+  (John, 2026-11-27: "the inconsistent label enable/disable"), so DBR's own
+  button (the reminder icons' Reset size) goes through the toolkit's
+  `GreyButtonLabel` (feature-tested); the toolkit's own buttons already do.
 
 ### Dyre's Toolkit profile (built 1.10.0; John, 2026-11-17)
 

@@ -120,7 +120,7 @@ local REQUIRED_NAMESPACE = {
     "InitializeCombo", "PreviewCombo", "ReportComboDebug",
     "ReportCastsDebug", "ReportProcsDebug", "OtherProcs", "ReportOtherProcs", "AddOnLoaded",
     "StandsAside", "SetProbe", "ProbeOn", "ProbeOff", "InitializeProbe", "ReportProbeDebug",
-    "InitializeOptions", "OpenSettings",
+    "InitializeOptions", "OpenSettings", "RegisterSettingsSections",
 }
 -- Client APIs the reminders cannot work without. Range checks and reagent
 -- counts are optional: without them, DBR assumes in range and no reagent.
@@ -441,6 +441,10 @@ events:SetScript("OnEvent", function(self, event, loadedName)
         if loadedName == addonName then
             self:UnregisterEvent("ADDON_LOADED")
             LoadDB()
+            -- Dyre's Toolkit 2.17.0: MTF and WTF show DBR's rows on their pages.
+            if type(DBR.RegisterSettingsSections) == "function" then
+                DBR.RegisterSettingsSections()
+            end
         end
         return
     end

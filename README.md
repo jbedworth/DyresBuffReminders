@@ -352,6 +352,11 @@ AddOn's reminder settings once (see above). An older MTF or WTF may still
 show its own reminders or play its own chimes; DBR says so once at login, and
 you can turn them off in MTF or WTF.
 
+With Dyre's Toolkit 2.17.0 or later, MTF and WTF can show DBR's settings for
+your class on their own pages: the buff reminders, the cooldown chimes, and
+the procs. They are the same settings as on DBR's page, so a change on one
+page is the change on the other.
+
 ## Commands
 
 | Command | What it does |
