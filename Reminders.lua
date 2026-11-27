@@ -407,6 +407,14 @@ function DBR.SanitizeReminders(db, sanitizePosition)
             if reminder.prefer and type(last[key]) == "string" then
                 db.last[key] = last[key]
             end
+            if reminder.weaponEnchant then
+                if type(last[key .. "_mh"]) == "string" then
+                    db.last[key .. "_mh"] = last[key .. "_mh"]
+                end
+                if type(last[key .. "_oh"]) == "string" then
+                    db.last[key .. "_oh"] = last[key .. "_oh"]
+                end
+            end
         end
     end
 end
@@ -477,6 +485,104 @@ function DBR.AuraRestriction()
         end
     end
     return nil
+end
+
+-- Whether inventory slot 16 (main hand) or 17 (off-hand) holds an imbueable
+-- weapon (excludes shields, held-in-offhand frills, and fishing poles).
+local function HasWeaponInSlot(slot)
+    local itemID = GetInventoryItemID("player", slot)
+    if DBR.IsSecret(itemID) or type(itemID) ~= "number" then
+        return false
+    end
+    if type(C_Item) == "table" and type(C_Item.GetItemInfoInstant) == "function" then
+        local _, _, _, _, _, classID, subclassID = C_Item.GetItemInfoInstant(itemID)
+        -- Enum.ItemClass.Weapon (2); exclude Fishing Poles (subclass 20)
+        if classID ~= 2 or subclassID == 20 then
+            return false
+        end
+    end
+    return true
+end
+
+-- Picks the last imbue cast on the given hand ("mh" or "oh"), falling back
+-- to the general last imbue or reminder.prefer.
+local function WeaponImbueSpell(reminder, hand)
+    local last = (hand and DBR.db.last[reminder.key .. "_" .. hand]) or DBR.db.last[reminder.key]
+    if last and reminders.spellNames[last] == reminder.key then
+        for _, id in ipairs(reminder.spells) do
+            if Knows(id) and C_Spell.GetSpellName(id) == last then
+                return last
+            end
+        end
+    end
+    return SingleSpell(reminder)
+end
+
+-- Out of combat only: inspects main hand (16) and off-hand (17) via
+-- GetWeaponEnchantInfo(). Returns:
+--   hasAnyWeapon (boolean),
+--   missingHands (list of {hand="mh"|"oh", label="main hand"|"off-hand", soon=bool, expires=num, duration=num}),
+--   earliest (table {expires, duration} for the hand expiring soonest, or nil),
+--   nextHand ("mh" or "oh" that a click should buff next).
+local function WeaponEnchantStatus(reminder)
+    local hasMH = HasWeaponInSlot(16)
+    local hasOH = HasWeaponInSlot(17)
+    if not hasMH and not hasOH then
+        return false, {}, nil, "mh"
+    end
+    local mhUp, mhExp, _, _, ohUp, ohExp = GetWeaponEnchantInfo()
+    if DBR.IsSecret(mhUp) or DBR.IsSecret(ohUp) then
+        return true, {}, nil, "mh"
+    end
+    local duration = reminder.duration
+    local lead = LeadSeconds(reminder, duration)
+    local now = GetTime()
+    local missing, earliest, nextHand = {}, nil, nil
+
+    local function CheckHand(equipped, up, expMs, hand, label)
+        if not equipped then
+            return
+        end
+        if not up then
+            missing[#missing + 1] = {hand = hand, name = label, soon = false}
+            if not nextHand then
+                nextHand = hand
+            end
+            return
+        end
+        if DBR.IsSecret(expMs) or type(expMs) ~= "number" or expMs <= 0 then
+            return
+        end
+        local left = expMs / 1000
+        local expires = now + left
+        if not earliest or expires < earliest.expires then
+            earliest = {expires = expires, duration = duration}
+        end
+        if left <= lead + TIMER_SLACK then
+            missing[#missing + 1] = {hand = hand, name = label, soon = true, expires = expires, duration = duration}
+            if not nextHand then
+                nextHand = hand
+            end
+        else
+            local due = left - lead
+            if not reminders.nextCheck or due < reminders.nextCheck then
+                reminders.nextCheck = due
+            end
+        end
+    end
+
+    CheckHand(hasMH, mhUp, mhExp, "mh", "main hand")
+    CheckHand(hasOH, ohUp, ohExp, "oh", "off-hand")
+
+    if not nextHand then
+        -- Both up and outside lead: if OH expires sooner than MH, arm OH first; else MH.
+        if hasMH and hasOH and type(mhExp) == "number" and type(ohExp) == "number" and ohExp < mhExp then
+            nextHand = "oh"
+        else
+            nextHand = hasMH and "mh" or "oh"
+        end
+    end
+    return true, missing, earliest, nextHand
 end
 
 -- Out of combat only. "on", "soon" (runs out within the lead time), or
@@ -1431,6 +1537,48 @@ function DBR.RefreshReminders()
                 SetDriver(icon, PET_DRIVER)
             end
             StopWarn(reminder.key)
+        elseif reminder.weaponEnchant and countable and canCheck then
+            local hasWeapon, missing, earliest, nextHand = WeaponEnchantStatus(reminder)
+            if not hasWeapon then
+                ApplyClick(icon, reminder, nil)
+                ShowIcon(icon, false)
+                SetDriver(icon, HIDDEN_DRIVER)
+                SetBorder(icon, nil)
+                StopWarn(reminder.key)
+            else
+                reminders.timed[reminder.key] = "player"
+                reminders.seen[reminder.key] = earliest
+                icon.missing = MissingNames(missing, false)
+                icon.soon = MissingNames(missing, true)
+                local spell = WeaponImbueSpell(reminder, nextHand)
+                local handLabel = nextHand == "oh" and "off-hand" or "main hand"
+                local action = spell and {cast = spell, spell = spell, unit = "player", name = handLabel,
+                    armed = #missing == 0} or nil
+                ApplyClick(icon, reminder, action)
+                Raise(icon, holder, true)
+                if #missing > 0 then
+                    local lacking = #icon.missing > 0
+                    ShowIcon(icon, true, #missing)
+                    ShowTimeLeft(icon, missing)
+                    SetDriver(icon, SHOWN_DRIVER)
+                    SetBorder(icon, lacking and RED or nil)
+                    if lacking then
+                        StopWarn(reminder.key)
+                    elseif earliest then
+                        ScheduleWarn(reminder, earliest.expires, earliest.duration)
+                    end
+                else
+                    ShowIcon(icon, true, nil)
+                    SetDriver(icon, upDriver)
+                    icon:SetAlpha(faint)
+                    SetBorder(icon, nil)
+                    if earliest then
+                        ScheduleWarn(reminder, earliest.expires, earliest.duration)
+                    else
+                        StopWarn(reminder.key)
+                    end
+                end
+            end
         elseif countable and canCheck then
             local missing = Missing(reminder)
             icon.missing, icon.soon = MissingNames(missing, false), MissingNames(missing, true)
@@ -1707,6 +1855,15 @@ local function RememberCast(spellID)
     local key = reminders.spellKeys[spellID] or (name and reminders.spellNames[name])
     if key then
         DBR.db.last[key] = name
+        if key == "weaponImbue" and not InCombatLockdown() then
+            local mhUp = GetWeaponEnchantInfo()
+            -- If MH was already enchanted (or no MH equipped), the imbue went on OH.
+            if (not HasWeaponInSlot(16) or mhUp) and HasWeaponInSlot(17) then
+                DBR.db.last[key .. "_oh"] = name
+            else
+                DBR.db.last[key .. "_mh"] = name
+            end
+        end
         -- The click and its picture change with it (after combat, in combat).
         ScheduleRefresh()
     end
@@ -1874,10 +2031,12 @@ local function CreateBuffWidget(reminder, row, index, count)
     reminders.widgets[reminder.key] = holder
     -- A pet has no aura for the slot to draw; the Aspect reminder shows only
     -- when there is a problem, so it has none either.
-    if reminders.container and not reminder.pet and not aspect then
+    if reminders.container and not reminder.pet and not aspect and not reminder.weaponEnchant then
         holder.slot = CreateSlot(reminder, holder, icon)
         holder.slotAlpha = SlotAlpha(reminder)
         holder.warn = CreateWarn(holder, holder.slot)
+    elseif reminder.weaponEnchant then
+        holder.warn = CreateWarn(holder, icon)
     end
     DBR.toolkit.CreateWidget({
         addon = addonName, key = "buff_" .. reminder.key, title = reminder.label, frame = holder,
@@ -1940,7 +2099,7 @@ end
 local function WindowReminders()
     local list = {}
     for _, reminder in ipairs(reminders.list) do
-        if Windowed(reminder) and reminders.widgets[reminder.key] and reminders.container then
+        if Windowed(reminder) and reminders.widgets[reminder.key] and (reminders.container or reminder.weaponEnchant) then
             list[#list + 1] = reminder
         end
     end
@@ -2028,8 +2187,11 @@ local function OwnCast(name)
                 local expires = GetTime() + duration
                 reminders.seen[key] = {expires = expires, duration = duration}
                 local icon = reminders.icons[key]
-                if icon.redAtEnd then
+                if icon.redAtEnd or reminder.weaponEnchant then
                     icon.glow:SetAlpha(0)
+                    if icon.alert then
+                        ShowAlert(icon, false)
+                    end
                     icon.timeLeft:SetCooldown(GetTime(), duration)
                 end
                 ScheduleWarn(reminder, expires, duration)
@@ -2117,6 +2279,9 @@ local function SetUp()
         if reminder.pet then
             -- The pet came or went: the click (Revive Pet) and the sacrifice.
             events:RegisterUnitEvent("UNIT_PET", "player")
+        end
+        if reminder.weaponEnchant then
+            events:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
         end
     end
     DBR.RefreshReminders()
@@ -2512,7 +2677,17 @@ function DBR.ReportRemindersDebug()
             end
         end
         local missing = "not checked in combat"
-        if reminder.pet then
+        if reminder.weaponEnchant then
+            local mhUp, mhExp, _, mhID, ohUp, ohExp, _, ohID = GetWeaponEnchantInfo()
+            missing = string.format("mh=%s(%s,%ss,id=%s) oh=%s(%s,%ss,id=%s) lastMH=%s lastOH=%s",
+                tostring(HasWeaponInSlot(16)), DBR.Describe(mhUp),
+                not DBR.IsSecret(mhExp) and type(mhExp) == "number" and string.format("%d", mhExp / 1000) or "none",
+                DBR.Describe(mhID),
+                tostring(HasWeaponInSlot(17)), DBR.Describe(ohUp),
+                not DBR.IsSecret(ohExp) and type(ohExp) == "number" and string.format("%d", ohExp / 1000) or "none",
+                DBR.Describe(ohID),
+                tostring(DBR.db.last[reminder.key .. "_mh"]), tostring(DBR.db.last[reminder.key .. "_oh"]))
+        elseif reminder.pet then
             local exists = UnitExists("pet")
             missing = "pet=" .. DBR.Describe(exists) .. " sacrificed=" .. tostring(Sacrificed(reminder))
         elseif DBR.AuraRestriction() then
@@ -2526,7 +2701,7 @@ function DBR.ReportRemindersDebug()
             tostring(Known(reminder)), tostring(icon and icon:IsShown()), missing,
             action and (tostring(action.cast) .. "@" .. tostring(action.unit)) or "none",
             #unknown > 0 and table.concat(unknown, ",") or "none", tostring(DBR.db.last[reminder.key])))
-        if not reminder.pet and not InCombatLockdown() then
+        if not reminder.pet and not reminder.weaponEnchant and not InCombatLockdown() then
             ReportAuraReads(reminder)
         end
     end

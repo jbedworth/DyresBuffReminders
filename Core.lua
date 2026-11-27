@@ -128,7 +128,7 @@ local REQUIRED_APIS = {
     {"C_SpellBook", "IsSpellKnown"}, {"C_Spell", "GetSpellName"}, {"C_Spell", "GetSpellTexture"},
     {"C_UnitAuras", "GetAuraDataBySpellName"}, {nil, "RegisterStateDriver"}, {nil, "InCombatLockdown"},
     {nil, "UnitClass"}, {nil, "UnitExists"}, {nil, "UnitIsUnit"}, {nil, "IsInGroup"}, {nil, "IsInRaid"},
-    {"C_Timer", "After"}, {nil, "GetTime"},
+    {"C_Timer", "After"}, {nil, "GetTime"}, {nil, "GetWeaponEnchantInfo"},
 }
 
 local function CheckInstalledFiles()
