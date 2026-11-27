@@ -495,7 +495,10 @@ spells that make a warning apply. Ask the author before changing
   `db.aspectBar`: `enabled`, default on (author decision, John,
   2026-11-13: "make it on by default for hunters", replacing the first
   build's default off; only a saved false turns it off, and other classes
-  get no bar, sample, or settings rows); `vertical`, default off; place, scale,
+  get no bar, sample, or settings rows); `orientation`, "vertical" or nil
+  (horizontal, the default; 1.15.0, the toolkit's button bar key: DBR 1.8.0
+  to 1.14.0's `vertical = true` moves to it once, in `SanitizeAspectBar`,
+  and is dropped); place, scale,
   opacity; Size 50-200%). Only known aspects show, packed in order; a click is
   "/use !<Name>" (as the Aspect reminder: "!" never toggles it off). Made,
   placed, armed, shown, and hidden out of combat only: SPELLS_CHANGED (a new
@@ -505,7 +508,16 @@ spells that make a warning apply. Ask the author before changing
   Hidden while dead or on a taxi (a secret answer counts as alive and not on
   a taxi); mounted: shown. Unlocked: shown, no clicks; with no aspect known,
   Hawk as a sample. Content size per shown button, 36 and 4 apart, from the
-  LEFT edge (vertical: the TOP edge). Default place CENTER (0, 72): under My
+  LEFT edge (vertical: the TOP edge). With Toolkit 2.18.0's button bars
+  (`BAR_LAYOUT_VERSION` 1, a feature test, `DBR.AspectBarUsesToolkitLayout`):
+  `frame:LayoutButtons(shown, {size 36, gap 4, anchor "TOPLEFT"})` places them
+  (TOPLEFT points) and sizes the bar; one anchor, because the toolkit keeps it
+  when the settings page changes the layout, and the top-left corner keeps
+  both the row's left edge and the column's top. Without it, DBR's own code
+  as above (John, 2026-11-27: button bars horizontal or vertical are a
+  Toolkit feature). In combat, every event but UNIT_AURA and the end of
+  combat marks the bar dirty (1.15.0 fix: an aspect learned in combat waited
+  for the next event). Default place CENTER (0, 72): under My
   buffs' row at 130, the toolkit's snap gap apart; vertical grows down from
   its top. A test checks it clears every other DBR widget of a Hunter.
 - The border (a plain BackdropTemplate frame inside the button, shown by
@@ -580,7 +592,10 @@ spells that make a warning apply. Ask the author before changing
   center stays) and dropped. `/dbr debug`: `debug aspectReminder mode=
   state= problem= driver= macro= sound=`.
 - Settings: heading "Aspect bar" after the reminder sizes: "Enable"
-  (`DBR_ASPECT_BAR`), "Vertical" nested, then the toolkit's AddWidgetSettings
+  (`DBR_ASPECT_BAR`), then nested under it the toolkit's "Layout" row
+  (`AddBarLayoutSetting`, Horizontal or Vertical; 1.15.0), or before Toolkit
+  2.18.0 DBR's own "Vertical" (`DBR_ASPECT_BAR_VERTICAL`, the same
+  `orientation`), then the toolkit's AddWidgetSettings
   ("Aspect bar: size", "Aspect bar: opacity", Reset size). Independent of the
   reminders' Enable (as the Consumables). Each button is wrapped for the
   Aspect reminder (above). `/dbr debug`: `debug aspectBar`.

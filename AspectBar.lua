@@ -51,8 +51,31 @@ function DBR.SanitizeAspectBar(saved, sanitizePosition)
     saved = type(saved) == "table" and saved or {}
     -- On at first for Hunters (John, 2026-11-13: "make it on by default for
     -- hunters"); only a saved false turns it off. The toolkit clamps the sizes.
-    return {enabled = saved.enabled ~= false, vertical = saved.vertical == true,
+    -- The layout is the toolkit's `orientation` ("vertical", else nil:
+    -- horizontal; Toolkit 2.18.0's button bars). DBR 1.8.0 to 1.14.0 saved
+    -- `vertical = true`: moved once, then dropped, so a later horizontal stays.
+    local orientation = saved.orientation
+    if orientation == nil and saved.vertical == true then
+        orientation = "vertical"
+    end
+    return {enabled = saved.enabled ~= false, orientation = orientation == "vertical" and "vertical" or nil,
         position = sanitizePosition(saved.position), scale = saved.scale, opacity = saved.opacity}
+end
+
+-- Toolkit 2.18.0's button bars (a feature test): the toolkit lays the
+-- buttons out and gives the Layout row; before it, DBR's own code below.
+local function ToolkitLayout()
+    local toolkit = DBR.toolkit
+    return type(toolkit) == "table" and type(toolkit.BAR_LAYOUT_VERSION) == "number"
+        and toolkit.BAR_LAYOUT_VERSION >= 1 and bar.frame ~= nil and type(bar.frame.LayoutButtons) == "function"
+end
+DBR.AspectBarUsesToolkitLayout = ToolkitLayout
+
+function DBR.AspectBarVertical()
+    if ToolkitLayout() then
+        return bar.frame:GetOrientation() == "vertical"
+    end
+    return DBR.db.aspectBar.orientation == "vertical"
 end
 
 local function Plain(value)
@@ -162,13 +185,17 @@ function DBR.RefreshAspectBar()
         button:SetAttribute("type1", nil)
         button:SetAttribute("macrotext1", nil)
     end
+    local toolkitLayout = ToolkitLayout()
+    local vertical = DBR.AspectBarVertical()
     for index, button in ipairs(shown) do
-        local offset = (index - 1) * (BUTTON_SIZE + BUTTON_GAP)
-        button:ClearAllPoints()
-        if saved.vertical then
-            button:SetPoint("TOP", bar.frame, "TOP", 0, -offset)
-        else
-            button:SetPoint("LEFT", bar.frame, "LEFT", offset, 0)
+        if not toolkitLayout then
+            local offset = (index - 1) * (BUTTON_SIZE + BUTTON_GAP)
+            button:ClearAllPoints()
+            if vertical then
+                button:SetPoint("TOP", bar.frame, "TOP", 0, -offset)
+            else
+                button:SetPoint("LEFT", bar.frame, "LEFT", offset, 0)
+            end
         end
         -- Dragging must not cast.
         if visible and not unlocked and button.spell then
@@ -177,11 +204,18 @@ function DBR.RefreshAspectBar()
         end
         button:Show()
     end
-    local length = math.max(#shown, 1) * BUTTON_SIZE + math.max(#shown - 1, 0) * BUTTON_GAP
-    if saved.vertical then
-        bar.frame:SetContentSize(BUTTON_SIZE, length, "TOP")
+    if toolkitLayout then
+        -- The top-left corner stays as the bar grows: the left edge of a row,
+        -- the top of a column, as before (one anchor, because the toolkit
+        -- keeps it for a change of layout made on the settings page).
+        bar.frame:LayoutButtons(shown, {size = BUTTON_SIZE, gap = BUTTON_GAP, anchor = "TOPLEFT"})
     else
-        bar.frame:SetContentSize(length, BUTTON_SIZE, "LEFT")
+        local length = math.max(#shown, 1) * BUTTON_SIZE + math.max(#shown - 1, 0) * BUTTON_GAP
+        if vertical then
+            bar.frame:SetContentSize(BUTTON_SIZE, length, "TOP")
+        else
+            bar.frame:SetContentSize(length, BUTTON_SIZE, "LEFT")
+        end
     end
     bar.frame:SetShown(visible)
     bar.shown = #shown
@@ -259,6 +293,13 @@ events:SetScript("OnEvent", function(_, event, _, _, spellID)
         return
     end
     if InCombatLockdown() then
+        -- A new aspect or rank, death, a flight path: the buttons change
+        -- after combat (before 1.15.0 only a settings change in combat
+        -- marked this, so an aspect learned in combat waited for the next
+        -- event). Aura reads are refused in combat: casts move the border.
+        if event ~= "UNIT_AURA" and event ~= "PLAYER_REGEN_ENABLED" then
+            bar.dirty = true
+        end
         return
     end
     if event == "PLAYER_REGEN_ENABLED" then
@@ -342,7 +383,7 @@ function DBR.ReportAspectBarDebug()
         end
     end
     DBR.Report(string.format("debug aspectBar on=%s vertical=%s known=%s active=%s shown=%s dirty=%s unknownIDs=%s",
-        tostring(DBR.db.aspectBar.enabled), tostring(DBR.db.aspectBar.vertical),
+        tostring(DBR.db.aspectBar.enabled), tostring(DBR.AspectBarVertical()),
         #known > 0 and table.concat(known, ",") or "none", tostring(bar.active), tostring(bar.frame:IsShown()),
         tostring(bar.dirty == true), #unknown > 0 and table.concat(unknown, ",") or "none"))
 end

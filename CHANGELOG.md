@@ -5,6 +5,16 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.15.0
+
+### Features
+
+- **Aspect bar: Layout, Horizontal or Vertical.** With Dyre's Toolkit 2.18.0 or later, the aspect bar's **Vertical** checkbox is now a **Layout** dropdown, the same one every Dyre's button bar has. Your choice is kept. With an older toolkit, the **Vertical** checkbox stays.
+
+### Fixes
+
+- **Aspect bar**: an aspect or rank you learn during a fight now shows on the bar when the fight ends. Before, it waited for the next change.
+
 ## 1.14.0
 
 ### Features

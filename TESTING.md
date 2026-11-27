@@ -304,6 +304,11 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       outlined, a click on a button casts nothing, and a drag moves it; at
       first it sits under the Aspect and Pet icons, clear of them and of the
       Consumables bar. **Vertical** stacks it downward.
+- [ ] Aspect bar layout, 1.15.0, with Dyre's Toolkit 2.18.0: a Hunter who
+      had **Vertical** on in 1.14 sees **Layout: Vertical** under **Enable**
+      after the update, the bar still a column. Set **Horizontal**: a row,
+      its left edge where the column's top-left was; `/reload` keeps it. Learn
+      an aspect in a fight: it shows when the fight ends.
 - [ ] Missing buff, 1.13.1 (a Warlock without Demon Armor, out of combat):
       the icon shows the action bars' proc glow, around the icon, and no red
       edge. Put Demon Armor on: no glow (the game's buff icon covers ours).

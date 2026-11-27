@@ -159,7 +159,7 @@ AddOns read buffs then. An aspect or rank you learn in combat shows after
 the fight. The bar hides while you are dead or on a flight path and shows
 while mounted.
 
-It is on at first. **Enable** under **Aspect bar** in `/dbr` turns it off; **Vertical** stacks the buttons top to bottom, and **Aspect bar:
+It is on at first. **Enable** under **Aspect bar** in `/dbr` turns it off; **Layout** (Horizontal or Vertical; **Vertical** with a Dyre's Toolkit before 2.18.0) lays the buttons out in a row or a column, and **Aspect bar:
 size** and **opacity** size it. It sits under your buff icons at first; move
 it with `/dbr unlock`. A click on an aspect bar button in a fight also
 hides or shows the Aspect reminder.

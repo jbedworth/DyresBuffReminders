@@ -801,8 +801,9 @@ local function AddCombatAspect(combat)
     Nest(dropdown, switch, function() return CombatOn() and saved.soundOn end)
 end
 
--- The aspect bar (1.8.0), for a Hunter: Enable (on at first), Vertical,
--- then its Size and Opacity (the toolkit's sliders).
+-- The aspect bar (1.8.0), for a Hunter: Enable (on at first), Layout
+-- (Toolkit 2.18.0's row, "Horizontal" or "Vertical", as every Dyre's button
+-- bar; before it, DBR's own Vertical), then its Size and Opacity.
 local function AddAspectBarSection()
     local widget = DBR.AspectBarWidget()
     if not widget then
@@ -812,10 +813,22 @@ local function AddAspectBarSection()
     local saved = DBR.db.aspectBar
     local master = Flag("DBR_ASPECT_BAR", "Enable", "aspectBar", "enabled", true,
             "Show a bar with a button for each aspect you know; click one to swap to it.", DBR.RefreshAspectBar)
-    local vertical = Flag("DBR_ASPECT_BAR_VERTICAL", "Vertical", "aspectBar", "vertical", false,
-            "Stack the buttons top to bottom instead of left to right.",
-        DBR.RefreshAspectBar)
-    Nest(vertical, master, function() return saved.enabled end)
+    local function Enabled() return saved.enabled end
+    if DBR.AspectBarUsesToolkitLayout() and type(DBR.toolkit.AddBarLayoutSetting) == "function" then
+        local row = DBR.toolkit.AddBarLayoutSetting(category, layout, widget,
+            {variable = Var, tooltip = "Lay the aspect buttons out in a row or a column."})
+        Nest(row, master, Enabled)
+    else
+        local vertical = Register("DBR_ASPECT_BAR_VERTICAL", Settings.VarType.Boolean, "Vertical", false,
+            function() return saved.orientation == "vertical" end,
+            function(value)
+                saved.orientation = value and "vertical" or nil
+                DBR.RefreshAspectBar()
+            end)
+        local row = Settings.CreateCheckbox(category, vertical,
+            "Stack the buttons top to bottom instead of left to right.")
+        Nest(row, master, Enabled)
+    end
     WidgetSettings(widget, {scale = "Aspect bar: size", opacity = "Aspect bar: opacity"},
         function() return saved.enabled end, {"DBR_ASPECT_BAR"})
 end

@@ -1126,6 +1126,15 @@ local function fixture(options)
                 chunk("DyresToolkit", state.toolkitNS)
             end
         end
+        -- Macros.lua (OutOfCombat, which Toolkit 2.18.0's LayoutButtons calls),
+        -- when the toolkit folder has it; the copy in tests/toolkit has not.
+        local macros = io.open(TOOLKIT_DIR .. "Macros.lua", "rb")
+        if macros then
+            macros:close()
+            local chunk = assert(loadfile(TOOLKIT_DIR .. "Macros.lua"))
+            setfenv(chunk, env)
+            chunk("DyresToolkit", state.toolkitNS)
+        end
         -- An older toolkit had no Profile section either: its Core (2.16.0) calls
         -- Profiles.lua's AddProfileSettings at login.
         if options.toolkitBefore210 then
@@ -5798,7 +5807,10 @@ local function shownAspects(state)
         local button = aspectButton(state, key)
         if button.shown then
             local point = button.points[#button.points]
-            list[#list + 1] = {key = key, offset = point[1] == "TOP" and -point[5] or point[4], at = point[1]}
+            -- DBR's own layout: TOP (a column) or LEFT (a row); Toolkit
+            -- 2.18.0's: TOPLEFT, x for a row, -y for a column.
+            list[#list + 1] = {key = key, offset = (point[4] or 0) - (point[5] or 0), at = point[1],
+                vertical = point[1] == "TOP" or (point[5] or 0) < 0}
         end
     end
     table.sort(list, function(a, b) return a.offset < b.offset end)
@@ -5815,6 +5827,19 @@ local function glowing(state)
 end
 local function aspectBarOn(state)
     state.settings.DBR_ASPECT_BAR:SetValue(true)
+end
+-- Toolkit 2.18.0's button bars (BAR_LAYOUT_VERSION 1): its Layout row;
+-- before it, DBR's own Vertical.
+local LAYOUT_ROW = "DYRE_DYRESBUFFREMINDERS_ASPECTBAR_ORIENTATION"
+local function barLayout(state)
+    return type(state.toolkit.BAR_LAYOUT_VERSION) == "number" and state.toolkit.BAR_LAYOUT_VERSION >= 1
+end
+local function setVertical(state, value)
+    if barLayout(state) then
+        state.settings[LAYOUT_ROW]:SetValue(value and "vertical" or "horizontal")
+    else
+        state.settings.DBR_ASPECT_BAR_VERTICAL:SetValue(value)
+    end
 end
 
 test("Aspect bar: a new Hunter gets it on; other classes get no bar, sample, or settings", function()
@@ -5838,6 +5863,7 @@ test("Aspect bar: a new Hunter gets it on; other classes get no bar, sample, or 
         equal(other.env.DyresBuffRemindersAspect_hawk, nil, class .. ": no sample")
         equal(other.row("DBR_ASPECT_BAR"), nil, class .. ": no Enable row")
         equal(other.row("DBR_ASPECT_BAR_VERTICAL"), nil, class .. ": no Vertical row")
+        equal(other.row(LAYOUT_ROW), nil, class .. ": no Layout row")
         equal(other.row("DYRE_DYRESBUFFREMINDERS_ASPECTBAR_SCALE"), nil, class .. ": no size row")
         for _, heading in ipairs(other.headings) do
             equal(heading.heading ~= "Aspect bar", true, class .. ": no heading")
@@ -5872,7 +5898,8 @@ test("Aspect bar: a button per aspect you know, in order, each casting /use !Nam
     -- Saved settings are repaired; another class has no bar and no section.
     local repaired = hunterFixture({db = {aspectBar = {enabled = "yes", vertical = 1, position = "x"}}})
     equal(repaired.dbr.db.aspectBar.enabled, true, "damaged: back to on")
-    equal(repaired.dbr.db.aspectBar.vertical, false)
+    equal(repaired.dbr.db.aspectBar.orientation, nil, "a damaged vertical: horizontal")
+    equal(repaired.dbr.db.aspectBar.vertical, nil, "the old key is dropped")
     equal(type(repaired.dbr.db.aspectBar.position), "table", "a damaged place: the toolkit's default")
     equal(repaired.dbr.db.aspectBar.position.y, 400 + 72, "its default place, as the toolkit saves it")
     local paladin = fixture({class = "PALADIN", known = {[25780] = true}})
@@ -5930,13 +5957,13 @@ test("Aspect bar: rebuilt only out of combat; a newly learned aspect or rank wai
     state.update("SPELLS_CHANGED")
     equal(shownAspects(state), "hawk,monkey", "in combat: nothing changes")
     equal(aspectButton(state, "wild").attributes.macrotext1, nil)
-    state.settings.DBR_ASPECT_BAR_VERTICAL:SetValue(true)
+    setVertical(state, true)
     leaveCombat(state)
     equal(shownAspects(state), "hawk,monkey,wild", "after combat: the new aspect, in its place")
     equal(aspectButton(state, "wild").attributes.macrotext1, "/use !Aspect of the Wild")
     equal(aspectButton(state, "hawk").texture.texture, 2000 + 14318, "the new rank's picture")
     local _, list = shownAspects(state)
-    equal(list[3].at, "TOP", "vertical, set in combat, applies after it")
+    equal(list[3].vertical, true, "vertical, set in combat, applies after it")
     equal(list[3].offset, 2 * 40)
     equal(aspectBar(state).dyre.contentWidth, 36)
     equal(aspectBar(state).dyre.contentHeight, 3 * 36 + 2 * 4)
@@ -5981,14 +6008,72 @@ test("Aspect bar: hidden while dead or on a flight path, shown while mounted; un
     equal(aspectButton(fresh, "hawk").attributes.macrotext1, nil)
 end)
 
+test("Aspect bar: an aspect learned in combat shows after it, with no other change", function()
+    local state = hunterFixture({known = {[HAWK] = true}, db = {aspectBar = {enabled = true}}})
+    enterCombat(state)
+    state.known[MONKEY] = true
+    state.update("SPELLS_CHANGED")
+    equal(shownAspects(state), "hawk", "in combat: nothing changes")
+    leaveCombat(state)
+    equal(shownAspects(state), "hawk,monkey", "after combat: the new aspect")
+    equal(aspectButton(state, "monkey").attributes.macrotext1, "/use !Aspect of the Monkey")
+end)
+
+-- John, 2026-11-27: button bars horizontal or vertical are a Toolkit feature
+-- (2.18.0); DBR's own Vertical moves onto it, its saved choice once.
+test("Aspect bar layout: DBR 1.14's Vertical moves once to the toolkit's orientation; the Layout row", function()
+    local moved = hunterFixture({known = {[HAWK] = true, [MONKEY] = true, [CHEETAH] = true},
+        db = {aspectBar = {enabled = true, vertical = true}}})
+    local saved = moved.dbr.db.aspectBar
+    equal(saved.orientation, "vertical", "the saved choice moves")
+    equal(saved.vertical, nil, "the old key is dropped")
+    local _, list = shownAspects(moved)
+    equal(list[3].vertical, true, "a column")
+    equal(list[3].offset, 2 * 40)
+    equal(aspectBar(moved).dyre.contentWidth, 36)
+    equal(aspectBar(moved).dyre.contentHeight, 3 * 36 + 2 * 4)
+    moved.slash("debug")
+    contains(moved.find("debug aspectBar"), "vertical=true")
+    -- Horizontal later stays horizontal (no second move).
+    setVertical(moved, false)
+    equal(saved.orientation, nil)
+    local again = hunterFixture({known = {[HAWK] = true}, db = {aspectBar = saved}})
+    equal(again.dbr.db.aspectBar.orientation, nil, "horizontal stays")
+    _, list = shownAspects(moved)
+    equal(list[3].vertical, false, "a row again")
+    equal(list[3].offset, 2 * 40)
+    equal(aspectBar(moved).dyre.contentWidth, 3 * 36 + 2 * 4)
+    if barLayout(moved) then
+        local row = moved.row(LAYOUT_ROW)
+        equal(row.setting.name, "Layout")
+        equal(moved.row("DBR_ASPECT_BAR_VERTICAL"), nil, "no second row")
+        equal(list[3].at, "TOPLEFT", "the toolkit lays the buttons out")
+        equal(aspectBar(moved).dyre.lastAnchor, "TOPLEFT", "the top-left corner stays as it grows")
+        moved.settings[LAYOUT_ROW]:SetValue("vertical")
+        equal(saved.orientation, "vertical", "saved in the widget's store, DBR's aspectBar table")
+        equal(moved.dbr.AspectBarVertical(), true)
+        moved.settings.DBR_ASPECT_BAR:SetValue(false)
+        local live = true
+        for _, predicate in ipairs(row.modifyPredicates or {}) do live = live and predicate() end
+        if row.parentInitializer then
+            equal(row.parentInitializer, (moved.row("DBR_ASPECT_BAR")), "under Enable")
+        else
+            equal(live, false, "greyed while the bar is off")
+        end
+    else
+        io.write("# Layout row: no BAR_LAYOUT_VERSION in ", TOOLKIT_DIR, "; DBR's own Vertical\n")
+        equal(moved.row("DBR_ASPECT_BAR_VERTICAL").setting.name, "Vertical")
+    end
+end)
+
 test("Aspect bar: its settings, and a default place clear of every other DBR widget", function()
     local all = {}
     for _, aspect in ipairs({HAWK, MONKEY, VIPER, BEAST, WILD, CHEETAH, PACK}) do all[aspect] = true end
     all[883] = true
     local state = hunterFixture({known = all, db = {aspectBar = {enabled = true}}})
     local _, enableIndex = state.row("DBR_ASPECT_BAR")
-    local vertical, verticalIndex = state.row("DBR_ASPECT_BAR_VERTICAL")
-    equal(verticalIndex, enableIndex + 1, "Vertical under Enable")
+    local vertical, verticalIndex = state.row(barLayout(state) and LAYOUT_ROW or "DBR_ASPECT_BAR_VERTICAL")
+    equal(verticalIndex, enableIndex + 1, "Layout (or Vertical) under Enable")
     equal(vertical.parentInitializer, (state.row("DBR_ASPECT_BAR")))
     local size = state.row("DYRE_DYRESBUFFREMINDERS_ASPECTBAR_SCALE")
     equal(size.setting.name, "Aspect bar: size")
@@ -6015,7 +6100,7 @@ test("Aspect bar: its settings, and a default place clear of every other DBR wid
     equal(table.concat(keys, ","), "buff_aspect,buff_hunterPet,warnings,consumables,aspectBar")
     clear(widgets)
     -- Vertical keeps the top edge, so it grows down, away from the reminders.
-    state.settings.DBR_ASPECT_BAR_VERTICAL:SetValue(true)
+    setVertical(state, true)
     clear(widgets)
 end)
 
