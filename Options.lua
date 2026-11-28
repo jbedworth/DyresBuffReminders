@@ -231,6 +231,15 @@ end
 -- spell; Blizzard's control greys the sound while the switch is off). With an
 -- older Dyre's Sounds or client, the sound sits on its own row under the
 -- switch. The settings and their saved keys are the same either way.
+-- A spell you have not learned is listed with its rows greyed (John,
+-- 2026-11-27); its saved choices stay.
+local function GreyUntilKnown(row, chime)
+    if type(row) == "table" and type(row.AddModifyPredicate) == "function" then
+        row:AddModifyPredicate(function() return DBR.ChimeKnown(chime) end)
+    end
+    return row
+end
+
 local function AddChime(chime, library, chimesSwitch)
     local variable = "DBR_CHIME_" .. chime.key:upper()
     local tooltip = "Play a sound just before " .. chime.label .. " is ready again."
@@ -240,7 +249,8 @@ local function AddChime(chime, library, chimesSwitch)
         function(value) DBR.db.chimes.spells[chime.key] = value == true end)
     local function ChimesOn() return DBR.db.chimes.enabled end
     if not library or (type(Settings.CreateDropdown) ~= "function" and not HasCheckboxDropdown(library)) then
-        Nest(Settings.CreateCheckbox(category, setting, tooltip), chimesSwitch, ChimesOn, {"DBR_CHIMES_ENABLED"})
+        Nest(GreyUntilKnown(Settings.CreateCheckbox(category, setting, tooltip), chime), chimesSwitch, ChimesOn,
+            {"DBR_CHIMES_ENABLED"})
         return
     end
     local sound = Register(variable .. "_SOUND", Settings.VarType.String, "Sound",
@@ -259,12 +269,13 @@ local function AddChime(chime, library, chimesSwitch)
             library.Choices(), "Sound", soundTooltip)
         layout:AddInitializer(row)
         library.SetupCheckboxMenu(row)
+        GreyUntilKnown(row, chime)
         Nest(row, chimesSwitch, ChimesOn, {"DBR_CHIMES_ENABLED"})
         return
     end
-    local switch = Settings.CreateCheckbox(category, setting, tooltip)
+    local switch = GreyUntilKnown(Settings.CreateCheckbox(category, setting, tooltip), chime)
     Nest(switch, chimesSwitch, ChimesOn, {"DBR_CHIMES_ENABLED"})
-    local dropdown = Settings.CreateDropdown(category, sound, library.Choices(), soundTooltip)
+    local dropdown = GreyUntilKnown(Settings.CreateDropdown(category, sound, library.Choices(), soundTooltip), chime)
     library.SetupMenu(dropdown)
     Nest(dropdown, switch, function() return DBR.db.chimes.enabled and DBR.db.chimes.spells[chime.key] end)
 end

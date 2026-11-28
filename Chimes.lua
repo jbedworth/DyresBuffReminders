@@ -45,6 +45,63 @@ function DBR.ClassChimes(classFile)
     return DBR.CHIME_SPELLS[classFile] or {}
 end
 
+-- Whether a learned spellbook spell has this name (any rank: the spellbook may
+-- list only the highest rank, whose ID is not the entry's Classic ID). Spells
+-- not learned yet are skipped (their item type is not Spell). The current
+-- spellbook API, else the older tab API (Classic Era); nil without either.
+local OLD_BOOK = "spell"
+local function SpellbookHas(name)
+    local book = C_SpellBook
+    local bank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player
+    local learned = Enum and Enum.SpellBookItemType and Enum.SpellBookItemType.Spell
+    if bank and learned and type(book.GetNumSpellBookSkillLines) == "function"
+            and type(book.GetSpellBookSkillLineInfo) == "function" and type(book.GetSpellBookItemInfo) == "function" then
+        for line = 1, book.GetNumSpellBookSkillLines() do
+            local info = book.GetSpellBookSkillLineInfo(line)
+            if type(info) == "table" and type(info.itemIndexOffset) == "number"
+                    and type(info.numSpellBookItems) == "number" then
+                for index = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
+                    local item = book.GetSpellBookItemInfo(index, bank)
+                    if type(item) == "table" and item.itemType == learned and item.name == name then
+                        return true
+                    end
+                end
+            end
+        end
+        return false
+    end
+    if type(GetNumSpellTabs) == "function" and type(GetSpellTabInfo) == "function"
+            and type(GetSpellBookItemName) == "function" then
+        for tab = 1, GetNumSpellTabs() do
+            local _, _, offset, numSlots = GetSpellTabInfo(tab)
+            if type(offset) == "number" and type(numSlots) == "number" then
+                for slot = offset + 1, offset + numSlots do
+                    local kind = type(GetSpellBookItemInfo) == "function" and GetSpellBookItemInfo(slot, OLD_BOOK)
+                    if kind ~= "FUTURESPELL" and GetSpellBookItemName(slot, OLD_BOOK) == name then
+                        return true
+                    end
+                end
+            end
+        end
+        return false
+    end
+    return nil
+end
+
+-- Whether you know a chime's spell, any rank (John, 2026-11-27: a chime you
+-- have not learned is listed and greyed, never hidden). The settings ask each
+-- time they draw, so a spell learned later turns its row on.
+function DBR.ChimeKnown(chime)
+    if C_SpellBook.IsSpellKnown(chime.spell) == true then
+        return true
+    end
+    local name = C_Spell.GetSpellName(chime.spell)
+    if type(name) ~= "string" or DBR.IsSecret(name) then
+        return false
+    end
+    return SpellbookHas(name) == true
+end
+
 -- Dyre's Sounds -----------------------------------------------------------------
 
 -- Dyre's Sounds, when installed with the contract DBR needs, else nil. The

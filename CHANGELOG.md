@@ -5,6 +5,12 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.15.1
+
+### Fixes
+
+- A cooldown chime for a spell you haven't learned yet is now greyed out on the Chimes page, its name and checkbox included, so it no longer looks like you can turn it on. You see the same on Warlock Tools Forever's and Mage Tools Forever's Chimes pages. Learn the spell and its row lights up. Your choices for it stay as you set them.
+
 ## 1.15.0
 
 ### Features

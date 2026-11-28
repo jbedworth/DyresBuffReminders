@@ -24,7 +24,7 @@ tested.
 
 ## Summary
 
-Your class buffs, always in view and one click to cast, with a glow or a red border when one drops, also in combat. Reagent and ammo counts, a seal timer, and cooldown, proc, and cast chimes, with proc arcs.
+Your class buffs in view and one click to cast, with a glow when one drops, even in combat. Plus ammo, seals, chimes, and procs. For WoW: Forever and Classic Era.
 
 ## Description
 
@@ -35,75 +35,79 @@ Per-file changelogs need no manual text: each CI upload uses the version's
 `CHANGELOG.md` section, through `release-notes.md`.
 
 ```markdown
-**Dyre's Buff Reminders** keeps your class buffs in view, each in its own icon, and casts them with one click. It also counts your ammo and reagents, times your seal, chimes before your cooldowns are ready, shows and sounds your procs, and chimes your travel spells. Made for World of Warcraft: Forever.
+I kept pulling mobs without my armor on, and I kept noticing a group member running around without Fortitude halfway through a dungeon. So I made Dyre's Buff Reminders. Each of your class buffs gets its own icon in a spot you pick, and the moment one drops, that icon tells you, even in combat. One click casts it again.
 
-**Mage Tools Forever** and **Warlock Tools Forever** rely on it for their buff reminders and chimes, and it works on every class.
+Over time I added the other things I wanted on every character: ammo and reagent counts, a Paladin seal timer, chimes before your cooldowns are ready, and proc arcs. It works on every class. If you play Warlock Tools Forever or Mage Tools Forever, you already have it, because they use it for their buff reminders, chimes, and procs, and you can change those settings from their pages too.
 
-### What's new in 1.4.0
-- **Cast Chimes:** "Meep meep" just after you cast Aspect of the Cheetah or Sprint, or shift into Travel Form, and a sound for shifting into Bear ("Rawr"), Cat ("Meow"), Aquatic, or Moonkin Form, also in combat; never when you leave a form. Choose any sound for each.
-
-Mage Tools Forever and Warlock Tools Forever players: the first time DBR runs on a character, it copies that AddOn's buff reminder settings.
-
-### Always in view
-Each buff has its own icon, in a place you choose that never moves. While a buff is on you, the game draws it there with its time left, in and out of combat. The border tells you where it stands:
-- **Red:** missing (it ran out, was dispelled, or was cancelled). This shows at once, also in combat, and a click recasts it on you.
-- **Yellow and flashing:** about to run out. **Remind before a buff runs out** sets how early, as a share of the buff's own length (0-20%, 10% at first: 3 minutes before a 30-minute buff ends). Also in combat; your own recast resets it.
-- **No border:** it is up.
-- **Show only when needed**, per buff (on at first for Battle Shout, off for long buffs, so a buff dispelled in a fight shows at once): a buff that is up is hidden, in and out of combat, until it is about to run out; missing or running out, it shows in full. **Visibility when not needed** (0% to 80%) shows it faint instead, and the switch off shows it always.
-- **Show only in combat**, for Battle Shout (off at first): nothing out of combat, also when it is missing; in combat as before.
+### Your buffs, always in view
+- Each buff has its own icon in a place you choose, and it never moves on its own. While the buff is up, the icon shows its time left.
+- A missing buff glows right away, also in combat, and a click casts it again. A player asked for the glow. If you'd rather have the old red border, you can pick it in the settings.
+- When a buff is about to run out, its border turns yellow and flashes. You choose how early. At first it's 10% of the buff's length, so 3 minutes before a 30-minute buff ends.
+- **Show only when needed** is a switch on each buff. Turn it on and a buff that's up stays hidden, or faint if you like, until it's about to run out. Battle Shout can also show only in combat.
+- The game hides your buffs from AddOns during a boss encounter. DBR waits for the encounter to end before it checks again, so it won't tell you a buff is missing when you still have it.
 
 ### Which buffs
-- **Druid:** Mark of the Wild (also for your group) and Thorns. In a group with a member set to the Tank role, Thorns watches that tank and a click casts it on them; solo, as the tank yourself, or with no tank in reach, it watches you. While the tank has Thorns, its icon shows the tank's time left, yellow before it runs out and red when it does, also in combat.
-- **Hunter:** an Aspect reminder with a red outline only when there is a problem: no aspect up, or a fight with Cheetah or Pack up (Normal, Speed-Running, or Disabled). One click puts your last combat aspect up, never Cheetah or Pack. An aspect bar (on at first; you can turn it off) swaps aspects with one click, with a gold border on the one that is up, also in combat. And a Pet reminder: no pet, or a dead one, also mid-fight, and one click calls or revives it.
-- **Mage:** Arcane Intellect (also for group members who use mana), your armor (Frost, Ice, or Mage Armor), and Dampen or Amplify Magic (off at first).
-- **Paladin:** Righteous Fury, solo or as your group's tank (the Tank role, or a raid's main tank), or with **Always show Righteous Fury** on; in a group where you aren't the tank, a message on screen while it's on. And a seal timer: while a seal is up, its time left counts down, also in combat; in combat with no seal, your last seal pulses and a click casts it.
-- **Priest:** Power Word: Fortitude (also for your group) and Inner Fire; Divine Spirit and Shadow Protection as options.
-- **Hunter and Warlock, in a group where you aren't the tank:** a message on screen while your pet's taunt (Growl, Torment, Suffering) is on autocast. With Dyre's Toolkit 2.9.0 or later, the toolkit shows it instead, so it never shows twice.
-- **Warlock:** Demon Armor (Demon Skin counts), and a Pet reminder: no demon, also mid-fight, and one click summons your last one (not after a Demonic Sacrifice).
-- **Warrior:** Battle Shout, which shows only when it is missing or in its last minute (you choose the seconds), also in combat (hidden while up, or faint if you choose); it needs rage, so cast it while you still have some after a fight.
+- Druids get Mark of the Wild, also for the group, and Thorns. In a group with a tank, Thorns watches the tank, and a click casts it on them.
+- Hunters get an **Aspect reminder** that only shows up when something's wrong: no aspect, or Cheetah or Pack up in a fight. One click puts your last combat aspect back up.
+- Hunters also get an **aspect bar** that swaps aspects in one click. It can be a row or a column, and the aspect that's up has a gold border. A Pet reminder calls or revives your pet.
+- Mages get Arcane Intellect, also for group members who use mana, and their armor. Dampen and Amplify Magic are there too, off at first.
+- Paladins get Righteous Fury when they tank, and a message on screen if it's on when they don't. A **seal timer** counts down your seal, also in combat. With no seal in a fight, your last seal pulses, and a click casts it.
+- Priests get Power Word: Fortitude, also for the group, and Inner Fire. Divine Spirit and Shadow Protection are options.
+- Warlocks get Demon Armor, and Demon Skin counts. A Pet reminder shows when you have no demon, and one click summons your last one.
+- Warriors get Battle Shout, which shows only when it's missing or in its last minute.
+- Hunters and Warlocks get a message on screen while the pet's taunt is on autocast in a group where they're not the tank. With Dyre's Threat and Combat Tools installed, that AddOn gives the warning instead, so you never see it twice.
 
-Every rank counts, and only buffs you know show. Rogues and Shamans have no buff reminders yet.
+Every rank counts, and only buffs you know show up. Rogues and Shamans don't have buff reminders yet.
 
-### Click to cast
-- A click buffs you first, then the next group member in range who lacks it. The icon shows how many lack it, and its tooltip who.
-- With two or more missing, it casts the group version (Arcane Brilliance, Gift of the Wild, Prayer of Fortitude, Prayer of Spirit, Prayer of Shadow Protection) if you know it and carry its reagent.
-- Your armor, your aspect, and Dampen or Amplify Magic recast the one you used last.
-- Druids in a form: a click leaves the form, then casts the buff.
-- Your group's buffs are checked out of combat; the game does not let AddOns read them in a fight.
+### One click to cast
+- Your first click buffs you, and each click after that buffs the next group member in range who lacks it. The icon shows how many still need it, and the tooltip says who.
+- With two or more missing, it casts the group version, like Arcane Brilliance, Gift of the Wild, or Prayer of Fortitude, if you know it and carry the reagent.
+- A Druid in a form leaves the form and casts the buff.
+- The game doesn't let AddOns read your group's buffs during a fight, so DBR checks them again when the fight ends.
 
 ### Ammo and reagents
-A Consumables bar counts, also in combat, and turns red and pulses at or below each one's **Warn at**:
-- **Ammo** (Hunters, Warriors, and Rogues, with a bow, gun, or crossbow): your arrows or bullets; with none equipped, it tells you to equip the ones in your bags.
-- **Druid:** Rebirth's seed for your highest rank (Maple Seed to Ironwood Seed; 2 at first), and Gift of the Wild's Wild Berries or Wild Thornroot once you know it.
-- **Mage:** Arcane Powder (5 at first).
-- **Warlock:** Infernal Stones and Demonic Figurines (1 at first).
-
-Each reagent shows once you know its spell.
+A **Consumables bar** counts them, also in combat. When you're low, the count turns red and pulses, and you set the number for each one.
+- Hunters, Warriors, and Rogues with a bow, gun, or crossbow see their ammo. With none equipped, the bar tells you to equip the ammo in your bags.
+- Druids see Rebirth's seeds and Gift of the Wild's berries. Mages see Arcane Powder. Warlocks see Infernal Stones and Demonic Figurines. Each one is there once you know its spell.
 
 ### Cooldown chimes
-A sound just before your chosen spells are ready again, also in combat, for every class. Every rank of a spell counts, unlike the Cooldown Manager on Forever. Each spell has its own switch and sound (Text to Speech can say "Blink ready"), and **Chime early (seconds)** sets how early. The sounds come from **Dyre's Sounds**, which installs with it.
+A sound plays just before your chosen spells are ready again, for every class and also in combat. Every rank counts, which the Cooldown Manager on Forever can't do. Each spell has its own switch and sound, and you choose how early the chime plays. Text to Speech can say "Blink ready". The sounds come from Dyre's Sounds.
 
 ### Procs
-An arc each side of your character while a proc is up, and a sound the moment it appears, also in combat: Missile Barrage, Fingers of Frost, Nightfall, Decimation, Clearcasting, Nature's Grace, and Flurry, plus a Warrior's Overpower and Revenge and a Hunter's Mongoose Bite while they are usable. Each has its own arc switch, sound switch, and sound. Your proc choices from Dyre's Shields Up carry over once. Needs Dyre's Toolkit 2.12 or later; with an older one, the sounds only.
+While a proc is up, an arc shows on each side of your character, and a sound plays the moment it appears, also in combat. That covers Missile Barrage, Fingers of Frost, Nightfall, Decimation, Clearcasting, Nature's Grace, and Flurry, plus a Warrior's Overpower and Revenge and a Hunter's Mongoose Bite while they're usable.
+
+Every proc of your class is listed and greyed out until you learn its talent. Each one has its own arc and sound switches, and one switch turns them all off. The arcs need Dyre's Toolkit 2.12 or later. With an older one, you get the sounds only.
 
 ### Combo point chimes
-Rogues, and Druids in Cat Form: a rising note as you earn each combo point, a held note at the most, and a sound when you spend them, also in combat. Pick the note set: a comic bassoon climb (the default), a sax scale, or the Full sound for every point. Choose the Full and Spend sounds, or play only the full chime.
+Rogues, and Druids in Cat Form, hear a rising note for each combo point, a held note at the most points, and a sound when they spend them. The default is a comic bassoon climb. You can pick a sax scale instead, or one sound for every point.
 
 ### Cast chimes
-A sound just after you cast a travel spell or shift into a Druid form (0.75 seconds later, after the game's own sound), also in combat: shifting into Travel, Bear or Dire Bear, Cat, Aquatic, or Moonkin Form (never out of one), and Dash; Hunter Aspect of the Cheetah and Aspect of the Pack; Rogue Sprint; Warrior Charge, Intercept, and Execute (on), and Whirlwind, the shouts, Taunt, and Rend (off at first), with Dyre's Sounds' "Dyre's Aggression" sounds. At first, Text to Speech says "Meep meep" (or "Rawr", "Meow", and so on for the forms); each has its own switch and sound under **Cast Chimes**.
+A short sound plays right after you cast a travel spell or shift into a Druid form, also in combat. Aspect of the Cheetah, Sprint, Dash, and Travel Form say "Meep meep". Bear Form says "Rawr" and Cat Form says "Meow". Warriors can add Charge, Intercept, Execute, and a few other moves, and each one has its own switch and sound.
 
 ### Put them where you like
-Unlock with `/dbr unlock` to drag each buff icon, the Consumables bar, and the seal timer; they snap to your other Dyre's frames and to a grid. Each one's size and opacity sit at the end of its own section in `/dbr`: **Reminder icons** (all buff icons) and the seal timer under Reminders, the Consumables bar under Consumables. `/dbr reset` puts them back. Moving and sizing come from **Dyre's Toolkit**, which installs with it. Settings are saved per character.
+Type `/dbr unlock` and drag each buff icon, the Consumables bar, the aspect bar, the seal timer, and the proc arcs where you want them. They snap to your other Dyre's frames and to a grid. Each one's size and opacity are in its own section of `/dbr`, and `/dbr reset` puts everything back.
+
+Settings are saved per character. With Dyre's Toolkit 2.10 or later, you can copy them from another character or share them as one line of text.
+
+### Settings in one place
+Each section has its own on/off switch, so you can keep just the parts you want: Reminders, Consumables, Chimes, Procs, and Cast Chimes. With Dyre's Toolkit 2.17 or later, your class's Reminders, Chimes, and Procs also show on the Warlock Tools Forever and Mage Tools Forever pages. They're the same settings, so a change on one page is a change on the other.
 
 ### Commands
-- `/dbr` (or `/dbr options`) opens the settings: Reminders, Consumables, Chimes, Procs, and Cast Chimes.
-- `/dbr unlock`, `/dbr lock`, `/dbr reset`, `/dbr debug`.
+- `/dbr` opens the settings.
+- `/dbr unlock`, `/dbr lock`, `/dbr reset`, and `/dbr debug` do what they say.
 - `/buffreminders` works the same, in case another AddOn uses `/dbr`.
 
+### What gets installed with it
+DBR needs Dyre's Toolkit, which moves and sizes the icons and holds the settings. It also uses Dyre's Sounds for the chimes and proc sounds. The CurseForge app installs both for you.
+
 ### Compatibility
-For World of Warcraft: Forever 1.60.1 (tested on build 70450). If a client update removes an API it needs, it says so in chat and stays off.
+I made it for World of Warcraft: Forever 1.60.1 and tested it on build 70450. It also loads on Classic Era. If a game update removes something it needs, it tells you in chat and stays off.
 
-WowUp users (2.24.0 or later): install from the repository URL; GitHub releases carry the Forever metadata WowUp needs.
+WowUp users with 2.24.0 or later can install from the repository URL, because the GitHub releases carry what WowUp needs.
 
-Source, issues, and license (MIT): https://github.com/jbedworth/DyresBuffReminders
+Let me know what you think in the comments, or open an issue at https://github.com/jbedworth/DyresBuffReminders/issues for a bug.
+
+Dyre's AddOns are free. If you enjoy them, you can support them on Ko-fi: https://ko-fi.com/dyre_janelle
+
+Source (MIT): https://github.com/jbedworth/DyresBuffReminders
 ```

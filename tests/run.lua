@@ -7293,7 +7293,7 @@ partTest("parts: \"master\" draws only each section's Enable, on the host's name
 end)
 
 partTest("parts: \"rest\" leaves Enable out, and its rows are greyed while Enable is off", function()
-    local state = fixture({class = "MAGE", known = {[INTELLECT] = true}, newerSounds = SOUNDS})
+    local state = fixture({class = "MAGE", known = {[INTELLECT] = true, [BLINK] = true}, newerSounds = SOUNDS})
     equal(hostPart(state, "MageToolsForever", "reminders", "rest"), "rows")
     equal(hostPart(state, "MageToolsForever", "chimes", "rest"), "rows")
     equal(state.settings[hosted("MageToolsForever", "DBR_ENABLED")], nil, "Enable is on the top page")
@@ -7373,10 +7373,10 @@ end)
 -- its sections: MTF (Mage) all of the class, WTF (Warlock) Demon Armor and
 -- Nightfall.
 local HOSTS = {
-    {host = "MageToolsForever", class = "MAGE", known = {[INTELLECT] = true, [FROST_ARMOR] = true},
+    {host = "MageToolsForever", class = "MAGE", known = {[INTELLECT] = true, [FROST_ARMOR] = true, [BLINK] = true},
         buff = "ARCANEINTELLECT", child = "DBR_GROUP_ARCANEINTELLECT", chime = "DBR_CHIME_BLINK",
         filters = {}},
-    {host = "WarlockToolsForever", class = "WARLOCK", known = {},
+    {host = "WarlockToolsForever", class = "WARLOCK", known = {[6789] = true},
         buff = "DEMONARMOR", child = "DBR_NEEDED_DEMONARMOR", chime = "DBR_CHIME_DEATHCOIL",
         filters = {reminders = {"demonArmor"}, procs = {"nightfall"}}},
 }
@@ -7679,6 +7679,48 @@ partTest("buttons: the icons' Reset size greys its label with the rows (Toolkit'
     local found = false
     for _, row in ipairs(greyed) do found = found or row == reset end
     equal(found, true, "the Reset size button")
+end)
+
+-- John, 2026-11-27 (WTF's Chimes page, a level 21 Warlock): unlearned chimes
+-- kept gold names and live-looking checkboxes. Listed and greyed, never hidden.
+partTest("chimes: a spell you have not learned is listed and greyed (DBR, WTF, MTF); any rank counts; saved choices stay", function()
+    name("Shadowburn", 17877)
+    local warlock = fixture({class = "WARLOCK", known = {[6789] = true}, newerSounds = SOUNDS})
+    equal(hostPart(warlock, "WarlockToolsForever", "chimes", "rest"), "rows")
+    for _, variable in ipairs({"DBR_CHIME_SHADOWBURN", hosted("WarlockToolsForever", "DBR_CHIME_SHADOWBURN")}) do
+        local row = warlock.row(variable)
+        equal(type(row), "table", variable .. " listed")
+        equal(row.kind, "checkboxdropdown", variable .. ": the switch and its sound greyed as one row")
+        equal(active(row), false, variable .. " greyed while not learned")
+    end
+    equal(active(warlock.row("DBR_CHIME_DEATHCOIL")), true, "Death Coil is learned")
+    equal(active(warlock.row(hosted("WarlockToolsForever", "DBR_CHIME_DEATHCOIL"))), true, "and live on WTF's page")
+    equal(warlock.chimes().spells.shadowburn, false, "the saved choice stays as it was")
+    -- Learned later: the row turns live the next time the page draws.
+    warlock.known[17877] = true
+    equal(active(warlock.row("DBR_CHIME_SHADOWBURN")), true, "learned: live")
+
+    local mage = fixture({class = "MAGE", known = {[INTELLECT] = true}, newerSounds = SOUNDS,
+        spellbook = {{spellID = 10230, name = "Frost Nova"}, {spellID = 12472, name = "Cold Snap", itemType = 2}}})
+    equal(hostPart(mage, "MageToolsForever", "chimes", "rest"), "rows")
+    local nova = mage.row(hosted("MageToolsForever", "DBR_CHIME_FROSTNOVA"))
+    equal(active(nova), true, "only a higher rank in the spellbook: Frost Nova counts by name")
+    equal(active(mage.row(hosted("MageToolsForever", "DBR_CHIME_COLDSNAP"))), false,
+        "a spell not learned yet in the spellbook does not count")
+    equal(active(mage.row("DBR_CHIME_BLINK")), false, "Blink not learned: greyed on DBR's page")
+end)
+
+-- With an older Dyre's Sounds, the switch and its sound are two rows; both grey.
+test("chimes: with an older Dyre's Sounds, an unlearned chime's switch and sound row are both greyed", function()
+    local state = fixture({class = "MAGE", known = {[INTELLECT] = true}})
+    local switch, sound = state.row("DBR_CHIME_BLINK"), state.row("DBR_CHIME_BLINK_SOUND")
+    equal(type(switch), "table")
+    equal(active(switch), false, "the switch")
+    if sound and sound ~= switch then
+        equal(active(sound), false, "its sound row")
+    end
+    state.known[BLINK] = true
+    equal(active(switch), true, "learned")
 end)
 
 for index, entry in ipairs(tests) do

@@ -78,9 +78,9 @@ your own below.
 | Class | Buffs |
 |---|---|
 | Mage | **Arcane Intellect** (also for group members who use mana), **Armor** (Frost, Ice, or Mage Armor), **Dampen or Amplify Magic** (off at first; either counts, a click recasts the last one) |
-| Warlock | In a group where you aren't the tank, a message on screen while the Voidwalker's Torment or Suffering is on autocast (from Dyre's Toolkit 2.9.0 or later when it is installed); **Demon Armor** (Demon Skin counts before you learn it); **Pet (your demon)**: red while you have no demon, also in combat, and a click summons the last demon you summoned, else the Imp (not after a Demonic Sacrifice, nor while mounted) |
+| Warlock | In a group where you aren't the tank, a message on screen while the Voidwalker's Torment or Suffering is on autocast (with Dyre's Threat and Combat Tools installed, it gives this warning instead, and DBR stays quiet); **Demon Armor** (Demon Skin counts before you learn it); **Pet (your demon)**: red while you have no demon, also in combat, and a click summons the last demon you summoned, else the Imp (not after a Demonic Sacrifice, nor while mounted) |
 | Warrior | **Battle Shout** (it reaches your party; watched on you). Shown only when needed (its own switch): missing, or in its last 60 seconds (its own **Remind before it runs out**, 5-120 s), out of combat and in it (in combat timed from your own casts); it needs rage, which runs out soon after a fight |
-| Hunter | In a group where you aren't the tank, a message on screen while your pet's Growl is on autocast (from Dyre's Toolkit 2.9.0 or later when it is installed). **Aspect**: a red outline only when there is a problem (no aspect up; in a fight, Cheetah or Pack up), in Normal, Speed-Running, or Disabled mode; a click recasts the last combat aspect you cast (Hawk, Monkey, Viper, Wild, or Beast), never Cheetah or Pack, else Hawk, else Monkey; **Pet**: red while you have no pet or it is dead, also in combat (not while mounted); a click calls it, or revives it when it is dead, and a right-click revives it |
+| Hunter | In a group where you aren't the tank, a message on screen while your pet's Growl is on autocast (with Dyre's Threat and Combat Tools installed, it gives this warning instead, and DBR stays quiet). **Aspect**: a red outline only when there is a problem (no aspect up; in a fight, Cheetah or Pack up), in Normal, Speed-Running, or Disabled mode; a click recasts the last combat aspect you cast (Hawk, Monkey, Viper, Wild, or Beast), never Cheetah or Pack, else Hawk, else Monkey; **Pet**: red while you have no pet or it is dead, also in combat (not while mounted); a click calls it, or revives it when it is dead, and a right-click revives it |
 | Druid | **Mark of the Wild** (also for your group), **Thorns** (on your group's tank, else on you) |
 | Priest | **Power Word: Fortitude** (also for your group), **Inner Fire**, and as options **Divine Spirit** (group members who use mana) and **Shadow Protection** (your group) |
 | Paladin | **Righteous Fury** (on you; solo, or as your group's tank: the Tank role, or a raid's main tank; or with **Always show Righteous Fury** switched on; blessings are left to AddOns such as PallyPower). In a group where you aren't the tank, a message on screen while it is on. And the seal timer below |
@@ -372,7 +372,8 @@ page is the change on the other.
 ## Compatibility
 
 For World of Warcraft: Forever 1.60.1 (tested on build 70450, Interface
-16001). If a client update removes an API it needs, it says so in chat and
+16001). It also loads on Classic Era (Interface 11509). If a client update
+removes an API it needs, it says so in chat and
 stays off.
 
 **Verified in client:** the Paladin seal timer, with Seal of Fury, and

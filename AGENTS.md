@@ -710,6 +710,12 @@ spells that make a warning apply. Ask the author before changing
   John's source): ten lengths, Death Wish's ID (12328; 12292 is Sweeping
   Strikes there), and Lightning Mastery's name were fixed (CHANGELOG
   1.13.4).
+- A chime spell you have not learned is listed with its row greyed, the
+  label and the sound menu too (John, 2026-11-27, WTF's Chimes page: "listed
+  and greyed, never hidden", as the procs). `DBR.ChimeKnown`: the entry's ID
+  known, else a learned spellbook spell of its name (any rank; the spellbook
+  may list only the highest), as a modify predicate the page checks as it
+  draws, on DBR's page and on MTF's and WTF's. Saved values are untouched.
 - Saved in `db.chimes` (enabled, lead, spells, sounds, learned), separate
   from the reminders: their own switch (author: "its own on/off switch"), and
   the chime lead is not the reminders' `db.lead`.

@@ -519,6 +519,10 @@ One class at a time. Reload after each copy (`/reload` loads new files).
       ready, in and out of combat; a higher rank of Frost Nova chimes too;
       Text to Speech says "Blink ready"; the "Chime early" slider moves the
       chime; "Enable" under Chimes off silences them while the buff reminders keep working.
+- [ ] Unlearned chimes, 1.15.1: a level 21 Warlock opens `/dbr` and WTF's
+      Chimes page: Shadowburn, Conflagrate, Amplify Curse, Bane of Doom, and
+      Inferno are listed with grey names, checkboxes, and sound menus; Death
+      Coil is live. A Mage with only a higher rank of a chime spell sees it live.
 - [ ] Frost Mage (talent): Cold Snap cancels Frost Nova's chime. Frost
       only: not checked in client; not a release blocker (John, 2026-11-16).
 - [ ] On each other class: `/dbr debug` shows `name=` for every chime spell,
