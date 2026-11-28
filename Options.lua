@@ -186,13 +186,13 @@ end
 
 -- The toolkit's size rows, greyed while modify gives false (Toolkit settings
 -- sections 3; ignored before it).
-local function WidgetSettings(widget, labels, modify, watch)
+local function WidgetSettings(widget, labels, modify, watch, skip)
     local variables = {}
     for _, name in ipairs(watch) do
         variables[#variables + 1] = Var(name)
     end
     DBR.toolkit.AddWidgetSettings(category, layout, widget, {labels = labels, modify = modify, variable = Var,
-        watch = variables})
+        watch = variables, skip = skip})
 end
 
 -- The value on the right; a percent slider shows it with "%" (author: "this
@@ -814,7 +814,10 @@ end
 
 -- The aspect bar (1.8.0), for a Hunter: Enable (on at first), Layout
 -- (Toolkit 2.18.0's row, "Horizontal" or "Vertical", as every Dyre's button
--- bar; before it, DBR's own Vertical), then its Size and Opacity.
+-- bar; before it, DBR's own Vertical), then its Size and Opacity. With
+-- Toolkit 2.19.0 (BAR_OPACITY_VERSION) the Layout row brings "Opacity out of
+-- combat", the same value as the plain Opacity slider, and "Opacity in
+-- combat"; the plain slider is then left out, so it shows once.
 local function AddAspectBarSection()
     local widget = DBR.AspectBarWidget()
     if not widget then
@@ -825,10 +828,15 @@ local function AddAspectBarSection()
     local master = Flag("DBR_ASPECT_BAR", "Enable", "aspectBar", "enabled", true,
             "Show a bar with a button for each aspect you know; click one to swap to it.", DBR.RefreshAspectBar)
     local function Enabled() return saved.enabled end
+    local skip
     if DBR.AspectBarUsesToolkitLayout() and type(DBR.toolkit.AddBarLayoutSetting) == "function" then
         local row = DBR.toolkit.AddBarLayoutSetting(category, layout, widget,
-            {variable = Var, tooltip = "Lay the aspect buttons out in a row or a column."})
+            {variable = Var, tooltip = "Lay the aspect buttons out in a row or a column.", modify = Enabled,
+                watch = {Var("DBR_ASPECT_BAR")}})
         Nest(row, master, Enabled)
+        if type(DBR.toolkit.BAR_OPACITY_VERSION) == "number" then
+            skip = {"opacity"}
+        end
     else
         local vertical = Register("DBR_ASPECT_BAR_VERTICAL", Settings.VarType.Boolean, "Vertical", false,
             function() return saved.orientation == "vertical" end,
@@ -841,7 +849,7 @@ local function AddAspectBarSection()
         Nest(row, master, Enabled)
     end
     WidgetSettings(widget, {scale = "Aspect bar: size", opacity = "Aspect bar: opacity"},
-        function() return saved.enabled end, {"DBR_ASPECT_BAR"})
+        function() return saved.enabled end, {"DBR_ASPECT_BAR"}, skip)
 end
 
 -- Consumables (Part B), for a class with any (DBR.CONSUMABLES): Enable, then

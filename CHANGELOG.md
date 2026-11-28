@@ -5,6 +5,12 @@ The release builder copies the section for the TOC version into the GitHub
 release notes and the CurseForge changelog, and fails if that section is
 missing.
 
+## 1.16.0
+
+### Features
+
+- The Aspect bar can now have one opacity out of combat and another in combat, like every Dyre's button bar. While your mouse is over it, it shows at 80% or more, so you can always see what you click. Both start at the opacity you have now. This needs Dyre's Toolkit 2.19 or later. Its two sliders take the old Opacity slider's place, so you see opacity there only once.
+
 ## 1.15.1
 
 ### Fixes

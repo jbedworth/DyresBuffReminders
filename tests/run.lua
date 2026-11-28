@@ -1164,6 +1164,12 @@ local function fixture(options)
                 env.DyresToolkit.PROC_ENGINE_VERSION = nil
             end
         end
+        -- options.toolkitBefore219: a toolkit before 2.19.0, with no bar
+        -- opacity in and out of combat.
+        if options.toolkitBefore219 then
+            env.DyresToolkit.BAR_OPACITY_VERSION = nil
+            env.DyresToolkit.AddBarOpacitySettings = nil
+        end
         state.toolkit = env.DyresToolkit
         -- A class Tools AddOn plays a proc through the proc engine: it joins
         -- the toolkit, then RegisterProcs claims "proc:<key>" at 10 (as
@@ -6077,7 +6083,11 @@ test("Aspect bar: its settings, and a default place clear of every other DBR wid
     equal(vertical.parentInitializer, (state.row("DBR_ASPECT_BAR")))
     local size = state.row("DYRE_DYRESBUFFREMINDERS_ASPECTBAR_SCALE")
     equal(size.setting.name, "Aspect bar: size")
-    equal(state.row("DYRE_DYRESBUFFREMINDERS_ASPECTBAR_OPACITY").setting.name, "Aspect bar: opacity")
+    if type(state.toolkit.BAR_OPACITY_VERSION) == "number" and barLayout(state) then
+        equal(state.row("DYRE_DYRESBUFFREMINDERS_ASPECTBAR_OPACITY_OUT").setting.name, "Opacity out of combat")
+    else
+        equal(state.row("DYRE_DYRESBUFFREMINDERS_ASPECTBAR_OPACITY").setting.name, "Aspect bar: opacity")
+    end
     equal(shownAspects(state), "hawk,monkey,viper,beast,wild,cheetah,pack")
     local function rect(widget)
         local x, y = widget:GetCenter()
@@ -6102,6 +6112,62 @@ test("Aspect bar: its settings, and a default place clear of every other DBR wid
     -- Vertical keeps the top edge, so it grows down, away from the reminders.
     setVertical(state, true)
     clear(widgets)
+end)
+
+test("Aspect bar: one Opacity row with Toolkit 2.19.0's in and out of combat sliders; the plain one before it", function()
+    local OPACITY = "DYRE_DYRESBUFFREMINDERS_ASPECTBAR_OPACITY"
+    local OUT = "DYRE_DYRESBUFFREMINDERS_ASPECTBAR_OPACITY_OUT"
+    local IN = "DYRE_DYRESBUFFREMINDERS_ASPECTBAR_OPACITY_IN"
+    local all = {[HAWK] = true, [MONKEY] = true, [CHEETAH] = true, [PACK] = true, [883] = true}
+    -- Every other widget keeps its own Opacity slider in both cases.
+    local function others(state)
+        local names = {}
+        for _, category in pairs(state.categories) do
+            for _, row in ipairs(category.initializers) do
+                local variable = row.setting and row.setting.variable
+                if variable and variable:match("_OPACITY$") and variable ~= OPACITY then
+                    names[#names + 1] = variable
+                end
+            end
+        end
+        table.sort(names)
+        return table.concat(names, ",")
+    end
+    local function othersKeepOpacity(state)
+        contains(others(state), "DYRE_DYRESBUFFREMINDERS_BUFF_ASPECT_OPACITY")
+        contains(others(state), "DYRE_DYRESBUFFREMINDERS_CONSUMABLES_OPACITY")
+    end
+    -- A toolkit before 2.19.0: the plain slider, no combat sliders.
+    local old = hunterFixture({known = all, db = {aspectBar = {enabled = true}}, toolkitBefore219 = true})
+    equal(old.row(OPACITY).setting.name, "Aspect bar: opacity", "the plain slider stays")
+    equal(old.row(OUT), nil)
+    equal(old.row(IN), nil)
+    othersKeepOpacity(old)
+    local state = hunterFixture({known = all, db = {aspectBar = {enabled = true}}})
+    othersKeepOpacity(state)
+    equal(others(state), others(old), "the same Opacity sliders for every other widget")
+    if not (barLayout(state) and type(state.toolkit.BAR_OPACITY_VERSION) == "number") then
+        io.write("# Bar opacity: no BAR_OPACITY_VERSION in ", TOOLKIT_DIR, "; the plain slider\n")
+        equal(state.row(OPACITY).setting.name, "Aspect bar: opacity")
+        return
+    end
+    -- Toolkit 2.19.0: the plain slider is left out, so opacity shows once.
+    equal(state.row(OPACITY), nil, "no plain Opacity slider")
+    local out, outIndex = state.row(OUT)
+    local _, layoutIndex = state.row(LAYOUT_ROW)
+    equal(out.setting.name, "Opacity out of combat")
+    equal(outIndex, layoutIndex + 1, "under the Layout row")
+    equal(state.row(IN).setting.name, "Opacity in combat")
+    -- Out of combat is the bar's saved opacity, as the plain slider was.
+    state.settings[OUT]:SetValue(60)
+    equal(aspectBar(state):GetSetting("opacity"), 60, "the same value")
+    -- Greyed while the bar is off.
+    state.settings.DBR_ASPECT_BAR:SetValue(false)
+    for _, name in ipairs({OUT, IN}) do
+        local live = true
+        for _, predicate in ipairs(state.row(name).modifyPredicates or {}) do live = live and predicate() end
+        equal(live, false, name .. " greyed while the bar is off")
+    end
 end)
 
 -- The Aspect reminder (John, 1.8.0) -------------------------------------------------

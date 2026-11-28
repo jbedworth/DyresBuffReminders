@@ -596,7 +596,12 @@ spells that make a warning apply. Ask the author before changing
   (`AddBarLayoutSetting`, Horizontal or Vertical; 1.15.0), or before Toolkit
   2.18.0 DBR's own "Vertical" (`DBR_ASPECT_BAR_VERTICAL`, the same
   `orientation`), then the toolkit's AddWidgetSettings
-  ("Aspect bar: size", "Aspect bar: opacity", Reset size). Independent of the
+  ("Aspect bar: size", "Aspect bar: opacity", Reset size). With Toolkit 2.19.0
+  (`BAR_OPACITY_VERSION`; John, 2026-11-27) the Layout row also brings "Opacity
+  out of combat" (the same saved opacity) and "Opacity in combat", greyed with
+  Enable, so AddWidgetSettings gets `skip = {"opacity"}` and the plain slider
+  shows once; before it, or with DBR's own Vertical, the plain slider stays.
+  Every other widget keeps its Opacity slider. Independent of the
   reminders' Enable (as the Consumables). Each button is wrapped for the
   Aspect reminder (above). `/dbr debug`: `debug aspectBar`.
 
